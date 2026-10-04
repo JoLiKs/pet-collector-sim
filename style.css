@@ -63,4 +63,4 @@ button.green{background:var(--green);color:#10331a}button.gold{background:var(--
 .foot{padding:14px;color:var(--dim);font-size:.8rem;text-align:center}.foot a{color:var(--gem)}
 .table{width:100%;border-collapse:collapse}.table td,.table th{padding:5px 6px;text-align:left}.table tr:nth-child(odd){background:#ffffff0d}.table .me{background:#ffd04633!important;font-weight:800}
 @media(max-width:900px){.layout{grid-template-columns:1fr}.panel{max-height:none}.collect{font-size:1.3rem;padding:18px}#scene{aspect-ratio:4/3}}
-@media(max-width:480px){.hud{grid-template-columns:repeat(3,1fr)}.tabs button{padding:6px 8px;font-size:.8rem}}
+@media(max-width:480px){.actions{flex-wrap:wrap}.collect{flex:1 1 100%}.auto{flex:1 1 100%;min-width:0}.hud{grid-template-columns:repeat(3,1fr)}.tabs button{padding:6px 8px;font-size:.8rem}}
