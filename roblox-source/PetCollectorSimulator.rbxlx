@@ -1,0 +1,6588 @@
+<?xml version="1.0" encoding="utf-8"?>
+<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">
+	<Meta name="ExplicitAutoJoints">true</Meta>
+	<Item class="Workspace" referent="RBX00000000000000000000000000000001">
+		<Properties>
+			<string name="Name">Workspace</string>
+			<bool name="StreamingEnabled">false</bool>
+		</Properties>
+	</Item>
+	<Item class="Players" referent="RBX00000000000000000000000000000002">
+		<Properties>
+			<string name="Name">Players</string>
+			<bool name="CharacterAutoLoads">false</bool>
+		</Properties>
+	</Item>
+	<Item class="Lighting" referent="RBX00000000000000000000000000000003">
+		<Properties>
+			<string name="Name">Lighting</string>
+		</Properties>
+	</Item>
+	<Item class="ReplicatedStorage" referent="RBX00000000000000000000000000000004">
+		<Properties>
+			<string name="Name">ReplicatedStorage</string>
+		</Properties>
+		<Item class="Folder" referent="RBX00000000000000000000000000000005">
+			<Properties>
+				<string name="Name">Shared</string>
+			</Properties>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000006">
+				<Properties>
+					<string name="Name">Config</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Config.lua — ЕДИНСТВЕННОЕ место, где нужно подставить ID геймпассов и продуктов.
+	(Single place for all Roblox IDs and the main tuning knobs.)
+
+	Как получить ID:
+	  Creator Hub (create.roblox.com) -> Experiences -> ваш плейс -> Monetization
+	    * Passes            -> создайте Pass -> скопируйте число из URL / из карточки
+	    * Developer Products -> создайте Product -> скопируйте Product ID
+	Значение 0 = "не настроено": кнопка в магазине покажет подсказку, покупка невозможна,
+	а игра продолжает работать без ошибок.
+]]
+
+local Config = {}
+
+-- ============================================================================
+-- 1. ID ГЕЙМПАССОВ (Game Passes) — подставьте свои числа вместо 0
+-- ============================================================================
+Config.GAMEPASS_IDS = {
+	-- x2 ко всем монетам навсегда. Рекомендуемая цена: ~199-399 R$
+	DOUBLE_COINS = 0,
+	-- x2 скорость бега навсегда. Рекомендуемая цена: ~99-199 R$
+	DOUBLE_SPEED = 0,
+	-- Автосбор: монеты собираются сами, пока игрок в игре. Рекомендуемая цена: ~299-499 R$
+	AUTO_COLLECT = 0,
+	-- VIP: +25% монет, +1 слот питомца, тег [VIP], x2 ежедневные награды. Рекомендуемая цена: ~399-799 R$
+	VIP = 0,
+}
+
+-- ============================================================================
+-- 2. ID ДЕВЕЛОПЕРСКИХ ПРОДУКТОВ (Developer Products) — подставьте свои числа вместо 0
+--    Developer Product можно покупать многократно (в отличие от геймпасса).
+-- ============================================================================
+Config.PRODUCT_IDS = {
+	GEMS_SMALL = 0, -- пакет гемов (маленький), ~49-99 R$
+	GEMS_MEDIUM = 0, -- пакет гемов (средний), ~249-399 R$
+	GEMS_LARGE = 0, -- пакет гемов (большой), ~799-999 R$
+	COINS_SMALL = 0, -- пакет монет (маленький), ~49-99 R$
+	COINS_LARGE = 0, -- пакет монет (большой), ~299-499 R$
+	LUCK_2X_15M = 0, -- лаки-буст x2 на 15 минут, ~49-99 R$
+	LUCK_5X_10M = 0, -- лаки-буст x5 на 10 минут, ~149-249 R$
+}
+
+-- ============================================================================
+-- 3. ОПИСАНИЕ ТОГО, ЧТО ДАЁТ КАЖДЫЙ ПРОДУКТ (ключи совпадают с PRODUCT_IDS)
+--    Kind: "Gems" | "Coins" | "Luck"
+--    Gems:  Amount  = количество гемов
+--    Coins: Clicks  = сколько "кликов текущей силы" эквивалентно пакету (масштабируется с прогрессом)
+--           Min     = минимум монет (чтобы пакет был полезен новичку)
+--    Luck:  Boost   = ключ в данных игрока, Seconds = длительность, Multiplier = множитель удачи
+--    SuggestedPrice — только подсказка для README/магазина, реальную цену задаёте в Creator Hub.
+-- ============================================================================
+Config.PRODUCTS = {
+	GEMS_SMALL = { Kind = "Gems", Amount = 100, Name = "Pile of Gems", SuggestedPrice = 79 },
+	GEMS_MEDIUM = { Kind = "Gems", Amount = 550, Name = "Bag of Gems", SuggestedPrice = 349 },
+	GEMS_LARGE = { Kind = "Gems", Amount = 1500, Name = "Chest of Gems", SuggestedPrice = 899 },
+	COINS_SMALL = { Kind = "Coins", Clicks = 1500, Min = 2000, Name = "Coin Pouch", SuggestedPrice = 79 },
+	COINS_LARGE = { Kind = "Coins", Clicks = 15000, Min = 25000, Name = "Coin Vault", SuggestedPrice = 399 },
+	LUCK_2X_15M = {
+		Kind = "Luck",
+		Boost = "Luck2",
+		Multiplier = 2,
+		Seconds = 900,
+		Name = "Lucky Clover x2 (15m)",
+		SuggestedPrice = 79,
+	},
+	LUCK_5X_10M = {
+		Kind = "Luck",
+		Boost = "Luck5",
+		Multiplier = 5,
+		Seconds = 600,
+		Name = "Super Clover x5 (10m)",
+		SuggestedPrice = 199,
+	},
+}
+
+-- Описание геймпассов для магазина (ключи совпадают с GAMEPASS_IDS)
+Config.GAMEPASSES = {
+	DOUBLE_COINS = {
+		Name = "2x Coins",
+		Description = "Double ALL coins you collect. Forever!",
+		SuggestedPrice = 299,
+	},
+	DOUBLE_SPEED = {
+		Name = "2x Speed",
+		Description = "Run twice as fast across every world.",
+		SuggestedPrice = 149,
+	},
+	AUTO_COLLECT = {
+		Name = "Auto Collect",
+		Description = "Coins are collected for you automatically, even while you explore.",
+		SuggestedPrice = 399,
+	},
+	VIP = {
+		Name = "VIP",
+		Description = "+25% coins, +1 pet slot, [VIP] tag, double daily rewards.",
+		SuggestedPrice = 599,
+	},
+}
+
+-- Порядок отображения в магазине
+Config.GAMEPASS_ORDER = { "DOUBLE_COINS", "AUTO_COLLECT", "VIP", "DOUBLE_SPEED" }
+Config.PRODUCT_ORDER = {
+	"GEMS_SMALL",
+	"GEMS_MEDIUM",
+	"GEMS_LARGE",
+	"COINS_SMALL",
+	"COINS_LARGE",
+	"LUCK_2X_15M",
+	"LUCK_5X_10M",
+}
+
+-- ============================================================================
+-- 4. ЭФФЕКТЫ (баланс). Менять можно свободно — формулы читают эти значения.
+-- ============================================================================
+Config.PASS_EFFECTS = {
+	COIN_MULT_DOUBLE = 2, -- 2x Coins
+	SPEED_MULT_DOUBLE = 2, -- 2x Speed
+	VIP_COIN_BONUS = 0.25, -- VIP: +25% монет
+	VIP_EXTRA_SLOTS = 1, -- VIP: +1 слот питомца
+	VIP_LUCK_BONUS = 0.10, -- VIP: +10% удачи
+	VIP_DAILY_MULT = 2, -- VIP: x2 ежедневные награды
+	PREMIUM_COIN_BONUS = 0.10, -- Roblox Premium: +10% монет (бонус для подписчиков)
+	PREMIUM_DAILY_GEMS = 5, -- Roblox Premium: +5 гемов к ежедневной награде
+	AUTO_CLICKS_PER_SECOND = 2, -- Auto Collect: сколько "кликов" в секунду делает сервер
+}
+
+-- В Roblox Studio (и ТОЛЬКО в Studio) можно включить выдачу всех геймпассов для теста интерфейса.
+-- В опубликованной игре это поле игнорируется.
+Config.STUDIO_GRANT_ALL_PASSES = false
+
+-- ============================================================================
+-- 5. ДАННЫЕ И СЕССИИ
+-- ============================================================================
+Config.DATASTORE_NAME = "PetCollector_Data_v1"
+Config.LEADERBOARD_DATASTORE = "PetCollector_TopCoins_v1"
+Config.AUTOSAVE_INTERVAL = 60 -- секунд (также продлевает session lock)
+Config.SESSION_LOCK_TIMEOUT = 180 -- секунд; "мёртвая" блокировка (упавший сервер) считается свободной
+Config.LOAD_ATTEMPTS = 8 -- попыток загрузки (с учётом ожидания снятия блокировки)
+Config.LOAD_LOCK_RETRY_DELAY = 4 -- пауза, если данные заняты другим сервером
+Config.SAVE_ATTEMPTS = 5
+-- В Studio, если DataStore недоступен (API Services выключены), играем без сохранения.
+-- На живых серверах игрока в этом случае кикает — чтобы не затереть данные.
+Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
+
+-- ============================================================================
+-- 6. ГЕЙМПЛЕЙ
+-- ============================================================================
+Config.GAME_NAME = "Pet Collector Simulator"
+Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
+Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
+Config.BASE_PET_SLOTS = 3
+Config.BASE_BAG_SIZE = 30
+Config.BASE_WALKSPEED = 16
+Config.MAX_WALKSPEED = 56
+Config.JUMP_POWER = 50
+Config.GOLD_CHANCE = 0.02 -- шанс "золотого" питомца (x2 сила)
+Config.GOLD_POWER_MULT = 2
+Config.SELL_VALUE_PER_POWER = 40 -- монет за 1 силы питомца при продаже
+Config.MAX_COINS = 1e15 -- защита от переполнения
+Config.MAX_GEMS = 1e9
+Config.EGG_MAX_DISTANCE = 45 -- студов: насколько близко нужно стоять к яйцу
+Config.HATCH_COUNTS = { 1, 3 } -- разрешённые количества за раз
+
+Config.REBIRTH_BASE_COST = 50000
+Config.REBIRTH_COST_GROWTH = 4
+Config.REBIRTH_MULT_PER = 0.5 -- +50% монет за каждый ребёрт
+Config.REBIRTH_GEMS_BASE = 20
+Config.REBIRTH_GEMS_PER = 5
+
+-- Ежедневные награды (цикл из 7 дней). Clicks = кликов текущей силы монетами; Luck2Minutes = минут x2 удачи.
+Config.DAILY_REWARDS = {
+	{ Gems = 10, Clicks = 300 },
+	{ Gems = 15, Clicks = 500 },
+	{ Gems = 20, Clicks = 800 },
+	{ Gems = 25, Clicks = 1200, Luck2Minutes = 10 },
+	{ Gems = 35, Clicks = 2000 },
+	{ Gems = 50, Clicks = 3000, Luck2Minutes = 15 },
+	{ Gems = 120, Clicks = 6000, Luck2Minutes = 30 },
+}
+
+-- ============================================================================
+-- 7. АНТИ-ЭКСПЛОЙТ (базовый)
+-- ============================================================================
+Config.ANTICHEAT = {
+	STRIKE_WINDOW = 60, -- секунд, за которые считаются нарушения
+	STRIKE_KICK_THRESHOLD = 60, -- сколько "страйков" за окно до кика
+	MAX_HORIZONTAL_SPEED = 220, -- studs/sec; больше = подозрение на телепорт/спидхак
+	TELEPORT_GRACE = 2.5, -- секунд после серверного телепорта, когда проверка выключена
+}
+
+-- ============================================================================
+-- Вспомогательные функции (только чтение конфигурации)
+-- ============================================================================
+
+-- Возвращает ключ геймпасса по числовому ID (или nil). ID = 0 игнорируются.
+function Config.getPassKeyById(passId: number): string?
+	if passId == 0 then
+		return nil
+	end
+	for key, id in pairs(Config.GAMEPASS_IDS) do
+		if id == passId then
+			return key
+		end
+	end
+	return nil
+end
+
+-- Возвращает ключ продукта по числовому ID (или nil). ID = 0 игнорируются.
+function Config.getProductKeyById(productId: number): string?
+	if productId == 0 then
+		return nil
+	end
+	for key, id in pairs(Config.PRODUCT_IDS) do
+		if id == productId then
+			return key
+		end
+	end
+	return nil
+end
+
+return Config
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000007">
+				<Properties>
+					<string name="Name">Formulas</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Формулы экономики. Используются и сервером (авторитетно), и клиентом (только для отображения).
+local Config = require(script.Parent.Config)
+local UpgradeData = require(script.Parent.UpgradeData)
+
+local Formulas = {}
+
+function Formulas.rebirthCost(rebirths: number): number
+	local cost = Config.REBIRTH_BASE_COST * (Config.REBIRTH_COST_GROWTH ^ rebirths)
+	return math.floor(math.min(cost, Config.MAX_COINS))
+end
+
+function Formulas.rebirthMultiplier(rebirths: number): number
+	return 1 + Config.REBIRTH_MULT_PER * rebirths
+end
+
+function Formulas.rebirthGems(rebirths: number): number
+	-- rebirths = значение ДО ребёрта
+	return Config.REBIRTH_GEMS_BASE + Config.REBIRTH_GEMS_PER * rebirths
+end
+
+function Formulas.upgradeCost(id: string, level: number): number?
+	local def = UpgradeData.ById[id]
+	if not def or level >= def.MaxLevel then
+		return nil
+	end
+	if def.Costs then
+		return def.Costs[level + 1]
+	end
+	return math.floor(def.BaseCost * (def.Growth ^ level))
+end
+
+function Formulas.petSlots(slotUpgrade: number, isVip: boolean): number
+	local slots = Config.BASE_PET_SLOTS + slotUpgrade
+	if isVip then
+		slots += Config.PASS_EFFECTS.VIP_EXTRA_SLOTS
+	end
+	return slots
+end
+
+function Formulas.bagSize(bagUpgrade: number): number
+	return Config.BASE_BAG_SIZE + bagUpgrade * UpgradeData.BAG_PER_LEVEL
+end
+
+function Formulas.clickBase(clickUpgrade: number): number
+	return 1 + clickUpgrade * UpgradeData.CLICK_PER_LEVEL
+end
+
+function Formulas.upgradeLuck(luckUpgrade: number): number
+	return 1 + luckUpgrade * UpgradeData.LUCK_PER_LEVEL
+end
+
+function Formulas.walkSpeed(speedUpgrade: number, hasDoubleSpeed: boolean): number
+	local speed = Config.BASE_WALKSPEED + speedUpgrade * UpgradeData.SPEED_PER_LEVEL
+	if hasDoubleSpeed then
+		speed *= Config.PASS_EFFECTS.SPEED_MULT_DOUBLE
+	end
+	return math.min(speed, Config.MAX_WALKSPEED)
+end
+
+return Formulas
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000008">
+				<Properties>
+					<string name="Name">PetData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Данные питомцев и яиц. Все питомцы — оригинальные, собираются из простых частей (см. PetModel).
+local Config = require(script.Parent.Config)
+
+export type Look = {
+	Body: Color3,
+	Accent: Color3,
+	Shape: string, -- "Round" | "Tall" | "Wide"
+	Ears: string, -- "None" | "Round" | "Long" | "Pointy"
+	Extras: { string }, -- "Tail" | "Wings" | "Horn" | "Crown" | "Antenna" | "Fins" | "Flame" | "Beak" | "Halo" | "Leaf"
+}
+
+export type PetDef = {
+	Id: string,
+	Name: string,
+	Rarity: string,
+	Power: number,
+	Look: Look,
+}
+
+export type EggPet = { Id: string, Weight: number }
+
+export type EggDef = {
+	Id: string,
+	Name: string,
+	Zone: string,
+	Currency: string, -- "Coins" | "Gems"
+	Price: number,
+	Color: Color3,
+	Pattern: Color3,
+	Pets: { EggPet },
+}
+
+local PetData = {}
+
+local c3 = Color3.fromRGB
+
+PetData.Rarities = {
+	Common = { Order = 1, Color = c3(190, 190, 200), Scale = 1.0 },
+	Uncommon = { Order = 2, Color = c3(90, 210, 110), Scale = 1.08 },
+	Rare = { Order = 3, Color = c3(70, 150, 255), Scale = 1.16 },
+	Epic = { Order = 4, Color = c3(180, 90, 255), Scale = 1.26 },
+	Legendary = { Order = 5, Color = c3(255, 170, 40), Scale = 1.38 },
+	Mythic = { Order = 6, Color = c3(255, 70, 120), Scale = 1.5 },
+} :: { [string]: { Order: number, Color: Color3, Scale: number } }
+
+-- Редкости, на которые действует удача (Rare и выше)
+PetData.LUCK_MIN_ORDER = 3
+
+local function pet(id: string, name: string, rarity: string, power: number, look: Look): PetDef
+	return { Id = id, Name = name, Rarity = rarity, Power = power, Look = look }
+end
+
+local function look(body: Color3, accent: Color3, shape: string, ears: string, extras: { string }): Look
+	return { Body = body, Accent = accent, Shape = shape, Ears = ears, Extras = extras }
+end
+
+PetData.Pets = {
+	-- Meadow Egg
+	pet(
+		"bunbun",
+		"Bunbun",
+		"Common",
+		1,
+		look(c3(250, 240, 225), c3(255, 170, 185), "Round", "Long", { "Tail" })
+	),
+	pet(
+		"chirpy",
+		"Chirpy",
+		"Common",
+		1.5,
+		look(c3(255, 226, 90), c3(255, 150, 50), "Round", "None", { "Beak", "Wings" })
+	),
+	pet("mossy", "Mossy Frog", "Uncommon", 3, look(c3(110, 200, 90), c3(60, 140, 60), "Wide", "Round", {})),
+	pet(
+		"bumblet",
+		"Bumblet",
+		"Rare",
+		8,
+		look(c3(255, 205, 50), c3(40, 40, 40), "Round", "None", { "Wings", "Antenna" })
+	),
+	pet(
+		"sunfox",
+		"Sunny Fox",
+		"Epic",
+		25,
+		look(c3(255, 140, 50), c3(255, 245, 225), "Tall", "Pointy", { "Tail" })
+	),
+	pet(
+		"dandy",
+		"Dandy King",
+		"Legendary",
+		90,
+		look(c3(255, 190, 60), c3(255, 120, 30), "Round", "Round", { "Crown", "Tail" })
+	),
+
+	-- Forest Egg
+	pet(
+		"acorny",
+		"Acorny",
+		"Common",
+		4,
+		look(c3(176, 120, 70), c3(110, 70, 40), "Round", "None", { "Leaf" })
+	),
+	pet(
+		"pinecub",
+		"Pinecub",
+		"Common",
+		6,
+		look(c3(140, 95, 60), c3(220, 190, 150), "Wide", "Round", { "Tail" })
+	),
+	pet(
+		"owlet",
+		"Owlet",
+		"Uncommon",
+		14,
+		look(c3(160, 130, 100), c3(255, 235, 200), "Tall", "Pointy", { "Beak", "Wings" })
+	),
+	pet(
+		"mushling",
+		"Mushling",
+		"Rare",
+		36,
+		look(c3(240, 230, 215), c3(230, 70, 70), "Round", "None", { "Leaf" })
+	),
+	pet(
+		"deerling",
+		"Deerling",
+		"Epic",
+		110,
+		look(c3(200, 150, 100), c3(255, 240, 220), "Tall", "Long", { "Horn", "Tail" })
+	),
+	pet(
+		"elderwood",
+		"Elderwood",
+		"Legendary",
+		400,
+		look(c3(120, 85, 55), c3(70, 190, 90), "Tall", "None", { "Leaf", "Crown" })
+	),
+
+	-- Desert Egg
+	pet(
+		"gecko",
+		"Dune Gecko",
+		"Common",
+		18,
+		look(c3(200, 190, 100), c3(150, 130, 60), "Wide", "None", { "Tail" })
+	),
+	pet(
+		"scarab",
+		"Sandy Scarab",
+		"Common",
+		26,
+		look(c3(60, 130, 160), c3(240, 200, 80), "Wide", "None", { "Antenna", "Wings" })
+	),
+	pet(
+		"cactling",
+		"Cactling",
+		"Uncommon",
+		60,
+		look(c3(80, 170, 90), c3(255, 120, 170), "Tall", "None", { "Leaf" })
+	),
+	pet(
+		"mirage",
+		"Mirage Cat",
+		"Rare",
+		150,
+		look(c3(235, 205, 150), c3(120, 80, 160), "Round", "Pointy", { "Tail" })
+	),
+	pet(
+		"serpent",
+		"Sun Serpent",
+		"Epic",
+		450,
+		look(c3(255, 190, 70), c3(220, 80, 40), "Wide", "None", { "Flame", "Tail" })
+	),
+	pet(
+		"sphinx",
+		"Golden Sphinx",
+		"Legendary",
+		1600,
+		look(c3(255, 215, 90), c3(60, 90, 200), "Wide", "Round", { "Crown", "Wings" })
+	),
+
+	-- Frost Egg
+	pet(
+		"snowpup",
+		"Snowy Pup",
+		"Common",
+		80,
+		look(c3(245, 250, 255), c3(150, 200, 240), "Round", "Round", { "Tail" })
+	),
+	pet(
+		"penguin",
+		"Icicle Penguin",
+		"Common",
+		110,
+		look(c3(50, 60, 80), c3(255, 245, 235), "Tall", "None", { "Beak", "Fins" })
+	),
+	pet(
+		"yeti",
+		"Yeti Cub",
+		"Uncommon",
+		260,
+		look(c3(225, 240, 250), c3(120, 170, 220), "Wide", "Round", { "Horn" })
+	),
+	pet(
+		"aurora",
+		"Aurora Fox",
+		"Rare",
+		650,
+		look(c3(160, 230, 220), c3(190, 120, 255), "Tall", "Pointy", { "Tail", "Halo" })
+	),
+	pet(
+		"stag",
+		"Crystal Stag",
+		"Epic",
+		1900,
+		look(c3(150, 210, 255), c3(255, 255, 255), "Tall", "Long", { "Horn", "Halo" })
+	),
+	pet(
+		"blizzdrake",
+		"Blizzard Drake",
+		"Legendary",
+		7000,
+		look(c3(120, 190, 250), c3(255, 255, 255), "Wide", "Pointy", { "Wings", "Horn", "Tail" })
+	),
+
+	-- Volcano Egg
+	pet(
+		"embermouse",
+		"Ember Mouse",
+		"Common",
+		350,
+		look(c3(255, 140, 90), c3(90, 40, 30), "Round", "Round", { "Tail", "Flame" })
+	),
+	pet(
+		"lavaslug",
+		"Lava Slug",
+		"Common",
+		480,
+		look(c3(230, 90, 40), c3(255, 220, 90), "Wide", "None", { "Antenna" })
+	),
+	pet(
+		"magmashell",
+		"Magma Turtle",
+		"Uncommon",
+		1100,
+		look(c3(90, 70, 70), c3(255, 120, 40), "Wide", "None", { "Flame" })
+	),
+	pet(
+		"cinderwolf",
+		"Cinder Wolf",
+		"Rare",
+		2800,
+		look(c3(70, 60, 65), c3(255, 100, 30), "Tall", "Pointy", { "Tail", "Flame" })
+	),
+	pet(
+		"phoenix",
+		"Phoenix Chick",
+		"Epic",
+		8500,
+		look(c3(255, 90, 50), c3(255, 220, 80), "Round", "None", { "Wings", "Flame", "Beak" })
+	),
+	pet(
+		"infernodrake",
+		"Inferno Drake",
+		"Legendary",
+		30000,
+		look(c3(180, 40, 30), c3(255, 170, 40), "Wide", "Pointy", { "Wings", "Horn", "Flame", "Tail" })
+	),
+
+	-- Gem Egg (премиум-яйцо за гемы)
+	pet(
+		"slime",
+		"Sparkle Slime",
+		"Rare",
+		220,
+		look(c3(120, 230, 240), c3(255, 255, 255), "Wide", "None", { "Antenna" })
+	),
+	pet(
+		"prismcat",
+		"Prism Cat",
+		"Epic",
+		1300,
+		look(c3(250, 150, 220), c3(130, 220, 255), "Round", "Pointy", { "Tail", "Halo" })
+	),
+	pet(
+		"starbunny",
+		"Star Bunny",
+		"Epic",
+		2000,
+		look(c3(255, 245, 160), c3(255, 190, 60), "Round", "Long", { "Tail", "Crown" })
+	),
+	pet(
+		"cosmicwhale",
+		"Cosmic Whale",
+		"Legendary",
+		13000,
+		look(c3(60, 70, 180), c3(255, 230, 120), "Wide", "None", { "Fins", "Halo" })
+	),
+	pet(
+		"nebuladrake",
+		"Nebula Dragon",
+		"Mythic",
+		70000,
+		look(
+			c3(110, 50, 190),
+			c3(255, 120, 230),
+			"Wide",
+			"Pointy",
+			{ "Wings", "Horn", "Halo", "Tail", "Crown" }
+		)
+	),
+} :: { PetDef }
+
+PetData.PetsById = {} :: { [string]: PetDef }
+for _, p in ipairs(PetData.Pets) do
+	PetData.PetsById[p.Id] = p
+end
+
+local function egg(
+	id: string,
+	name: string,
+	zone: string,
+	currency: string,
+	price: number,
+	color: Color3,
+	pattern: Color3,
+	pets: { EggPet }
+): EggDef
+	return {
+		Id = id,
+		Name = name,
+		Zone = zone,
+		Currency = currency,
+		Price = price,
+		Color = color,
+		Pattern = pattern,
+		Pets = pets,
+	}
+end
+
+PetData.Eggs = {
+	egg("MeadowEgg", "Meadow Egg", "Meadow", "Coins", 150, c3(255, 245, 215), c3(120, 200, 100), {
+		{ Id = "bunbun", Weight = 40 },
+		{ Id = "chirpy", Weight = 30 },
+		{ Id = "mossy", Weight = 18 },
+		{ Id = "bumblet", Weight = 8 },
+		{ Id = "sunfox", Weight = 3.5 },
+		{ Id = "dandy", Weight = 0.5 },
+	}),
+	egg("GemEgg", "Crystal Egg", "Meadow", "Gems", 75, c3(140, 230, 255), c3(255, 255, 255), {
+		{ Id = "slime", Weight = 50 },
+		{ Id = "prismcat", Weight = 28 },
+		{ Id = "starbunny", Weight = 16.5 },
+		{ Id = "cosmicwhale", Weight = 5 },
+		{ Id = "nebuladrake", Weight = 0.5 },
+	}),
+	egg("ForestEgg", "Forest Egg", "Forest", "Coins", 2500, c3(150, 210, 140), c3(90, 60, 40), {
+		{ Id = "acorny", Weight = 40 },
+		{ Id = "pinecub", Weight = 30 },
+		{ Id = "owlet", Weight = 18 },
+		{ Id = "mushling", Weight = 8 },
+		{ Id = "deerling", Weight = 3.5 },
+		{ Id = "elderwood", Weight = 0.5 },
+	}),
+	egg("DesertEgg", "Dune Egg", "Desert", "Coins", 60000, c3(245, 215, 140), c3(200, 120, 60), {
+		{ Id = "gecko", Weight = 40 },
+		{ Id = "scarab", Weight = 30 },
+		{ Id = "cactling", Weight = 18 },
+		{ Id = "mirage", Weight = 8 },
+		{ Id = "serpent", Weight = 3.5 },
+		{ Id = "sphinx", Weight = 0.5 },
+	}),
+	egg("FrostEgg", "Frost Egg", "Frost", "Coins", 1500000, c3(200, 235, 255), c3(100, 170, 240), {
+		{ Id = "snowpup", Weight = 40 },
+		{ Id = "penguin", Weight = 30 },
+		{ Id = "yeti", Weight = 18 },
+		{ Id = "aurora", Weight = 8 },
+		{ Id = "stag", Weight = 3.5 },
+		{ Id = "blizzdrake", Weight = 0.5 },
+	}),
+	egg("VolcanoEgg", "Magma Egg", "Volcano", "Coins", 30000000, c3(90, 60, 60), c3(255, 120, 40), {
+		{ Id = "embermouse", Weight = 40 },
+		{ Id = "lavaslug", Weight = 30 },
+		{ Id = "magmashell", Weight = 18 },
+		{ Id = "cinderwolf", Weight = 8 },
+		{ Id = "phoenix", Weight = 3.5 },
+		{ Id = "infernodrake", Weight = 0.5 },
+	}),
+} :: { EggDef }
+
+PetData.EggsById = {} :: { [string]: EggDef }
+for _, e in ipairs(PetData.Eggs) do
+	PetData.EggsById[e.Id] = e
+end
+
+-- Сила питомца с учётом "золотого" варианта
+function PetData.getPower(petId: string, gold: boolean?): number
+	local def = PetData.PetsById[petId]
+	if not def then
+		return 0
+	end
+	if gold then
+		return def.Power * Config.GOLD_POWER_MULT
+	end
+	return def.Power
+end
+
+function PetData.sellValue(petId: string, gold: boolean?): number
+	return math.floor(PetData.getPower(petId, gold) * Config.SELL_VALUE_PER_POWER)
+end
+
+-- Нормированные шансы выпадения (проценты) с учётом удачи. luck = 1 -> базовые шансы (то, что видно игроку).
+-- Удача увеличивает вес питомцев редкости Rare и выше.
+function PetData.getOdds(eggId: string, luck: number): { { Id: string, Chance: number } }
+	local eggDef = PetData.EggsById[eggId]
+	if not eggDef then
+		return {}
+	end
+	local total = 0
+	local weights: { number } = {}
+	for i, entry in ipairs(eggDef.Pets) do
+		local def = PetData.PetsById[entry.Id]
+		local w = entry.Weight
+		if def and PetData.Rarities[def.Rarity].Order >= PetData.LUCK_MIN_ORDER then
+			w *= math.max(luck, 1)
+		end
+		weights[i] = w
+		total += w
+	end
+	local result = {}
+	for i, entry in ipairs(eggDef.Pets) do
+		result[i] = { Id = entry.Id, Chance = weights[i] / total * 100 }
+	end
+	return result
+end
+
+-- Выбор питомца. rand01 — число из [0,1) (серверный Random).
+function PetData.roll(eggId: string, luck: number, rand01: number): string?
+	local odds = PetData.getOdds(eggId, luck)
+	local acc = 0
+	for _, o in ipairs(odds) do
+		acc += o.Chance / 100
+		if rand01 < acc then
+			return o.Id
+		end
+	end
+	if #odds > 0 then
+		return odds[#odds].Id
+	end
+	return nil
+end
+
+return PetData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000009">
+				<Properties>
+					<string name="Name">PetModel</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Строит модель питомца из простых примитивов (Ball/Block/Cylinder). Никаких внешних ассетов.
+-- Все части Anchored — модель двигается через Model:PivotTo (клиентская анимация следования).
+-- Передняя сторона питомца = -Z (LookVector), хвост сзади (+Z).
+local PetData = require(script.Parent.PetData)
+
+local PetModel = {}
+
+local GOLD = Color3.fromRGB(255, 208, 70)
+local BLACK = Color3.fromRGB(25, 25, 30)
+local WHITE = Color3.fromRGB(255, 255, 255)
+
+local function addPart(
+	model: Model,
+	name: string,
+	shape: Enum.PartType,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	material: Enum.Material?
+): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Shape = shape
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanTouch = false
+	p.CanQuery = false
+	p.CastShadow = false
+	p.Massless = true
+	p.Parent = model
+	return p
+end
+
+local function ball(
+	model: Model,
+	name: string,
+	d: number,
+	pos: Vector3,
+	color: Color3,
+	material: Enum.Material?
+): Part
+	return addPart(model, name, Enum.PartType.Ball, Vector3.new(d, d, d), CFrame.new(pos), color, material)
+end
+
+local function block(
+	model: Model,
+	name: string,
+	size: Vector3,
+	pos: Vector3,
+	rot: CFrame?,
+	color: Color3,
+	material: Enum.Material?
+): Part
+	local cf = CFrame.new(pos)
+	if rot then
+		cf = cf * rot
+	end
+	return addPart(model, name, Enum.PartType.Block, size, cf, color, material)
+end
+
+function PetModel.build(petId: string, gold: boolean?): Model
+	local def = PetData.PetsById[petId]
+	local model = Instance.new("Model")
+	model.Name = petId
+
+	if not def then
+		local fallback = ball(model, "Body", 1.5, Vector3.zero, Color3.fromRGB(200, 200, 200), nil)
+		model.PrimaryPart = fallback
+		return model
+	end
+
+	local look = def.Look
+	local scale = PetData.Rarities[def.Rarity].Scale * 0.9
+	local bodyColor = if gold then GOLD else look.Body
+	local accent = look.Accent
+	local mat = if gold then Enum.Material.Metal else Enum.Material.SmoothPlastic
+
+	-- ----- Тело и голова -----
+	local br: number -- радиус тела
+	local hr: number -- радиус головы
+	local headPos: Vector3
+	local body: Part
+
+	if look.Shape == "Tall" then
+		br = 0.7 * scale
+		hr = 0.55 * scale
+		body = ball(model, "Body", br * 2, Vector3.zero, bodyColor, mat)
+		headPos = Vector3.new(0, br + hr * 0.55, 0)
+		ball(model, "Head", hr * 2, headPos, bodyColor, mat)
+	elseif look.Shape == "Wide" then
+		br = 0.95 * scale
+		hr = 0.55 * scale
+		body = ball(model, "Body", br * 2, Vector3.zero, bodyColor, mat)
+		headPos = Vector3.new(0, br * 0.45, -br * 0.75)
+		ball(model, "Head", hr * 2, headPos, bodyColor, mat)
+		-- лапки
+		ball(model, "FootL", 0.45 * scale, Vector3.new(-br * 0.55, -br * 0.8, -br * 0.3), accent, mat)
+		ball(model, "FootR", 0.45 * scale, Vector3.new(br * 0.55, -br * 0.8, -br * 0.3), accent, mat)
+	else -- Round
+		br = 0.8 * scale
+		hr = br
+		body = ball(model, "Body", br * 2, Vector3.zero, bodyColor, mat)
+		headPos = Vector3.zero
+	end
+	model.PrimaryPart = body
+
+	-- ----- Глаза -----
+	local eyeD = hr * 0.38
+	for _, side in ipairs({ -1, 1 }) do
+		local eyePos = headPos + Vector3.new(side * hr * 0.38, hr * 0.12, -hr * 0.88)
+		ball(model, "Eye", eyeD, eyePos, BLACK, nil)
+		ball(
+			model,
+			"Glint",
+			eyeD * 0.35,
+			eyePos + Vector3.new(side * -0.02, eyeD * 0.22, -eyeD * 0.38),
+			WHITE,
+			nil
+		)
+	end
+
+	-- ----- Уши -----
+	if look.Ears == "Round" then
+		for _, side in ipairs({ -1, 1 }) do
+			ball(model, "Ear", hr * 0.55, headPos + Vector3.new(side * hr * 0.68, hr * 0.78, 0), accent, mat)
+		end
+	elseif look.Ears == "Long" then
+		for _, side in ipairs({ -1, 1 }) do
+			block(
+				model,
+				"Ear",
+				Vector3.new(hr * 0.28, hr * 1.1, hr * 0.22),
+				headPos + Vector3.new(side * hr * 0.38, hr * 1.35, 0),
+				CFrame.Angles(0, 0, math.rad(-side * 10)),
+				bodyColor,
+				mat
+			)
+		end
+	elseif look.Ears == "Pointy" then
+		for _, side in ipairs({ -1, 1 }) do
+			block(
+				model,
+				"Ear",
+				Vector3.new(hr * 0.34, hr * 0.7, hr * 0.2),
+				headPos + Vector3.new(side * hr * 0.52, hr * 0.98, 0),
+				CFrame.Angles(0, 0, math.rad(-side * 25)),
+				accent,
+				mat
+			)
+		end
+	end
+
+	-- ----- Дополнения -----
+	local topY = headPos.Y + hr
+	for _, extra in ipairs(look.Extras) do
+		if extra == "Tail" then
+			ball(model, "Tail", br * 0.7, Vector3.new(0, -br * 0.15, br + br * 0.2), accent, mat)
+		elseif extra == "Wings" then
+			for _, side in ipairs({ -1, 1 }) do
+				block(
+					model,
+					"Wing",
+					Vector3.new(0.1 * scale, br * 1.0, br * 0.8),
+					Vector3.new(side * (br + 0.05), br * 0.2, br * 0.15),
+					CFrame.Angles(0, 0, math.rad(side * 22)),
+					accent,
+					if gold then Enum.Material.Neon else mat
+				)
+			end
+		elseif extra == "Horn" then
+			block(
+				model,
+				"Horn",
+				Vector3.new(hr * 0.2, hr * 0.65, hr * 0.2),
+				headPos + Vector3.new(0, hr * 1.0, -hr * 0.15),
+				CFrame.Angles(math.rad(-12), 0, 0),
+				Color3.fromRGB(250, 240, 220),
+				nil
+			)
+		elseif extra == "Crown" then
+			local cy = topY + hr * 0.18
+			block(
+				model,
+				"CrownBase",
+				Vector3.new(hr * 0.9, hr * 0.2, hr * 0.9),
+				Vector3.new(0, cy, headPos.Z),
+				nil,
+				GOLD,
+				Enum.Material.Metal
+			)
+			for _, dx in ipairs({ -0.3, 0, 0.3 }) do
+				block(
+					model,
+					"CrownSpike",
+					Vector3.new(hr * 0.2, hr * 0.3, hr * 0.2),
+					Vector3.new(dx * hr, cy + hr * 0.24, headPos.Z),
+					nil,
+					GOLD,
+					Enum.Material.Metal
+				)
+			end
+		elseif extra == "Antenna" then
+			for _, side in ipairs({ -1, 1 }) do
+				block(
+					model,
+					"Antenna",
+					Vector3.new(0.07, hr * 0.7, 0.07),
+					headPos + Vector3.new(side * hr * 0.3, hr * 1.05, -hr * 0.1),
+					CFrame.Angles(0, 0, math.rad(-side * 15)),
+					BLACK,
+					nil
+				)
+				ball(
+					model,
+					"AntennaTip",
+					hr * 0.2,
+					headPos + Vector3.new(side * hr * 0.4, hr * 1.42, -hr * 0.1),
+					accent,
+					Enum.Material.Neon
+				)
+			end
+		elseif extra == "Fins" then
+			for _, side in ipairs({ -1, 1 }) do
+				block(
+					model,
+					"Fin",
+					Vector3.new(br * 0.7, 0.08 * scale, br * 0.5),
+					Vector3.new(side * (br + 0.2 * scale), -br * 0.1, 0),
+					CFrame.Angles(0, 0, math.rad(side * -25)),
+					accent,
+					mat
+				)
+			end
+		elseif extra == "Flame" then
+			ball(
+				model,
+				"Flame",
+				hr * 0.6,
+				Vector3.new(0, topY + hr * 0.2, headPos.Z + hr * 0.2),
+				Color3.fromRGB(255, 120, 30),
+				Enum.Material.Neon
+			)
+			ball(
+				model,
+				"FlameCore",
+				hr * 0.32,
+				Vector3.new(0, topY + hr * 0.22, headPos.Z + hr * 0.2),
+				Color3.fromRGB(255, 230, 100),
+				Enum.Material.Neon
+			)
+		elseif extra == "Beak" then
+			block(
+				model,
+				"Beak",
+				Vector3.new(hr * 0.4, hr * 0.22, hr * 0.35),
+				headPos + Vector3.new(0, -hr * 0.12, -hr * 0.98),
+				nil,
+				accent,
+				nil
+			)
+		elseif extra == "Halo" then
+			local halo = addPart(
+				model,
+				"Halo",
+				Enum.PartType.Cylinder,
+				Vector3.new(0.08, hr * 1.5, hr * 1.5),
+				CFrame.new(0, topY + hr * 0.75, headPos.Z) * CFrame.Angles(0, 0, math.rad(90)),
+				accent,
+				Enum.Material.Neon
+			)
+			halo.Transparency = 0.15
+		elseif extra == "Leaf" then
+			block(
+				model,
+				"Leaf",
+				Vector3.new(hr * 0.7, 0.06, hr * 0.4),
+				headPos + Vector3.new(hr * 0.15, hr * 1.0, 0),
+				CFrame.Angles(0, 0, math.rad(-25)),
+				Color3.fromRGB(80, 190, 80),
+				nil
+			)
+		end
+	end
+
+	return model
+end
+
+return PetModel
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000A">
+				<Properties>
+					<string name="Name">Remotes</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Единая точка создания/получения RemoteEvent и RemoteFunction.
+-- Сервер создаёт их при старте (Remotes.init), клиент ждёт через WaitForChild.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+
+local Remotes = {}
+
+local FOLDER_NAME = "Remotes"
+
+Remotes.Events = {
+	"State", -- S->C: снимок состояния игрока
+	"Notify", -- S->C: всплывающее сообщение (text, kind)
+	"HatchResult", -- S->C: результат открытия яиц
+	"OpenEgg", -- S->C: открыть окно яйца (eggId) — по ProximityPrompt
+	"Click", -- C->S: сбор монет
+}
+Remotes.Functions = {
+	"Action", -- C->S: все остальные действия (см. Router на сервере)
+}
+
+local folder: Folder? = nil
+
+function Remotes.init()
+	assert(RunService:IsServer(), "Remotes.init must be called on the server")
+	local f = ReplicatedStorage:FindFirstChild(FOLDER_NAME)
+	if not f then
+		f = Instance.new("Folder")
+		f.Name = FOLDER_NAME
+		f.Parent = ReplicatedStorage
+	end
+	local fld = f :: Folder
+	for _, name in ipairs(Remotes.Events) do
+		if not fld:FindFirstChild(name) then
+			local e = Instance.new("RemoteEvent")
+			e.Name = name
+			e.Parent = fld
+		end
+	end
+	for _, name in ipairs(Remotes.Functions) do
+		if not fld:FindFirstChild(name) then
+			local fn = Instance.new("RemoteFunction")
+			fn.Name = name
+			fn.Parent = fld
+		end
+	end
+	folder = fld
+end
+
+local function getFolder(): Folder
+	if folder then
+		return folder
+	end
+	local f = ReplicatedStorage:WaitForChild(FOLDER_NAME) :: Folder
+	folder = f
+	return f
+end
+
+function Remotes.getEvent(name: string): RemoteEvent
+	return getFolder():WaitForChild(name) :: RemoteEvent
+end
+
+function Remotes.getFunction(name: string): RemoteFunction
+	return getFolder():WaitForChild(name) :: RemoteFunction
+end
+
+return Remotes
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000B">
+				<Properties>
+					<string name="Name">UpgradeData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Описание апгрейдов (за монеты или гемы).
+export type UpgradeDef = {
+	Id: string,
+	Name: string,
+	Description: string,
+	MaxLevel: number,
+	Currency: string, -- "Coins" | "Gems"
+	BaseCost: number,
+	Growth: number,
+	Costs: { number }?, -- если задано, цены берутся из списка
+}
+
+local UpgradeData = {}
+
+UpgradeData.CLICK_PER_LEVEL = 1
+UpgradeData.SPEED_PER_LEVEL = 1.5
+UpgradeData.LUCK_PER_LEVEL = 0.03
+UpgradeData.BAG_PER_LEVEL = 10
+
+UpgradeData.List = {
+	{
+		Id = "Click",
+		Name = "Click Power",
+		Description = "+1 base coin per collect. (Resets on Rebirth)",
+		MaxLevel = 60,
+		Currency = "Coins",
+		BaseCost = 20,
+		Growth = 1.45,
+	},
+	{
+		Id = "Speed",
+		Name = "Swift Shoes",
+		Description = "+1.5 walk speed per level.",
+		MaxLevel = 8,
+		Currency = "Coins",
+		BaseCost = 500,
+		Growth = 2.2,
+	},
+	{
+		Id = "Luck",
+		Name = "Lucky Charm",
+		Description = "+3% hatch luck per level (better odds for rare pets).",
+		MaxLevel = 10,
+		Currency = "Coins",
+		BaseCost = 2000,
+		Growth = 2.1,
+	},
+	{
+		Id = "Bag",
+		Name = "Bigger Bag",
+		Description = "+10 pet storage per level.",
+		MaxLevel = 10,
+		Currency = "Coins",
+		BaseCost = 300,
+		Growth = 1.9,
+	},
+	{
+		Id = "Slots",
+		Name = "Pet Slot",
+		Description = "+1 equipped pet slot.",
+		MaxLevel = 4,
+		Currency = "Gems",
+		BaseCost = 0,
+		Growth = 1,
+		Costs = { 100, 300, 800, 2000 },
+	},
+} :: { UpgradeDef }
+
+UpgradeData.ById = {} :: { [string]: UpgradeDef }
+for _, def in ipairs(UpgradeData.List) do
+	UpgradeData.ById[def.Id] = def
+end
+
+return UpgradeData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
+				<Properties>
+					<string name="Name">Util</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Небольшие общие утилиты (клиент + сервер).
+
+local Util = {}
+
+local SUFFIXES = { "", "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc" }
+
+-- 1234567 -> "1.23M"
+function Util.formatNumber(n: number): string
+	if n ~= n then
+		return "0"
+	end
+	if n < 1000 then
+		if n == math.floor(n) then
+			return tostring(math.floor(n))
+		end
+		return string.format("%.1f", n)
+	end
+	local index = 1
+	local value = n
+	while value >= 1000 and index < #SUFFIXES do
+		value /= 1000
+		index += 1
+	end
+	local text
+	if value >= 100 then
+		text = string.format("%.0f", value)
+	elseif value >= 10 then
+		text = string.format("%.1f", value)
+	else
+		text = string.format("%.2f", value)
+	end
+	-- убираем лишние нули: "1.50" -> "1.5", "2.00" -> "2"
+	if string.find(text, ".", 1, true) then
+		text = string.gsub(text, "0+$", "")
+		text = string.gsub(text, "%.$", "")
+	end
+	return text .. SUFFIXES[index]
+end
+
+-- 3725 -> "1:02:05", 75 -> "1:15"
+function Util.formatTime(seconds: number): string
+	seconds = math.max(0, math.floor(seconds))
+	local h = seconds // 3600
+	local m = (seconds % 3600) // 60
+	local s = seconds % 60
+	if h > 0 then
+		return string.format("%d:%02d:%02d", h, m, s)
+	end
+	return string.format("%d:%02d", m, s)
+end
+
+function Util.deepCopy<T>(value: T): T
+	if type(value) ~= "table" then
+		return value
+	end
+	local copy: any = {}
+	for k, v in pairs(value :: any) do
+		copy[k] = Util.deepCopy(v)
+	end
+	return copy
+end
+
+-- Заполняет в target отсутствующие ключи значениями из template (рекурсивно). Лишние ключи не трогает.
+function Util.reconcile(target: { [any]: any }, template: { [any]: any })
+	for k, v in pairs(template) do
+		if target[k] == nil then
+			target[k] = Util.deepCopy(v)
+		elseif type(target[k]) == "table" and type(v) == "table" then
+			Util.reconcile(target[k], v)
+		end
+	end
+end
+
+function Util.isFiniteNumber(v: any): boolean
+	return type(v) == "number" and v == v and v > -math.huge and v < math.huge
+end
+
+return Util
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+				<Properties>
+					<string name="Name">ZoneData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Миры (зоны). Каждый следующий мир умножает монеты за клик и открывает новое яйцо.
+export type ZoneDef = {
+	Id: string,
+	Name: string,
+	Multiplier: number,
+	UnlockCost: number, -- монеты (0 = открыта сразу)
+	RequiresRebirths: number,
+	Position: Vector3, -- центр платформы
+	Floor: Color3,
+	Accent: Color3,
+	Material: Enum.Material,
+	Sky: Color3,
+	Decor: string, -- "Trees" | "Cacti" | "Crystals" | "Rocks"
+}
+
+local ZoneData = {}
+
+ZoneData.PLATFORM_SIZE = 180
+
+ZoneData.List = {
+	{
+		Id = "Meadow",
+		Name = "Sunny Meadow",
+		Multiplier = 1,
+		UnlockCost = 0,
+		RequiresRebirths = 0,
+		Position = Vector3.new(0, 0, 0),
+		Floor = Color3.fromRGB(104, 190, 84),
+		Accent = Color3.fromRGB(255, 214, 90),
+		Material = Enum.Material.Grass,
+		Sky = Color3.fromRGB(150, 205, 255),
+		Decor = "Trees",
+	},
+	{
+		Id = "Forest",
+		Name = "Whispering Forest",
+		Multiplier = 3,
+		UnlockCost = 5000,
+		RequiresRebirths = 0,
+		Position = Vector3.new(400, 0, 0),
+		Floor = Color3.fromRGB(58, 132, 70),
+		Accent = Color3.fromRGB(139, 94, 60),
+		Material = Enum.Material.Grass,
+		Sky = Color3.fromRGB(120, 175, 150),
+		Decor = "Trees",
+	},
+	{
+		Id = "Desert",
+		Name = "Golden Dunes",
+		Multiplier = 9,
+		UnlockCost = 100000,
+		RequiresRebirths = 0,
+		Position = Vector3.new(800, 0, 0),
+		Floor = Color3.fromRGB(231, 200, 129),
+		Accent = Color3.fromRGB(86, 160, 80),
+		Material = Enum.Material.Sand,
+		Sky = Color3.fromRGB(255, 220, 160),
+		Decor = "Cacti",
+	},
+	{
+		Id = "Frost",
+		Name = "Frostpeak Glade",
+		Multiplier = 27,
+		UnlockCost = 2500000,
+		RequiresRebirths = 0,
+		Position = Vector3.new(1200, 0, 0),
+		Floor = Color3.fromRGB(226, 240, 252),
+		Accent = Color3.fromRGB(130, 200, 255),
+		Material = Enum.Material.Snow,
+		Sky = Color3.fromRGB(190, 220, 245),
+		Decor = "Crystals",
+	},
+	{
+		Id = "Volcano",
+		Name = "Ember Caldera",
+		Multiplier = 81,
+		UnlockCost = 60000000,
+		RequiresRebirths = 1,
+		Position = Vector3.new(1600, 0, 0),
+		Floor = Color3.fromRGB(70, 58, 58),
+		Accent = Color3.fromRGB(255, 110, 40),
+		Material = Enum.Material.Slate,
+		Sky = Color3.fromRGB(120, 70, 60),
+		Decor = "Rocks",
+	},
+} :: { ZoneDef }
+
+ZoneData.ById = {} :: { [string]: ZoneDef }
+ZoneData.Index = {} :: { [string]: number }
+for i, zone in ipairs(ZoneData.List) do
+	ZoneData.ById[zone.Id] = zone
+	ZoneData.Index[zone.Id] = i
+end
+
+ZoneData.DEFAULT = "Meadow"
+
+return ZoneData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+		</Item>
+	</Item>
+	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000000E">
+		<Properties>
+			<string name="Name">ServerScriptService</string>
+		</Properties>
+		<Item class="Script" referent="RBX0000000000000000000000000000000F">
+			<Properties>
+				<string name="Name">Main</string>
+				<token name="RunContext">0</token>
+				<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Main — точка входа сервера. Порядок важен: сначала Remotes и мир, затем сервисы (регистрируют действия),
+	и только потом PlayerService (начинает принимать игроков).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+Players.CharacterAutoLoads = false -- персонажей создаём сами, когда данные игрока загружены
+
+local Server = script.Parent:WaitForChild("Server")
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+Remotes.init()
+
+local WorldBuilder = require(Server.WorldBuilder)
+WorldBuilder.build()
+
+require(Server.DataService).init()
+require(Server.Router).init()
+require(Server.State).init()
+require(Server.AntiExploit).init()
+require(Server.ClickService).init()
+require(Server.PetService).init()
+require(Server.UpgradeService).init()
+require(Server.ZoneService).init()
+require(Server.RebirthService).init()
+require(Server.DailyService).init()
+require(Server.Monetization).init()
+require(Server.LeaderboardService).init()
+require(Server.PlayerService).init()
+
+print("[PetCollector] Server started. JobId:", game.JobId)
+]]></ProtectedString>
+			</Properties>
+		</Item>
+		<Item class="Folder" referent="RBX00000000000000000000000000000010">
+			<Properties>
+				<string name="Name">Server</string>
+			</Properties>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
+				<Properties>
+					<string name="Name">AntiExploit</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	AntiExploit — БАЗОВАЯ защита. Главный принцип: сервер никогда не доверяет клиенту
+	(все цены, шансы, множители и награды считаются только на сервере; клиент лишь просит действие).
+
+	Здесь:
+	  * счётчик "страйков" (нарушений) с кликом по окну времени и киком при злоупотреблении;
+	  * принудительная установка WalkSpeed/JumpPower (клиент может их подменить);
+	  * грубая проверка горизонтальной скорости (телепорты/спидхак) с откатом позиции.
+	Это НЕ заменяет полноценный античит — см. docs/ в README.
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Session = require(script.Parent.Session)
+
+local AntiExploit = {}
+
+-- weight — "вес" нарушения (по умолчанию 1)
+function AntiExploit.strike(player: Player, reason: string, weight: number?)
+	local s = Session.get(player)
+	if not s then
+		return
+	end
+	local now = os.clock()
+	local w = math.max(1, math.floor(weight or 1))
+	for _ = 1, w do
+		table.insert(s.Strikes, now)
+	end
+	-- удаляем старые
+	local window = Config.ANTICHEAT.STRIKE_WINDOW
+	local fresh = {}
+	for _, t in ipairs(s.Strikes) do
+		if now - t <= window then
+			table.insert(fresh, t)
+		end
+	end
+	s.Strikes = fresh
+	if #fresh >= Config.ANTICHEAT.STRIKE_KICK_THRESHOLD then
+		warn(
+			("[AntiExploit] kicking %s (%d): too many violations, last: %s"):format(
+				player.Name,
+				player.UserId,
+				reason
+			)
+		)
+		player:Kick("Suspicious activity detected.")
+	end
+end
+
+-- Вызывать, когда сервер сам перемещает персонажа
+function AntiExploit.markTeleport(player: Player)
+	local s = Session.get(player)
+	if s then
+		s.LastTeleport = os.clock()
+		s.LastPosition = nil
+	end
+end
+
+local function check(player: Player): boolean
+	local s = Session.get(player)
+	local data = DataService.get(player)
+	local character = player.Character
+	if not s or not data or not character then
+		return false
+	end
+	local humanoid = character:FindFirstChildOfClass("Humanoid")
+	local root = character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not humanoid or not root or humanoid.Health <= 0 then
+		return false
+	end
+
+	-- 1) Скорость и прыжок задаёт только сервер
+	local expected = Economy.getWalkSpeed(player, data)
+	if math.abs(humanoid.WalkSpeed - expected) > 0.01 then
+		humanoid.WalkSpeed = expected
+	end
+	if humanoid.UseJumpPower and math.abs(humanoid.JumpPower - Config.JUMP_POWER) > 0.01 then
+		humanoid.JumpPower = Config.JUMP_POWER
+	end
+
+	-- 2) Проверка горизонтальной скорости
+	local now = os.clock()
+	local pos = root.Position
+	local last = s.LastPosition
+	if last and now - s.LastTeleport > Config.ANTICHEAT.TELEPORT_GRACE then
+		local dt = math.max(now - s.LastPositionTime, 0.05)
+		local horizontal = Vector3.new(pos.X - last.X, 0, pos.Z - last.Z).Magnitude
+		if horizontal / dt > Config.ANTICHEAT.MAX_HORIZONTAL_SPEED then
+			AntiExploit.strike(player, "speed/teleport", 10)
+			root.CFrame = CFrame.new(last)
+			root.AssemblyLinearVelocity = Vector3.zero
+			pos = last
+		end
+	end
+	s.LastPosition = pos
+	s.LastPositionTime = now
+	return true
+end
+
+function AntiExploit.init()
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local ok, err = pcall(check, player)
+				if not ok then
+					warn("[AntiExploit] check failed:", err)
+				end
+			end
+		end
+	end)
+end
+
+return AntiExploit
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+				<Properties>
+					<string name="Name">ClickService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Сбор монет (клик) и автосбор. Количество монет считает только сервер.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local Remotes = require(Shared.Remotes)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+local Session = require(script.Parent.Session)
+
+local ClickService = {}
+
+-- Начисляет n кликов
+function ClickService.award(player: Player, clicks: number)
+	local data = DataService.get(player)
+	if not data then
+		return
+	end
+	local perClick = Economy.getPerClick(player, data)
+	Economy.addCoins(player, perClick * clicks)
+	data.TotalClicks += clicks
+end
+
+function ClickService.init()
+	Remotes.getEvent("Click").OnServerEvent:Connect(function(player: Player)
+		local s = Session.get(player)
+		if not s or not s.Ready then
+			return
+		end
+		-- Token bucket: до MAX_CLICKS_PER_SECOND в секунду, всплеск до CLICK_BURST. Лишнее молча отбрасываем.
+		local now = os.clock()
+		s.ClickTokens =
+			math.min(Config.CLICK_BURST, s.ClickTokens + (now - s.LastRefill) * Config.MAX_CLICKS_PER_SECOND)
+		s.LastRefill = now
+		if s.ClickTokens < 1 then
+			return
+		end
+		s.ClickTokens -= 1
+		ClickService.award(player, 1)
+	end)
+
+	-- Автосбор (геймпасс Auto Collect)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local s = Session.get(player)
+				local data = DataService.get(player)
+				if s and s.Ready and data and s.Passes.AUTO_COLLECT and data.AutoCollect then
+					ClickService.award(player, Config.PASS_EFFECTS.AUTO_CLICKS_PER_SECOND)
+				end
+			end
+		end
+	end)
+
+	Router.register("SetAutoCollect", 2, 3, function(player, value)
+		local data = DataService.get(player)
+		if not data or type(value) ~= "boolean" then
+			return false, "Bad request"
+		end
+		if not Session.hasPass(player, "AUTO_COLLECT") then
+			return false, "You need the Auto Collect pass"
+		end
+		data.AutoCollect = value
+		State.markCore(player)
+		return true, nil
+	end)
+end
+
+return ClickService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+				<Properties>
+					<string name="Name">DailyService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Ежедневные награды (цикл из 7 дней). День считается по UTC: floor(os.time() / 86400).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Router = require(script.Parent.Router)
+local Session = require(script.Parent.Session)
+
+local DailyService = {}
+
+local DAY = 86400
+
+local function today(): number
+	return os.time() // DAY
+end
+
+-- Данные для UI: можно ли забрать, какой день цикла следующий, сколько до сброса
+function DailyService.getInfo(
+	data: DataService.Data
+): { CanClaim: boolean, Day: number, Streak: number, SecondsLeft: number }
+	local t = today()
+	local daily = data.Daily
+	local canClaim = daily.LastDay < t
+	local streakIfClaimed = if daily.LastDay == t - 1 then daily.Streak + 1 else 1
+	if not canClaim then
+		streakIfClaimed = daily.Streak + 1
+	end
+	local day = ((streakIfClaimed - 1) % #Config.DAILY_REWARDS) + 1
+	return {
+		CanClaim = canClaim,
+		Day = day,
+		Streak = daily.Streak,
+		SecondsLeft = (t + 1) * DAY - os.time(),
+	}
+end
+
+local function claim(player: Player): (boolean, string?)
+	local data = DataService.get(player)
+	if not data then
+		return false, "Not loaded"
+	end
+	local t = today()
+	if data.Daily.LastDay >= t then
+		return false, "Already claimed today"
+	end
+	local streak = if data.Daily.LastDay == t - 1 then data.Daily.Streak + 1 else 1
+	local day = ((streak - 1) % #Config.DAILY_REWARDS) + 1
+	local reward = Config.DAILY_REWARDS[day]
+
+	-- Сначала фиксируем получение (защита от двойного клика), потом выдаём
+	data.Daily.LastDay = t
+	data.Daily.Streak = streak
+
+	local mult = if Economy.isVip(player) then Config.PASS_EFFECTS.VIP_DAILY_MULT else 1
+	local gems = reward.Gems * mult
+	local s = Session.get(player)
+	if s and s.Premium then
+		gems += Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS
+	end
+	local coins = Economy.getPerClick(player, data) * reward.Clicks * mult
+
+	Economy.addGems(player, gems)
+	Economy.addCoins(player, coins, false)
+
+	local text = ("Day %d reward: +%d gems"):format(day, gems)
+	if reward.Luck2Minutes then
+		local now = os.time()
+		data.Boosts.Luck2 = math.max(data.Boosts.Luck2, now) + reward.Luck2Minutes * 60
+		text ..= (", x2 luck for %d min"):format(reward.Luck2Minutes * mult)
+		data.Boosts.Luck2 += reward.Luck2Minutes * 60 * (mult - 1)
+	end
+	Notify.send(player, text .. "!", "reward")
+	return true, nil
+end
+
+function DailyService.init()
+	Router.register("ClaimDaily", 1, 2, claim)
+end
+
+return DailyService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+				<Properties>
+					<string name="Name">DataService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	DataService — сохранение данных игроков.
+
+	Особенности:
+	  * Session lock: запись в DataStore содержит Lock = { SessionId, Time }. Сервер, который хочет загрузить
+	    данные, видит чужую свежую блокировку и ждёт (с ретраями) её снятия. Это защищает от дюпа
+	    при одновременной игре на двух серверах и от перезаписи более новых данных.
+	  * Блокировка продлевается каждым автосейвом; если она старше SESSION_LOCK_TIMEOUT — считается
+	    брошенной (сервер упал), и её можно забрать.
+	  * Все обращения к DataStore — через UpdateAsync в pcall, с ретраями и экспоненциальной паузой.
+	  * Если блокировку у нас "украли" (старый сервер завис), сохранение отменяется, игрок кикается.
+	  * В Studio при выключенном API Services (или недоступном DataStore) — режим без сохранения (ephemeral).
+	  * BindToClose сохраняет всех игроков параллельно.
+]]
+local DataStoreService = game:GetService("DataStoreService")
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Util = require(ReplicatedStorage.Shared.Util)
+local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
+
+export type Data = { [string]: any }
+
+type Profile = {
+	Player: Player,
+	Key: string,
+	Data: Data,
+	Ephemeral: boolean,
+	Saving: boolean,
+	Released: boolean,
+	LockLost: boolean,
+	IsNew: boolean,
+}
+
+local DataService = {}
+
+DataService.SESSION_ID = HttpService:GenerateGUID(false)
+
+local TEMPLATE_VERSION = 1
+
+local function makeTemplate(): Data
+	return {
+		Version = TEMPLATE_VERSION,
+		Coins = 0,
+		Gems = 0,
+		Rebirths = 0,
+		TotalCoins = 0,
+		TotalHatched = 0,
+		TotalClicks = 0,
+		Pets = {}, -- [uid] = { Id = petId, Gold = boolean }
+		NextPetId = 1,
+		Equipped = {}, -- массив uid
+		Upgrades = { Click = 0, Speed = 0, Luck = 0, Bag = 0, Slots = 0 },
+		Zones = { [ZoneData.DEFAULT] = true },
+		CurrentZone = ZoneData.DEFAULT,
+		Daily = { LastDay = 0, Streak = 0 },
+		Boosts = { Luck2 = 0, Luck5 = 0 }, -- unix-время окончания
+		AutoCollect = true,
+		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
+		Joined = os.time(),
+	}
+end
+DataService.makeTemplate = makeTemplate
+
+local store: DataStore? = nil
+local storeOk = true
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetDataStore(Config.DATASTORE_NAME)
+	end)
+	if ok then
+		store = result :: DataStore
+	else
+		storeOk = false
+		warn("[DataService] GetDataStore failed:", result)
+	end
+end
+
+local profiles: { [Player]: Profile } = {}
+local isShuttingDown = false
+
+local function keyFor(player: Player): string
+	return "Player_" .. tostring(player.UserId)
+end
+
+-- Studio без включённых API Services: повторять бессмысленно, сразу переходим в режим без сохранения
+local function isApiDisabledError(message: string): boolean
+	local lower = string.lower(message)
+	return string.find(lower, "studio access to apis", 1, true) ~= nil
+		or string.find(lower, "enable studio access", 1, true) ~= nil
+end
+
+local function isLockedByOther(record: any): boolean
+	if type(record) ~= "table" then
+		return false
+	end
+	local lock = record.Lock
+	if type(lock) ~= "table" then
+		return false
+	end
+	if lock.SessionId == DataService.SESSION_ID then
+		return false
+	end
+	local t = lock.Time
+	if type(t) ~= "number" then
+		return false
+	end
+	return os.time() - t < Config.SESSION_LOCK_TIMEOUT
+end
+DataService._isLockedByOther = isLockedByOther
+
+-- ---------------------------------------------------------------------------
+-- Загрузка
+-- ---------------------------------------------------------------------------
+
+-- Возвращает Data или nil, причина. Блокирует (yield) вызывающий поток.
+function DataService.load(player: Player): (Data?, string?)
+	local key = keyFor(player)
+	local st = store
+
+	if st == nil then
+		if RunService:IsStudio() and Config.STUDIO_FALLBACK_TO_EPHEMERAL then
+			warn(
+				"[DataService] DataStore unavailable in Studio — using temporary data (progress will NOT be saved)."
+			)
+			local data = makeTemplate()
+			profiles[player] = {
+				Player = player,
+				Key = key,
+				Data = data,
+				Ephemeral = true,
+				Saving = false,
+				Released = false,
+				LockLost = false,
+				IsNew = true,
+			}
+			return data, nil
+		end
+		return nil, "DataStore unavailable"
+	end
+
+	local lastError = "unknown"
+	for attempt = 1, Config.LOAD_ATTEMPTS do
+		if not player.Parent then
+			return nil, "player left"
+		end
+		local wasLocked = false
+		local ok, result = pcall(function()
+			return st:UpdateAsync(key, function(old)
+				if isLockedByOther(old) then
+					wasLocked = true
+					return nil -- отмена обновления
+				end
+				local record = if type(old) == "table" then old else {}
+				record.Lock = { SessionId = DataService.SESSION_ID, Time = os.time() }
+				return record
+			end)
+		end)
+
+		if ok and not wasLocked and type(result) == "table" then
+			local data: Data
+			local isNew = false
+			if type(result.Data) == "table" then
+				data = result.Data
+				Util.reconcile(data, makeTemplate())
+			else
+				data = makeTemplate()
+				isNew = true
+			end
+			if not player.Parent then
+				-- игрок вышел во время загрузки: сразу снимаем блокировку
+				profiles[player] = {
+					Player = player,
+					Key = key,
+					Data = data,
+					Ephemeral = false,
+					Saving = false,
+					Released = false,
+					LockLost = false,
+					IsNew = isNew,
+				}
+				task.spawn(DataService.release, player)
+				return nil, "player left"
+			end
+			profiles[player] = {
+				Player = player,
+				Key = key,
+				Data = data,
+				Ephemeral = false,
+				Saving = false,
+				Released = false,
+				LockLost = false,
+				IsNew = isNew,
+			}
+			return data, nil
+		elseif ok and wasLocked then
+			lastError = "session locked by another server"
+			task.wait(Config.LOAD_LOCK_RETRY_DELAY)
+		else
+			lastError = tostring(result)
+			warn(("[DataService] load attempt %d failed for %s: %s"):format(attempt, player.Name, lastError))
+			if RunService:IsStudio() and isApiDisabledError(lastError) then
+				break
+			end
+			task.wait(math.min(2 ^ attempt, 15))
+		end
+	end
+
+	if RunService:IsStudio() and Config.STUDIO_FALLBACK_TO_EPHEMERAL and not isShuttingDown then
+		warn("[DataService] Could not load data in Studio (" .. lastError .. "). Using temporary data.")
+		local data = makeTemplate()
+		profiles[player] = {
+			Player = player,
+			Key = key,
+			Data = data,
+			Ephemeral = true,
+			Saving = false,
+			Released = false,
+			LockLost = false,
+			IsNew = true,
+		}
+		return data, nil
+	end
+	return nil, lastError
+end
+
+-- ---------------------------------------------------------------------------
+-- Сохранение
+-- ---------------------------------------------------------------------------
+
+local function write(profile: Profile, releaseLock: boolean): boolean
+	if profile.Ephemeral then
+		return true
+	end
+	local st = store
+	if st == nil then
+		return false
+	end
+
+	-- Ждём завершения параллельного сохранения того же игрока
+	local waited = 0
+	while profile.Saving and waited < 30 do
+		task.wait(0.1)
+		waited += 0.1
+	end
+	if profile.LockLost then
+		return false
+	end
+
+	profile.Saving = true
+	-- Снимок данных ДО вызова UpdateAsync: функция-трансформер может вызываться несколько раз и не должна yield-ить.
+	local snapshot = Util.deepCopy(profile.Data)
+	local success = false
+	for attempt = 1, Config.SAVE_ATTEMPTS do
+		local stolen = false
+		local ok, err = pcall(function()
+			st:UpdateAsync(profile.Key, function(old)
+				if isLockedByOther(old) then
+					stolen = true
+					return nil
+				end
+				local record = if type(old) == "table" then old else {}
+				record.Data = snapshot
+				record.SavedAt = os.time()
+				if releaseLock then
+					record.Lock = nil
+				else
+					record.Lock = { SessionId = DataService.SESSION_ID, Time = os.time() }
+				end
+				return record
+			end)
+		end)
+		if ok then
+			if stolen then
+				profile.LockLost = true
+				warn("[DataService] Session lock lost for", profile.Player.Name, "- save cancelled")
+				break
+			end
+			success = true
+			break
+		end
+		warn(
+			("[DataService] save attempt %d failed for %s: %s"):format(
+				attempt,
+				profile.Player.Name,
+				tostring(err)
+			)
+		)
+		task.wait(math.min(2 ^ attempt, 10))
+	end
+	profile.Saving = false
+	return success
+end
+
+function DataService.get(player: Player): Data?
+	local p = profiles[player]
+	if p and not p.Released then
+		return p.Data
+	end
+	return nil
+end
+
+function DataService.isNewPlayer(player: Player): boolean
+	local p = profiles[player]
+	return p ~= nil and p.IsNew
+end
+
+-- Немедленное сохранение (например, после покупки). Возвращает true при успехе.
+function DataService.saveNow(player: Player): boolean
+	local p = profiles[player]
+	if not p or p.Released then
+		return false
+	end
+	local ok = write(p, false)
+	if p.LockLost and player.Parent then
+		player:Kick("Your data session was taken by another server. Please rejoin.")
+	end
+	return ok
+end
+
+-- Финальное сохранение + снятие блокировки при выходе игрока
+function DataService.release(player: Player)
+	local p = profiles[player]
+	if not p or p.Released then
+		return
+	end
+	p.Released = true
+	profiles[player] = nil
+	write(p, true)
+end
+
+-- Подтверждение того, что у игрока есть живой профиль (для проверок в других сервисах)
+function DataService.isLoaded(player: Player): boolean
+	return DataService.get(player) ~= nil
+end
+
+-- Ждёт загрузки данных (до timeout секунд). Нужен для ProcessReceipt.
+function DataService.waitForData(player: Player, timeout: number): Data?
+	local t = 0
+	while t < timeout do
+		local d = DataService.get(player)
+		if d then
+			return d
+		end
+		if not player.Parent then
+			return nil
+		end
+		task.wait(0.25)
+		t += 0.25
+	end
+	return DataService.get(player)
+end
+
+-- ---------------------------------------------------------------------------
+-- Автосейв и закрытие сервера
+-- ---------------------------------------------------------------------------
+
+function DataService.init()
+	task.spawn(function()
+		while true do
+			task.wait(Config.AUTOSAVE_INTERVAL)
+			local list = {}
+			for player, profile in pairs(profiles) do
+				if not profile.Released then
+					table.insert(list, player)
+				end
+			end
+			for i, player in ipairs(list) do
+				task.spawn(DataService.saveNow, player)
+				-- растягиваем запросы, чтобы не упереться в лимиты DataStore
+				if i % 5 == 0 then
+					task.wait(1)
+				end
+			end
+		end
+	end)
+
+	game:BindToClose(function()
+		isShuttingDown = true
+		local pending = 0
+		local all = {}
+		for player in pairs(profiles) do
+			table.insert(all, player)
+		end
+		for _, player in ipairs(all) do
+			pending += 1
+			task.spawn(function()
+				DataService.release(player)
+				pending -= 1
+			end)
+		end
+		local t = 0
+		while pending > 0 and t < 25 do
+			task.wait(0.2)
+			t += 0.2
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		-- Основной путь освобождения — PlayerService; это страховка.
+		task.defer(DataService.release, player)
+	end)
+end
+
+DataService.storeOk = storeOk
+
+return DataService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+				<Properties>
+					<string name="Name">Economy</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Экономика: множители, сила кликов, удача, траты. Единственное место, где меняются Coins/Gems.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local Formulas = require(Shared.Formulas)
+local PetData = require(Shared.PetData)
+local ZoneData = require(Shared.ZoneData)
+local DataService = require(script.Parent.DataService)
+local Session = require(script.Parent.Session)
+
+local Economy = {}
+
+-- Колбэк, который PlayerService подставляет для обновления leaderstats / состояния клиента
+Economy.onChanged = nil :: ((Player) -> ())?
+
+local function changed(player: Player)
+	if Economy.onChanged then
+		Economy.onChanged(player)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Чтение множителей
+-- ---------------------------------------------------------------------------
+
+function Economy.isVip(player: Player): boolean
+	return Session.hasPass(player, "VIP")
+end
+
+function Economy.getPetPower(data: DataService.Data): number
+	local total = 0
+	local pets = data.Pets
+	for _, uid in ipairs(data.Equipped) do
+		local p = pets[uid]
+		if p then
+			total += PetData.getPower(p.Id, p.Gold)
+		end
+	end
+	return total
+end
+
+function Economy.getPetSlots(player: Player, data: DataService.Data): number
+	return Formulas.petSlots(data.Upgrades.Slots, Economy.isVip(player))
+end
+
+function Economy.getBagSize(data: DataService.Data): number
+	return Formulas.bagSize(data.Upgrades.Bag)
+end
+
+function Economy.countPets(data: DataService.Data): number
+	local n = 0
+	for _ in pairs(data.Pets) do
+		n += 1
+	end
+	return n
+end
+
+-- Множитель от геймпассов/премиума (без учёта питомцев/зоны/ребёрта)
+function Economy.getBonusMultiplier(player: Player): number
+	local mult = 1
+	if Session.hasPass(player, "DOUBLE_COINS") then
+		mult *= Config.PASS_EFFECTS.COIN_MULT_DOUBLE
+	end
+	if Session.hasPass(player, "VIP") then
+		mult *= 1 + Config.PASS_EFFECTS.VIP_COIN_BONUS
+	end
+	local s = Session.get(player)
+	if s and s.Premium then
+		mult *= 1 + Config.PASS_EFFECTS.PREMIUM_COIN_BONUS
+	end
+	return mult
+end
+
+-- Монет за один клик в текущей зоне
+function Economy.getPerClick(player: Player, data: DataService.Data): number
+	local zone = ZoneData.ById[data.CurrentZone] or ZoneData.ById[ZoneData.DEFAULT]
+	local base = Formulas.clickBase(data.Upgrades.Click)
+	local pets = 1 + Economy.getPetPower(data)
+	local rebirth = Formulas.rebirthMultiplier(data.Rebirths)
+	local value = base * pets * zone.Multiplier * rebirth * Economy.getBonusMultiplier(player)
+	return math.max(1, math.floor(math.min(value, Config.MAX_COINS)))
+end
+
+-- Множитель буста удачи, если активен (возвращает множитель и время окончания)
+function Economy.getLuckBoost(data: DataService.Data): (number, number)
+	local now = os.time()
+	local boosts = data.Boosts
+	if boosts.Luck5 > now then
+		return 5, boosts.Luck5
+	elseif boosts.Luck2 > now then
+		return 2, boosts.Luck2
+	end
+	return 1, 0
+end
+
+function Economy.getLuck(player: Player, data: DataService.Data): number
+	local luck = Formulas.upgradeLuck(data.Upgrades.Luck)
+	local session = Session.get(player)
+	if session and session.PaidRandomRestricted then
+		-- Платные модификаторы шансов (бусты, VIP) не действуют для игроков с ограничением по PolicyService.
+		-- Остаётся только "заработанная" удача от апгрейда.
+		return luck
+	end
+	local boost = Economy.getLuckBoost(data)
+	luck *= boost
+	if Economy.isVip(player) then
+		luck *= 1 + Config.PASS_EFFECTS.VIP_LUCK_BONUS
+	end
+	return luck
+end
+
+function Economy.getWalkSpeed(player: Player, data: DataService.Data): number
+	return Formulas.walkSpeed(data.Upgrades.Speed, Session.hasPass(player, "DOUBLE_SPEED"))
+end
+
+-- ---------------------------------------------------------------------------
+-- Изменение валют (всегда через эти функции)
+-- ---------------------------------------------------------------------------
+
+function Economy.addCoins(player: Player, amount: number, countTowardsTotal: boolean?)
+	local data = DataService.get(player)
+	if not data or amount ~= amount or amount <= 0 then
+		return
+	end
+	amount = math.floor(amount)
+	data.Coins = math.min(data.Coins + amount, Config.MAX_COINS)
+	if countTowardsTotal ~= false then
+		data.TotalCoins = math.min(data.TotalCoins + amount, Config.MAX_COINS)
+	end
+	changed(player)
+end
+
+function Economy.addGems(player: Player, amount: number)
+	local data = DataService.get(player)
+	if not data or amount ~= amount or amount <= 0 then
+		return
+	end
+	data.Gems = math.min(data.Gems + math.floor(amount), Config.MAX_GEMS)
+	changed(player)
+end
+
+function Economy.canAfford(data: DataService.Data, currency: string, amount: number): boolean
+	if currency == "Gems" then
+		return data.Gems >= amount
+	end
+	return data.Coins >= amount
+end
+
+-- Списывает валюту, если хватает. Не содержит yield — проверка и списание атомарны.
+function Economy.trySpend(player: Player, currency: string, amount: number): boolean
+	local data = DataService.get(player)
+	if not data or amount ~= amount or amount < 0 then
+		return false
+	end
+	if currency == "Gems" then
+		if data.Gems < amount then
+			return false
+		end
+		data.Gems -= amount
+	elseif currency == "Coins" then
+		if data.Coins < amount then
+			return false
+		end
+		data.Coins -= amount
+	else
+		return false
+	end
+	changed(player)
+	return true
+end
+
+return Economy
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+				<Properties>
+					<string name="Name">LeaderboardService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Глобальный лидерборд (OrderedDataStore) по суммарно заработанным монетам + табло в мире.
+local Players = game:GetService("Players")
+local DataStoreService = game:GetService("DataStoreService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local DataService = require(script.Parent.DataService)
+local WorldBuilder = require(script.Parent.WorldBuilder)
+
+local LeaderboardService = {}
+
+local REFRESH_INTERVAL = 60
+local MAX_SCORE = 9e15 -- OrderedDataStore хранит целые числа
+
+local store: OrderedDataStore? = nil
+do
+	local ok, result = pcall(function()
+		return DataStoreService:GetOrderedDataStore(Config.LEADERBOARD_DATASTORE)
+	end)
+	if ok then
+		store = result :: OrderedDataStore
+	end
+end
+
+local lastSubmitted: { [number]: number } = {}
+local nameCache: { [number]: string } = {}
+
+local function nameFor(userId: number): string
+	local cached = nameCache[userId]
+	if cached then
+		return cached
+	end
+	local player = Players:GetPlayerByUserId(userId)
+	if player then
+		nameCache[userId] = player.Name
+		return player.Name
+	end
+	local ok, name = pcall(function()
+		return Players:GetNameFromUserIdAsync(userId)
+	end)
+	local result = if ok and type(name) == "string" then name else ("Player" .. tostring(userId))
+	nameCache[userId] = result
+	return result
+end
+
+-- Отправка результата игрока (если изменился)
+function LeaderboardService.submit(userId: number, totalCoins: number)
+	local st = store
+	if not st then
+		return
+	end
+	local score = math.floor(math.clamp(totalCoins, 0, MAX_SCORE))
+	if lastSubmitted[userId] == score then
+		return
+	end
+	local ok, err = pcall(function()
+		st:SetAsync(tostring(userId), score)
+	end)
+	if ok then
+		lastSubmitted[userId] = score
+	else
+		warn("[Leaderboard] SetAsync failed:", err)
+	end
+end
+
+local function refreshBoard()
+	local st = store
+	if not st then
+		WorldBuilder.setBoard(nil, "Leaderboard unavailable")
+		return
+	end
+	local ok, pagesOrErr = pcall(function()
+		return st:GetSortedAsync(false, 10)
+	end)
+	if not ok then
+		WorldBuilder.setBoard(nil, "Enable API Services to see the board")
+		return
+	end
+	local okPage, page = pcall(function()
+		return (pagesOrErr :: DataStorePages):GetCurrentPage()
+	end)
+	if not okPage then
+		return
+	end
+	local entries = {}
+	for _, entry in ipairs(page) do
+		local userId = tonumber(entry.key)
+		if userId then
+			table.insert(entries, { Name = nameFor(userId), Value = entry.value :: number })
+		end
+	end
+	WorldBuilder.setBoard(entries, "Lifetime coins earned")
+end
+
+function LeaderboardService.init()
+	task.spawn(function()
+		task.wait(5)
+		while true do
+			for _, player in ipairs(Players:GetPlayers()) do
+				local data = DataService.get(player)
+				if data then
+					LeaderboardService.submit(player.UserId, data.TotalCoins)
+					task.wait(0.5)
+				end
+			end
+			refreshBoard()
+			task.wait(REFRESH_INTERVAL)
+		end
+	end)
+end
+
+return LeaderboardService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+				<Properties>
+					<string name="Name">Monetization</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Monetization — геймпассы, девелоперские продукты, ProcessReceipt, Premium.
+
+	ProcessReceipt реализован по рекомендациям Roblox:
+	  * единственный обработчик (MarketplaceService.ProcessReceipt назначается только здесь);
+	  * идемпотентность: PurchaseId записывается в данные игрока (Receipts) вместе с наградой;
+	  * PurchaseGranted возвращается ТОЛЬКО после успешного сохранения данных с наградой;
+	  * любая неопределённость (игрок вышел, данные не загрузились, сохранение не удалось,
+	    продукт неизвестен) -> NotProcessedYet, Roblox повторит вызов позже.
+]]
+local MarketplaceService = game:GetService("MarketplaceService")
+local PolicyService = game:GetService("PolicyService")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Session = require(script.Parent.Session)
+local State = require(script.Parent.State)
+
+local Monetization = {}
+
+-- Подписчики на изменение статуса (PlayerService обновляет VIP-тег)
+Monetization.onStatusChanged = {} :: { (Player) -> () }
+
+local MAX_RECEIPTS = 300
+
+local function fireStatusChanged(player: Player)
+	for _, cb in ipairs(Monetization.onStatusChanged) do
+		task.spawn(cb, player)
+	end
+	State.markCore(player)
+end
+
+local function ownsPass(userId: number, passId: number): boolean
+	for attempt = 1, 3 do
+		local ok, result = pcall(function()
+			return MarketplaceService:UserOwnsGamePassAsync(userId, passId)
+		end)
+		if ok then
+			return result == true
+		end
+		task.wait(attempt)
+	end
+	return false
+end
+
+-- Политика Roblox для платных случайных предметов (яйца за Robux-валюту). yield!
+-- При любой ошибке считаем игрока ограниченным — это безопасная сторона.
+local function loadPolicy(player: Player): boolean
+	for attempt = 1, 3 do
+		local ok, result = pcall(function()
+			return PolicyService:GetPolicyInfoForPlayerAsync(player)
+		end)
+		if ok and type(result) == "table" then
+			return result.ArePaidRandomItemsRestricted == true
+		end
+		task.wait(attempt)
+	end
+	return true
+end
+
+-- Проверяет геймпассы, Premium и политику при входе (yield!)
+function Monetization.loadPlayer(player: Player)
+	local session = Session.get(player)
+	if not session then
+		return
+	end
+	session.Premium = player.MembershipType == Enum.MembershipType.Premium
+	session.PaidRandomRestricted = loadPolicy(player)
+
+	local grantAll = RunService:IsStudio() and Config.STUDIO_GRANT_ALL_PASSES
+	for key, id in pairs(Config.GAMEPASS_IDS) do
+		if grantAll then
+			session.Passes[key] = true
+		elseif id ~= 0 then
+			session.Passes[key] = ownsPass(player.UserId, id)
+		end
+	end
+end
+
+local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
+	if def.Kind == "Gems" then
+		Economy.addGems(player, def.Amount)
+		Notify.send(player, ("+%d gems! Thank you!"):format(def.Amount), "reward")
+	elseif def.Kind == "Coins" then
+		local amount = math.max(def.Min, Economy.getPerClick(player, data) * def.Clicks)
+		Economy.addCoins(player, amount, false)
+		Notify.send(player, "Coins delivered! Thank you!", "reward")
+	elseif def.Kind == "Luck" then
+		local boosts = data.Boosts
+		local base = math.max(boosts[def.Boost] or 0, os.time())
+		boosts[def.Boost] = base + def.Seconds
+		Notify.send(player, ("%s activated!"):format(def.Name), "reward")
+	end
+end
+
+local function pruneReceipts(data: DataService.Data)
+	local count = 0
+	for _ in pairs(data.Receipts) do
+		count += 1
+	end
+	if count <= MAX_RECEIPTS then
+		return
+	end
+	local list = {}
+	for key, t in pairs(data.Receipts) do
+		table.insert(list, { Key = key, Time = t })
+	end
+	table.sort(list, function(a, b)
+		return a.Time < b.Time
+	end)
+	for i = 1, count - MAX_RECEIPTS + 50 do
+		if list[i] then
+			data.Receipts[list[i].Key] = nil
+		end
+	end
+end
+
+local function processReceipt(info: { [string]: any }): Enum.ProductPurchaseDecision
+	local player = Players:GetPlayerByUserId(info.PlayerId)
+	if not player then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+	local data = DataService.waitForData(player, 20)
+	if not data then
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local receiptKey = tostring(info.PurchaseId)
+	if data.Receipts[receiptKey] then
+		-- Награда уже выдана в этой или прошлой сессии. Подтверждаем только если она точно сохранена.
+		if DataService.saveNow(player) then
+			return Enum.ProductPurchaseDecision.PurchaseGranted
+		end
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	local productKey = Config.getProductKeyById(info.ProductId)
+	local def = if productKey then Config.PRODUCTS[productKey] else nil
+	if not def then
+		warn(
+			"[Monetization] Unknown ProductId",
+			info.ProductId,
+			"- add it to Config.PRODUCT_IDS / Config.PRODUCTS"
+		)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
+
+	-- Награда и запись о чеке — без yield между ними (атомарно)
+	grantProduct(player, data, def)
+	data.Receipts[receiptKey] = os.time()
+	pruneReceipts(data)
+	State.markCore(player)
+
+	if DataService.saveNow(player) then
+		return Enum.ProductPurchaseDecision.PurchaseGranted
+	end
+	return Enum.ProductPurchaseDecision.NotProcessedYet
+end
+
+function Monetization.init()
+	MarketplaceService.ProcessReceipt = processReceipt
+
+	MarketplaceService.PromptGamePassPurchaseFinished:Connect(
+		function(player: Player, passId: number, wasPurchased: boolean)
+			if not wasPurchased then
+				return
+			end
+			local key = Config.getPassKeyById(passId)
+			local session = Session.get(player)
+			if not key or not session then
+				return
+			end
+			session.Passes[key] = true
+			local info = Config.GAMEPASSES[key]
+			Notify.send(player, ((info and info.Name) or key) .. " unlocked! Thank you!", "reward")
+			fireStatusChanged(player)
+		end
+	)
+
+	Players.PlayerMembershipChanged:Connect(function(player: Player)
+		local session = Session.get(player)
+		if session then
+			session.Premium = player.MembershipType == Enum.MembershipType.Premium
+			fireStatusChanged(player)
+		end
+	end)
+end
+
+return Monetization
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+				<Properties>
+					<string name="Name">Notify</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Всплывающие сообщения игроку (серверный источник правды для текста).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+local Notify = {}
+
+-- kind: "info" | "success" | "error" | "reward"
+function Notify.send(player: Player, text: string, kind: string?)
+	if player.Parent == nil then
+		return
+	end
+	Remotes.getEvent("Notify"):FireClient(player, text, kind or "info")
+end
+
+return Notify
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+				<Properties>
+					<string name="Name">PetService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Питомцы: открытие яиц, экипировка, продажа. Шансы, цены и вместимость проверяются на сервере.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local PetData = require(Shared.PetData)
+local Remotes = require(Shared.Remotes)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+local WorldBuilder = require(script.Parent.WorldBuilder)
+
+local PetService = {}
+
+local rng = Random.new()
+
+local function isAllowedCount(n: any): boolean
+	if type(n) ~= "number" then
+		return false
+	end
+	for _, allowed in ipairs(Config.HATCH_COUNTS) do
+		if allowed == n then
+			return true
+		end
+	end
+	return false
+end
+
+local function isNearEgg(player: Player, eggId: string): boolean
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local eggPos = WorldBuilder.getEggPosition(eggId)
+	if not root or not eggPos then
+		return false
+	end
+	return (root.Position - eggPos).Magnitude <= Config.EGG_MAX_DISTANCE
+end
+
+local function newUid(data: DataService.Data): string
+	local uid = "p" .. tostring(data.NextPetId)
+	data.NextPetId += 1
+	return uid
+end
+
+-- Открытие яиц. Никаких yield между проверкой цены и выдачей — операция атомарна.
+local function hatch(player: Player, eggId: any, count: any): (boolean, string?)
+	if type(eggId) ~= "string" or not isAllowedCount(count) then
+		return false, "Bad request"
+	end
+	local data = DataService.get(player)
+	local egg = PetData.EggsById[eggId]
+	if not data or not egg then
+		return false, "Unknown egg"
+	end
+	if not data.Zones[egg.Zone] then
+		return false, "Unlock this world first"
+	end
+	if not isNearEgg(player, eggId) then
+		return false, "Stand closer to the egg"
+	end
+	local n = count :: number
+	local free = Economy.getBagSize(data) - Economy.countPets(data)
+	if free < n then
+		return false, "Not enough pet storage — sell pets or buy Bigger Bag"
+	end
+	local price = egg.Price * n
+	if not Economy.trySpend(player, egg.Currency, price) then
+		return false, if egg.Currency == "Gems" then "Not enough gems" else "Not enough coins"
+	end
+
+	local luck = Economy.getLuck(player, data)
+	local results = {}
+	for _ = 1, n do
+		local petId = PetData.roll(egg.Id, luck, rng:NextNumber())
+		if petId then
+			local gold = rng:NextNumber() < Config.GOLD_CHANCE
+			local uid = newUid(data)
+			data.Pets[uid] = { Id = petId, Gold = gold }
+			data.TotalHatched += 1
+			table.insert(results, { Uid = uid, Id = petId, Gold = gold })
+		end
+	end
+	State.markPets(player)
+	Remotes.getEvent("HatchResult"):FireClient(player, results)
+	return true, nil
+end
+
+local function isEquipped(data: DataService.Data, uid: string): number?
+	for i, v in ipairs(data.Equipped) do
+		if v == uid then
+			return i
+		end
+	end
+	return nil
+end
+
+local function equip(player: Player, uid: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(uid) ~= "string" or not data.Pets[uid] then
+		return false, "Pet not found"
+	end
+	if isEquipped(data, uid) then
+		return false, "Already equipped"
+	end
+	if #data.Equipped >= Economy.getPetSlots(player, data) then
+		return false, "No free pet slots"
+	end
+	table.insert(data.Equipped, uid)
+	State.markPets(player)
+	return true, nil
+end
+
+local function unequip(player: Player, uid: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(uid) ~= "string" then
+		return false, "Bad request"
+	end
+	local index = isEquipped(data, uid)
+	if not index then
+		return false, "Not equipped"
+	end
+	table.remove(data.Equipped, index)
+	State.markPets(player)
+	return true, nil
+end
+
+local function equipBest(player: Player): (boolean, string?)
+	local data = DataService.get(player)
+	if not data then
+		return false, "Not loaded"
+	end
+	local list = {}
+	for uid, p in pairs(data.Pets) do
+		table.insert(list, { Uid = uid, Power = PetData.getPower(p.Id, p.Gold) })
+	end
+	table.sort(list, function(a, b)
+		if a.Power ~= b.Power then
+			return a.Power > b.Power
+		end
+		return a.Uid < b.Uid
+	end)
+	local slots = Economy.getPetSlots(player, data)
+	local equipped = {}
+	for i = 1, math.min(slots, #list) do
+		equipped[i] = list[i].Uid
+	end
+	data.Equipped = equipped
+	State.markPets(player)
+	return true, nil
+end
+
+local function sell(player: Player, uid: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(uid) ~= "string" then
+		return false, "Bad request"
+	end
+	local p = data.Pets[uid]
+	if not p then
+		return false, "Pet not found"
+	end
+	if isEquipped(data, uid) then
+		return false, "Unequip the pet first"
+	end
+	data.Pets[uid] = nil
+	local value = PetData.sellValue(p.Id, p.Gold)
+	Economy.addCoins(player, value, false)
+	State.markPets(player)
+	Notify.send(player, ("Sold for %d coins"):format(value), "success")
+	return true, nil
+end
+
+function PetService.init()
+	Router.register("Hatch", 3, 3, hatch)
+	Router.register("Equip", 8, 8, equip)
+	Router.register("Unequip", 8, 8, unequip)
+	Router.register("EquipBest", 2, 3, equipBest)
+	Router.register("Sell", 8, 8, sell)
+
+	-- Серверный ProximityPrompt у яйца -> просим клиента открыть окно яйца (шансы + кнопки)
+	WorldBuilder.onEggPrompt(function(player: Player, eggId: string)
+		local data = DataService.get(player)
+		local egg = PetData.EggsById[eggId]
+		if not data or not egg then
+			return
+		end
+		if not data.Zones[egg.Zone] then
+			Notify.send(player, "Unlock this world first!", "error")
+			return
+		end
+		Remotes.getEvent("OpenEgg"):FireClient(player, eggId)
+	end)
+end
+
+return PetService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+				<Properties>
+					<string name="Name">PlayerService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Жизненный цикл игрока: загрузка данных, leaderstats, спавн, респавн, оверхед-тег, выход.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local Util = require(Shared.Util)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local LeaderboardService = require(script.Parent.LeaderboardService)
+local Monetization = require(script.Parent.Monetization)
+local Notify = require(script.Parent.Notify)
+local Session = require(script.Parent.Session)
+local State = require(script.Parent.State)
+local WorldBuilder = require(script.Parent.WorldBuilder)
+local ZoneService = require(script.Parent.ZoneService)
+
+local PlayerService = {}
+
+local RESPAWN_DELAY = 2.5
+
+local function updateLeaderstats(player: Player)
+	local data = DataService.get(player)
+	local stats = player:FindFirstChild("leaderstats")
+	if not data or not stats then
+		return
+	end
+	local rebirths = stats:FindFirstChild("Rebirths") :: IntValue?
+	local coins = stats:FindFirstChild("Coins") :: StringValue?
+	local gems = stats:FindFirstChild("Gems") :: StringValue?
+	if rebirths then
+		rebirths.Value = data.Rebirths
+	end
+	if coins then
+		coins.Value = Util.formatNumber(data.Coins)
+	end
+	if gems then
+		gems.Value = Util.formatNumber(data.Gems)
+	end
+end
+
+local function createLeaderstats(player: Player)
+	local stats = Instance.new("Folder")
+	stats.Name = "leaderstats"
+	local rebirths = Instance.new("IntValue")
+	rebirths.Name = "Rebirths"
+	rebirths.Parent = stats
+	local coins = Instance.new("StringValue")
+	coins.Name = "Coins"
+	coins.Parent = stats
+	local gems = Instance.new("StringValue")
+	gems.Name = "Gems"
+	gems.Parent = stats
+	stats.Parent = player
+	updateLeaderstats(player)
+end
+
+local function createTag(): BillboardGui
+	local g = Instance.new("BillboardGui")
+	g.Name = "OverheadTag"
+	g.Size = UDim2.fromOffset(220, 56)
+	g.StudsOffset = Vector3.new(0, 2.6, 0)
+	g.MaxDistance = 60
+	g.LightInfluence = 0
+	local name = Instance.new("TextLabel")
+	name.Name = "NameLabel"
+	name.BackgroundTransparency = 1
+	name.Size = UDim2.fromScale(1, 0.55)
+	name.Font = Enum.Font.GothamBold
+	name.TextScaled = true
+	name.TextColor3 = Color3.new(1, 1, 1)
+	name.TextStrokeTransparency = 0.5
+	name.Parent = g
+	local sub = Instance.new("TextLabel")
+	sub.Name = "SubLabel"
+	sub.BackgroundTransparency = 1
+	sub.Position = UDim2.fromScale(0, 0.55)
+	sub.Size = UDim2.fromScale(1, 0.4)
+	sub.Font = Enum.Font.GothamBold
+	sub.TextScaled = true
+	sub.TextColor3 = Color3.fromRGB(255, 214, 90)
+	sub.TextStrokeTransparency = 0.5
+	sub.Parent = g
+	return g
+end
+
+-- Оверхед-тег над головой: ник, [VIP], число ребёрт
+local function refreshTag(player: Player)
+	local character = player.Character
+	local data = DataService.get(player)
+	local head = character and character:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") or not data then
+		return
+	end
+	local existing = head:FindFirstChild("OverheadTag")
+	local gui: BillboardGui
+	if existing and existing:IsA("BillboardGui") then
+		gui = existing
+	else
+		gui = createTag()
+		gui.Parent = head
+	end
+	local nameLabel = gui:FindFirstChild("NameLabel") :: TextLabel
+	local subLabel = gui:FindFirstChild("SubLabel") :: TextLabel
+	nameLabel.Text = player.DisplayName
+	local parts = {}
+	if Economy.isVip(player) then
+		table.insert(parts, "[VIP]")
+	end
+	if data.Rebirths > 0 then
+		table.insert(parts, "Rebirth " .. tostring(data.Rebirths))
+	end
+	subLabel.Text = table.concat(parts, "  ")
+end
+
+-- LoadCharacterAsync — актуальный API; LoadCharacter оставлен как запасной вариант для старых версий Studio
+local function loadCharacter(player: Player)
+	local ok = pcall(function()
+		player:LoadCharacterAsync()
+	end)
+	if not ok then
+		pcall(function()
+			(player :: any):LoadCharacter()
+		end)
+	end
+end
+
+local function onCharacterAdded(player: Player, character: Model)
+	local data = DataService.get(player)
+	if not data then
+		return
+	end
+	local humanoid = character:WaitForChild("Humanoid", 10) :: Humanoid?
+	local root = character:WaitForChild("HumanoidRootPart", 10)
+	if not humanoid or not root or not player.Parent then
+		return
+	end
+	humanoid.UseJumpPower = true
+	humanoid.JumpPower = Config.JUMP_POWER
+	humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
+	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+
+	ZoneService.moveToZone(player, data.CurrentZone)
+	refreshTag(player)
+
+	humanoid.Died:Connect(function()
+		task.delay(RESPAWN_DELAY, function()
+			if player.Parent and player.Character == character and Session.get(player) then
+				loadCharacter(player)
+			end
+		end)
+	end)
+end
+
+local function onPlayerAdded(player: Player)
+	local session = Session.create(player)
+
+	local data, err = DataService.load(player)
+	if not data then
+		Session.destroy(player)
+		if player.Parent then
+			player:Kick(
+				"Could not load your data ("
+					.. tostring(err)
+					.. "). Please rejoin in a minute — your progress is safe."
+			)
+		end
+		return
+	end
+	if not player.Parent then
+		return
+	end
+
+	Monetization.loadPlayer(player)
+	if not player.Parent then
+		return
+	end
+
+	createLeaderstats(player)
+	session.Ready = true
+
+	player.CharacterAdded:Connect(function(character)
+		onCharacterAdded(player, character)
+	end)
+
+	State.push(player, true)
+	if DataService.isNewPlayer(player) then
+		Notify.send(player, "Welcome! Tap COLLECT to earn coins, then open eggs to find pets!", "info")
+	end
+	loadCharacter(player)
+end
+
+local function onPlayerRemoving(player: Player)
+	local data = DataService.get(player)
+	if data then
+		-- последняя отправка в лидерборд (в фоне) и сохранение со снятием session lock
+		local userId, total = player.UserId, data.TotalCoins
+		task.spawn(LeaderboardService.submit, userId, total)
+	end
+	DataService.release(player)
+	Session.destroy(player)
+	WorldBuilder.clearPlayer(player)
+end
+
+function PlayerService.init()
+	Economy.onChanged = function(player: Player)
+		State.markCore(player)
+		updateLeaderstats(player)
+	end
+
+	table.insert(Monetization.onStatusChanged, refreshTag)
+
+	Players.PlayerAdded:Connect(onPlayerAdded)
+	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	for _, player in ipairs(Players:GetPlayers()) do
+		task.spawn(onPlayerAdded, player)
+	end
+
+	-- Обновление тега после ребёрта
+	task.spawn(function()
+		while true do
+			task.wait(5)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local s = Session.get(player)
+				if s and s.Ready then
+					refreshTag(player)
+				end
+			end
+		end
+	end)
+end
+
+return PlayerService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+				<Properties>
+					<string name="Name">RebirthService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Ребёрт: сброс монет и силы клика в обмен на постоянный множитель и гемы.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Formulas = require(Shared.Formulas)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+
+local RebirthService = {}
+
+local function rebirth(player: Player): (boolean, string?)
+	local data = DataService.get(player)
+	if not data then
+		return false, "Not loaded"
+	end
+	local cost = Formulas.rebirthCost(data.Rebirths)
+	if data.Coins < cost then
+		return false, "Not enough coins"
+	end
+	local gems = Formulas.rebirthGems(data.Rebirths)
+	data.Coins = 0
+	data.Upgrades.Click = 0
+	data.Rebirths += 1
+	Economy.addGems(player, gems)
+	State.markCore(player)
+	Notify.send(
+		player,
+		("Rebirth %d! Coin multiplier is now x%.1f (+%d gems)"):format(
+			data.Rebirths,
+			Formulas.rebirthMultiplier(data.Rebirths),
+			gems
+		),
+		"reward"
+	)
+	return true, nil
+end
+
+function RebirthService.init()
+	Router.register("Rebirth", 1, 2, rebirth)
+end
+
+return RebirthService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+				<Properties>
+					<string name="Name">Router</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Router — единая точка входа для действий клиента (RemoteFunction "Action").
+	  * проверяет, что игрок готов (данные загружены);
+	  * ограничивает частоту каждого действия (token bucket на игрока);
+	  * ловит ошибки обработчиков (pcall), чтобы эксплойтер не мог "уронить" сервер;
+	  * возвращает клиенту всегда таблицу { ok = boolean, msg = string? }.
+	Обработчик: function(player, ...) -> (ok: boolean, msg: string?)
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+local Session = require(script.Parent.Session)
+local AntiExploit = require(script.Parent.AntiExploit)
+
+export type Handler = (player: Player, ...any) -> (boolean, string?)
+
+local Router = {}
+
+local handlers: { [string]: { Fn: Handler, Rate: number, Burst: number } } = {}
+
+function Router.register(name: string, ratePerSecond: number, burst: number, fn: Handler)
+	assert(handlers[name] == nil, "duplicate action " .. name)
+	handlers[name] = { Fn = fn, Rate = ratePerSecond, Burst = burst }
+end
+
+local function takeToken(session: Session.PlayerSession, name: string, rate: number, burst: number): boolean
+	local now = os.clock()
+	local bucket = session.ActionBuckets[name]
+	if not bucket then
+		bucket = { Tokens = burst, Last = now }
+		session.ActionBuckets[name] = bucket
+	end
+	bucket.Tokens = math.min(burst, bucket.Tokens + (now - bucket.Last) * rate)
+	bucket.Last = now
+	if bucket.Tokens >= 1 then
+		bucket.Tokens -= 1
+		return true
+	end
+	return false
+end
+
+function Router.init()
+	local fn = Remotes.getFunction("Action")
+	fn.OnServerInvoke = function(player: Player, action: any, ...)
+		if type(action) ~= "string" then
+			AntiExploit.strike(player, "bad action type", 3)
+			return { ok = false, msg = "Bad request" }
+		end
+		local entry = handlers[action]
+		if not entry then
+			AntiExploit.strike(player, "unknown action", 3)
+			return { ok = false, msg = "Unknown action" }
+		end
+		local session = Session.get(player)
+		if not session or not session.Ready then
+			return { ok = false, msg = "Still loading..." }
+		end
+		if not takeToken(session, action, entry.Rate, entry.Burst) then
+			AntiExploit.strike(player, "rate limit " .. action, 1)
+			return { ok = false, msg = "Slow down!" }
+		end
+		local ok, success, msg = pcall(entry.Fn, player, ...)
+		if not ok then
+			warn("[Router] handler error in", action, success)
+			return { ok = false, msg = "Server error" }
+		end
+		return { ok = success == true, msg = msg }
+	end
+end
+
+return Router
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+				<Properties>
+					<string name="Name">Session</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Временное (не сохраняемое) состояние игрока на этом сервере: геймпассы, премиум, лимиты и т.п.
+local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
+
+export type PlayerSession = {
+	Passes: { [string]: boolean },
+	Premium: boolean,
+	PaidRandomRestricted: boolean, -- PolicyService: игрок не может участвовать в платных случайных механиках
+	ClickTokens: number,
+	LastRefill: number,
+	LastHatch: number,
+	ActionBuckets: { [string]: { Tokens: number, Last: number } },
+	Strikes: { number },
+	LastTeleport: number,
+	LastPosition: Vector3?,
+	LastPositionTime: number,
+	Ready: boolean, -- данные загружены, можно играть
+}
+
+local Session = {}
+
+local sessions: { [Player]: PlayerSession } = {}
+
+function Session.create(player: Player): PlayerSession
+	local passes = {}
+	for key in pairs(Config.GAMEPASS_IDS) do
+		passes[key] = false
+	end
+	local s: PlayerSession = {
+		Passes = passes,
+		Premium = false,
+		PaidRandomRestricted = true, -- пока политика не получена — считаем ограничение включённым (безопасный вариант)
+		ClickTokens = Config.CLICK_BURST,
+		LastRefill = os.clock(),
+		LastHatch = 0,
+		ActionBuckets = {},
+		Strikes = {},
+		LastTeleport = 0,
+		LastPosition = nil,
+		LastPositionTime = 0,
+		Ready = false,
+	}
+	sessions[player] = s
+	return s
+end
+
+function Session.get(player: Player): PlayerSession?
+	return sessions[player]
+end
+
+function Session.destroy(player: Player)
+	sessions[player] = nil
+end
+
+function Session.hasPass(player: Player, key: string): boolean
+	local s = sessions[player]
+	return s ~= nil and s.Passes[key] == true
+end
+
+return Session
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+				<Properties>
+					<string name="Name">State</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Рассылка состояния клиенту. Клиент только отображает то, что прислал сервер.
+-- "Core" — часто меняющиеся поля (монеты и т.д.), "Pets" — инвентарь питомцев (меняется редко).
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Formulas = require(Shared.Formulas)
+local Remotes = require(Shared.Remotes)
+
+local DailyService = require(script.Parent.DailyService)
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Router = require(script.Parent.Router)
+local Session = require(script.Parent.Session)
+
+local State = {}
+
+local dirtyCore: { [Player]: boolean } = {}
+local dirtyPets: { [Player]: boolean } = {}
+local lastAttr: { [Player]: string } = {}
+
+function State.markCore(player: Player)
+	dirtyCore[player] = true
+end
+
+function State.markPets(player: Player)
+	dirtyPets[player] = true
+	dirtyCore[player] = true
+end
+
+local function buildCore(player: Player, data: DataService.Data)
+	local session = Session.get(player)
+	local luckBoost, luckEnds = Economy.getLuckBoost(data)
+	local passes = {}
+	if session then
+		for k, v in pairs(session.Passes) do
+			passes[k] = v
+		end
+	end
+	local vip = Economy.isVip(player)
+	return {
+		Coins = data.Coins,
+		Gems = data.Gems,
+		Rebirths = data.Rebirths,
+		TotalCoins = data.TotalCoins,
+		TotalHatched = data.TotalHatched,
+		PerClick = Economy.getPerClick(player, data),
+		BonusMult = Economy.getBonusMultiplier(player),
+		PetPower = Economy.getPetPower(data),
+		Slots = Economy.getPetSlots(player, data),
+		BagSize = Economy.getBagSize(data),
+		PetCount = Economy.countPets(data),
+		Equipped = data.Equipped,
+		Upgrades = data.Upgrades,
+		Zones = data.Zones,
+		CurrentZone = data.CurrentZone,
+		AutoCollect = data.AutoCollect,
+		Passes = passes,
+		Premium = session ~= nil and session.Premium,
+		PaidRandomRestricted = session == nil or session.PaidRandomRestricted,
+		IsVip = vip,
+		Luck = Economy.getLuck(player, data),
+		LuckBoost = luckBoost,
+		LuckBoostEnds = luckEnds,
+		Daily = DailyService.getInfo(data),
+		RebirthCost = Formulas.rebirthCost(data.Rebirths),
+		ServerTime = os.time(),
+	}
+end
+
+-- Строка для клиентской отрисовки питомцев у всех игроков: "id:gold,id:gold"
+local function buildEquippedAttribute(data: DataService.Data): string
+	local parts = {}
+	for _, uid in ipairs(data.Equipped) do
+		local p = data.Pets[uid]
+		if p then
+			table.insert(parts, p.Id .. ":" .. (if p.Gold then "1" else "0"))
+		end
+	end
+	return table.concat(parts, ",")
+end
+
+local function buildPets(data: DataService.Data)
+	local out = {}
+	for uid, p in pairs(data.Pets) do
+		out[uid] = { Id = p.Id, Gold = p.Gold == true }
+	end
+	return out
+end
+
+function State.push(player: Player, includePets: boolean)
+	local data = DataService.get(player)
+	if not data or player.Parent == nil then
+		return
+	end
+	local payload: { [string]: any } = { Core = buildCore(player, data) }
+	if includePets then
+		payload.Pets = buildPets(data)
+	end
+	Remotes.getEvent("State"):FireClient(player, payload)
+
+	local attr = buildEquippedAttribute(data)
+	if lastAttr[player] ~= attr then
+		lastAttr[player] = attr
+		player:SetAttribute("EquippedPets", attr)
+	end
+	player:SetAttribute("Rebirths", data.Rebirths)
+end
+
+function State.init()
+	-- Клиент мог подключиться к событию State позже первой отправки — он просит полный снимок
+	Router.register("Resync", 0.5, 2, function(player: Player)
+		State.markPets(player)
+		return true, nil
+	end)
+
+	local accumulator = 0
+	RunService.Heartbeat:Connect(function(dt)
+		accumulator += dt
+		if accumulator < 0.15 then
+			return
+		end
+		accumulator = 0
+		for _, player in ipairs(Players:GetPlayers()) do
+			if dirtyCore[player] or dirtyPets[player] then
+				local withPets = dirtyPets[player] == true
+				dirtyCore[player] = nil
+				dirtyPets[player] = nil
+				State.push(player, withPets)
+			end
+		end
+	end)
+
+	-- Раз в секунду отправляем снимок всем (таймеры бустов/ежедневной награды, истечение бустов)
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			for _, player in ipairs(Players:GetPlayers()) do
+				local s = Session.get(player)
+				if s and s.Ready then
+					dirtyCore[player] = true
+				end
+			end
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		dirtyCore[player] = nil
+		dirtyPets[player] = nil
+		lastAttr[player] = nil
+	end)
+end
+
+return State
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+				<Properties>
+					<string name="Name">UpgradeService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local Formulas = require(Shared.Formulas)
+local UpgradeData = require(Shared.UpgradeData)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+
+local UpgradeService = {}
+
+local function buy(player: Player, id: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(id) ~= "string" then
+		return false, "Bad request"
+	end
+	local def = UpgradeData.ById[id]
+	if not def then
+		return false, "Unknown upgrade"
+	end
+	local level = data.Upgrades[id]
+	if type(level) ~= "number" then
+		return false, "Unknown upgrade"
+	end
+	local cost = Formulas.upgradeCost(id, level)
+	if not cost then
+		return false, "Max level reached"
+	end
+	if not Economy.trySpend(player, def.Currency, cost) then
+		return false, if def.Currency == "Gems" then "Not enough gems" else "Not enough coins"
+	end
+	data.Upgrades[id] = level + 1
+	State.markCore(player)
+	Notify.send(player, def.Name .. " upgraded to level " .. tostring(level + 1), "success")
+	return true, nil
+end
+
+function UpgradeService.init()
+	Router.register("BuyUpgrade", 6, 6, buy)
+end
+
+return UpgradeService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+				<Properties>
+					<string name="Name">WorldBuilder</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Строит весь мир скриптом из примитивов (нет внешних ассетов): платформы миров, декор, яйца, табло лидеров.
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage.Shared
+
+local PetData = require(Shared.PetData)
+local Util = require(Shared.Util)
+local ZoneData = require(Shared.ZoneData)
+
+local WorldBuilder = {}
+
+local zoneSpawns: { [string]: CFrame } = {}
+local eggPositions: { [string]: Vector3 } = {}
+local eggCallbacks: { (Player, string) -> () } = {}
+local lastPrompt: { [Player]: number } = {}
+local boardRows: { TextLabel } = {}
+local boardStatus: TextLabel? = nil
+local built = false
+
+local function mk(
+	parent: Instance,
+	name: string,
+	shape: Enum.PartType,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	material: Enum.Material?,
+	collide: boolean?
+): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Shape = shape
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = collide ~= false
+	p.CastShadow = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+local function block(
+	parent: Instance,
+	name: string,
+	size: Vector3,
+	pos: Vector3,
+	color: Color3,
+	material: Enum.Material?
+)
+	return mk(parent, name, Enum.PartType.Block, size, CFrame.new(pos), color, material, true)
+end
+
+local function makeLabel(parent: Instance, text: string, size: UDim2, color: Color3): TextLabel
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = size
+	l.Font = Enum.Font.FredokaOne
+	l.TextScaled = true
+	l.Text = text
+	l.TextColor3 = color
+	l.TextStrokeTransparency = 0.4
+	l.Parent = parent
+	return l
+end
+
+local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(width, height)
+	gui.StudsOffset = offset
+	gui.MaxDistance = 90
+	gui.LightInfluence = 0
+	gui.Parent = parent
+	return gui
+end
+
+-- ---------------------------------------------------------------------------
+-- Декор
+-- ---------------------------------------------------------------------------
+local function decorTree(folder: Folder, pos: Vector3, rng: Random, leaf: Color3, trunk: Color3)
+	local h = rng:NextNumber(7, 12)
+	local m = Instance.new("Model")
+	m.Name = "Tree"
+	mk(
+		m,
+		"Trunk",
+		Enum.PartType.Cylinder,
+		Vector3.new(h, 2, 2),
+		CFrame.new(pos + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		trunk,
+		Enum.Material.Wood,
+		true
+	)
+	local d = rng:NextNumber(9, 13)
+	mk(
+		m,
+		"Leaves",
+		Enum.PartType.Ball,
+		Vector3.new(d, d, d),
+		CFrame.new(pos + Vector3.new(0, h + d * 0.3, 0)),
+		leaf,
+		Enum.Material.Grass,
+		false
+	)
+	m.Parent = folder
+end
+
+local function decorCactus(folder: Folder, pos: Vector3, rng: Random, color: Color3)
+	local h = rng:NextNumber(6, 10)
+	local m = Instance.new("Model")
+	m.Name = "Cactus"
+	mk(
+		m,
+		"Stem",
+		Enum.PartType.Cylinder,
+		Vector3.new(h, 2.2, 2.2),
+		CFrame.new(pos + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		color,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	mk(
+		m,
+		"ArmL",
+		Enum.PartType.Cylinder,
+		Vector3.new(3, 1.2, 1.2),
+		CFrame.new(pos + Vector3.new(-1.8, h * 0.55, 0)),
+		color,
+		nil,
+		false
+	)
+	mk(
+		m,
+		"ArmR",
+		Enum.PartType.Cylinder,
+		Vector3.new(3, 1.2, 1.2),
+		CFrame.new(pos + Vector3.new(1.8, h * 0.7, 0)),
+		color,
+		nil,
+		false
+	)
+	m.Parent = folder
+end
+
+local function decorCrystal(folder: Folder, pos: Vector3, rng: Random, color: Color3)
+	local m = Instance.new("Model")
+	m.Name = "Crystal"
+	for i = 1, 3 do
+		local h = rng:NextNumber(5, 11)
+		local part = mk(
+			m,
+			"Shard" .. i,
+			Enum.PartType.Block,
+			Vector3.new(2, h, 2),
+			CFrame.new(pos + Vector3.new(rng:NextNumber(-2, 2), h / 2 - 0.5, rng:NextNumber(-2, 2)))
+				* CFrame.Angles(
+					math.rad(rng:NextNumber(-12, 12)),
+					rng:NextNumber(0, 6),
+					math.rad(rng:NextNumber(-12, 12))
+				),
+			color,
+			Enum.Material.Glass,
+			false
+		)
+		part.Transparency = 0.25
+	end
+	m.Parent = folder
+end
+
+local function decorRock(folder: Folder, pos: Vector3, rng: Random, color: Color3, glow: Color3)
+	local d = rng:NextNumber(5, 10)
+	local m = Instance.new("Model")
+	m.Name = "Rock"
+	mk(
+		m,
+		"Rock",
+		Enum.PartType.Ball,
+		Vector3.new(d, d, d),
+		CFrame.new(pos + Vector3.new(0, d * 0.3, 0)),
+		color,
+		Enum.Material.Slate,
+		true
+	)
+	if rng:NextNumber() < 0.5 then
+		mk(
+			m,
+			"Lava",
+			Enum.PartType.Ball,
+			Vector3.new(d * 0.4, d * 0.4, d * 0.4),
+			CFrame.new(pos + Vector3.new(d * 0.2, d * 0.7, 0)),
+			glow,
+			Enum.Material.Neon,
+			false
+		)
+	end
+	m.Parent = folder
+end
+
+-- ---------------------------------------------------------------------------
+-- Яйцо
+-- ---------------------------------------------------------------------------
+local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
+	local m = Instance.new("Model")
+	m.Name = "Egg_" .. egg.Id
+
+	mk(
+		m,
+		"Base",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.4, 11, 11),
+		CFrame.new(pos + Vector3.new(0, 0.7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(235, 235, 240),
+		Enum.Material.Marble,
+		true
+	)
+	mk(
+		m,
+		"BaseRing",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.4, 12, 12),
+		CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		egg.Pattern,
+		Enum.Material.Neon,
+		false
+	)
+
+	local eggCenter = pos + Vector3.new(0, 5.6, 0)
+	local shell = mk(
+		m,
+		"Shell",
+		Enum.PartType.Ball,
+		Vector3.new(7, 7, 7),
+		CFrame.new(eggCenter),
+		egg.Color,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	-- пятна на скорлупе
+	local spots = {
+		Vector3.new(1.2, 2.4, -2.4),
+		Vector3.new(-2.2, 0.6, -2.5),
+		Vector3.new(2.5, -0.8, -2.2),
+		Vector3.new(-0.6, -2.2, -2.6),
+		Vector3.new(0.4, 0.2, -3.5),
+		Vector3.new(-2.8, 2.0, 1.2),
+		Vector3.new(2.9, 1.6, 1.0),
+	}
+	for i, offset in ipairs(spots) do
+		local dir = offset.Unit * 3.45
+		mk(
+			m,
+			"Spot" .. i,
+			Enum.PartType.Ball,
+			Vector3.new(1.3, 1.3, 1.3),
+			CFrame.new(eggCenter + dir),
+			egg.Pattern,
+			Enum.Material.SmoothPlastic,
+			false
+		)
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Open"
+	prompt.ObjectText = egg.Name
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Parent = shell
+	prompt.Triggered:Connect(function(player: Player)
+		local now = os.clock()
+		if now - (lastPrompt[player] or 0) < 0.5 then
+			return
+		end
+		lastPrompt[player] = now
+		for _, cb in ipairs(eggCallbacks) do
+			task.spawn(cb, player, egg.Id)
+		end
+	end)
+
+	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70)
+	makeLabel(gui, egg.Name, UDim2.fromScale(1, 0.55), Color3.fromRGB(255, 255, 255))
+	local priceColor = if egg.Currency == "Gems"
+		then Color3.fromRGB(120, 230, 255)
+		else Color3.fromRGB(255, 220, 90)
+	local priceLabel = makeLabel(
+		gui,
+		Util.formatNumber(egg.Price) .. " " .. egg.Currency,
+		UDim2.fromScale(1, 0.4),
+		priceColor
+	)
+	priceLabel.Position = UDim2.fromScale(0, 0.58)
+
+	eggPositions[egg.Id] = pos
+	m.Parent = parent
+end
+
+-- ---------------------------------------------------------------------------
+-- Табло лидеров
+-- ---------------------------------------------------------------------------
+local function buildBoard(parent: Instance, center: Vector3)
+	local m = Instance.new("Model")
+	m.Name = "Leaderboard"
+	local face = Color3.fromRGB(30, 34, 48)
+	local board = mk(
+		m,
+		"Board",
+		Enum.PartType.Block,
+		Vector3.new(30, 18, 1),
+		CFrame.new(center + Vector3.new(0, 11, 0)) * CFrame.Angles(0, math.pi, 0),
+		face,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	block(
+		m,
+		"PostL",
+		Vector3.new(1.5, 11, 1.5),
+		center + Vector3.new(-10, 5.5, 0.2),
+		Color3.fromRGB(110, 80, 60),
+		Enum.Material.Wood
+	)
+	block(
+		m,
+		"PostR",
+		Vector3.new(1.5, 11, 1.5),
+		center + Vector3.new(10, 5.5, 0.2),
+		Color3.fromRGB(110, 80, 60),
+		Enum.Material.Wood
+	)
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.Parent = board
+
+	local title = makeLabel(gui, "TOP COLLECTORS", UDim2.fromScale(0.9, 0.12), Color3.fromRGB(255, 214, 90))
+	title.Position = UDim2.fromScale(0.05, 0.02)
+	local sub =
+		makeLabel(gui, "Lifetime coins earned", UDim2.fromScale(0.6, 0.05), Color3.fromRGB(190, 200, 220))
+	sub.Position = UDim2.fromScale(0.2, 0.135)
+	boardStatus = sub
+
+	for i = 1, 10 do
+		local row = Instance.new("TextLabel")
+		row.Name = "Row" .. i
+		row.BackgroundTransparency = if i % 2 == 0 then 0.92 else 1
+		row.BackgroundColor3 = Color3.new(1, 1, 1)
+		row.Size = UDim2.fromScale(0.9, 0.07)
+		row.Position = UDim2.fromScale(0.05, 0.2 + (i - 1) * 0.078)
+		row.Font = Enum.Font.GothamBold
+		row.TextScaled = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.TextColor3 = if i == 1 then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(235, 240, 250)
+		row.Text = string.format("%d.  ---", i)
+		row.Parent = gui
+		boardRows[i] = row
+	end
+	m.Parent = parent
+end
+
+-- ---------------------------------------------------------------------------
+-- Публичный API
+-- ---------------------------------------------------------------------------
+function WorldBuilder.build()
+	if built then
+		return
+	end
+	built = true
+
+	Lighting.ClockTime = 14
+	Lighting.Brightness = 2.5
+	Lighting.Ambient = Color3.fromRGB(110, 110, 125)
+	Lighting.OutdoorAmbient = Color3.fromRGB(130, 135, 150)
+	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.EnvironmentSpecularScale = 0.3
+	if not Lighting:FindFirstChildOfClass("Atmosphere") then
+		local atmo = Instance.new("Atmosphere")
+		atmo.Density = 0.25
+		atmo.Haze = 1
+		atmo.Color = Color3.fromRGB(200, 220, 245)
+		atmo.Parent = Lighting
+	end
+
+	local old = Workspace:FindFirstChild("World")
+	if old then
+		old:Destroy()
+	end
+	local world = Instance.new("Folder")
+	world.Name = "World"
+	world.Parent = Workspace
+
+	local size = ZoneData.PLATFORM_SIZE
+	for index, zone in ipairs(ZoneData.List) do
+		local folder = Instance.new("Folder")
+		folder.Name = zone.Id
+		folder.Parent = world
+		local center = zone.Position
+		local rng = Random.new(1000 + index)
+
+		-- пол
+		block(
+			folder,
+			"Floor",
+			Vector3.new(size, 2, size),
+			center + Vector3.new(0, -1, 0),
+			zone.Floor,
+			zone.Material
+		)
+		-- декоративный центр
+		local plaza = mk(
+			folder,
+			"Plaza",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.3, 70, 70),
+			CFrame.new(center + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			zone.Accent,
+			Enum.Material.SmoothPlastic,
+			false
+		)
+		plaza.Transparency = 0.5
+		-- видимый бортик и невидимые стены
+		local half = size / 2
+		for _, side in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+			local sx, sz = side[1], side[2]
+			local along = if sx == 0 then Vector3.new(size, 1.5, 1) else Vector3.new(1, 1.5, size)
+			block(
+				folder,
+				"Rim",
+				along,
+				center + Vector3.new(sx * half, 0.75, sz * half),
+				zone.Accent,
+				Enum.Material.Neon
+			)
+			local wallSize = if sx == 0 then Vector3.new(size, 40, 1) else Vector3.new(1, 40, size)
+			local wall = block(
+				folder,
+				"Wall",
+				wallSize,
+				center + Vector3.new(sx * half, 20, sz * half),
+				Color3.new(1, 1, 1),
+				nil
+			)
+			wall.Transparency = 1
+		end
+
+		-- декор по кольцу
+		local decor = Instance.new("Folder")
+		decor.Name = "Decor"
+		decor.Parent = folder
+		for i = 1, 22 do
+			local angle = (i / 22) * math.pi * 2 + rng:NextNumber(-0.1, 0.1)
+			local radius = rng:NextNumber(52, 82)
+			local pos = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+			if zone.Decor == "Trees" then
+				local leaf = if zone.Id == "Meadow"
+					then Color3.fromRGB(80, 170, 70)
+					else Color3.fromRGB(40, 110, 60)
+				decorTree(decor, pos, rng, leaf, Color3.fromRGB(120, 80, 50))
+			elseif zone.Decor == "Cacti" then
+				decorCactus(decor, pos, rng, Color3.fromRGB(70, 150, 80))
+			elseif zone.Decor == "Crystals" then
+				decorCrystal(decor, pos, rng, zone.Accent)
+			else
+				decorRock(decor, pos, rng, Color3.fromRGB(60, 50, 52), zone.Accent)
+			end
+		end
+
+		-- точка появления
+		local spawnPos = center + Vector3.new(0, 0, 38)
+		zoneSpawns[zone.Id] =
+			CFrame.lookAt(spawnPos + Vector3.new(0, 3.5, 0), center + Vector3.new(0, 3.5, 0))
+		if zone.Id == ZoneData.DEFAULT then
+			local sp = Instance.new("SpawnLocation")
+			sp.Name = "SpawnLocation"
+			sp.Anchored = true
+			sp.Neutral = true
+			sp.Size = Vector3.new(14, 1, 14)
+			sp.Position = spawnPos + Vector3.new(0, 0.5, 0)
+			sp.Color = zone.Accent
+			sp.Material = Enum.Material.Neon
+			sp.Duration = 0
+			sp.Parent = folder
+		else
+			local pad = mk(
+				folder,
+				"SpawnPad",
+				Enum.PartType.Cylinder,
+				Vector3.new(0.6, 14, 14),
+				CFrame.new(spawnPos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				zone.Accent,
+				Enum.Material.Neon,
+				false
+			)
+			pad.Name = "SpawnPad"
+		end
+
+		-- вывеска
+		local signPost = block(
+			folder,
+			"SignPost",
+			Vector3.new(1, 12, 1),
+			center + Vector3.new(0, 6, 62),
+			Color3.fromRGB(110, 80, 60),
+			Enum.Material.Wood
+		)
+		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
+		gui.MaxDistance = 140
+		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
+		local mult = makeLabel(
+			gui,
+			("x%d coins per collect"):format(zone.Multiplier),
+			UDim2.fromScale(1, 0.38),
+			zone.Accent
+		)
+		mult.Position = UDim2.fromScale(0, 0.6)
+
+		-- яйца этой зоны
+		local eggsHere = {}
+		for _, egg in ipairs(PetData.Eggs) do
+			if egg.Zone == zone.Id then
+				table.insert(eggsHere, egg)
+			end
+		end
+		for k, egg in ipairs(eggsHere) do
+			local x = (k - (#eggsHere + 1) / 2) * 32
+			buildEgg(folder, egg, center + Vector3.new(x, 0, -14))
+		end
+
+		if zone.Id == ZoneData.DEFAULT then
+			buildBoard(folder, center + Vector3.new(0, 0, -62))
+		end
+	end
+end
+
+function WorldBuilder.getZoneSpawn(zoneId: string): CFrame
+	return zoneSpawns[zoneId] or zoneSpawns[ZoneData.DEFAULT] or CFrame.new(0, 5, 0)
+end
+
+function WorldBuilder.getEggPosition(eggId: string): Vector3?
+	return eggPositions[eggId]
+end
+
+function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())
+	table.insert(eggCallbacks, cb)
+end
+
+-- Обновление табло: entries = { { Name, Value } } (до 10 строк) или nil + статус
+function WorldBuilder.setBoard(entries: { { Name: string, Value: number } }?, status: string?)
+	if boardStatus and status then
+		boardStatus.Text = status
+	end
+	for i, row in ipairs(boardRows) do
+		local e = entries and entries[i]
+		if e then
+			row.Text = string.format("%d.  %s  —  %s", i, e.Name, Util.formatNumber(e.Value))
+		else
+			row.Text = string.format("%d.  ---", i)
+		end
+	end
+end
+
+function WorldBuilder.clearPlayer(player: Player)
+	lastPrompt[player] = nil
+end
+
+return WorldBuilder
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+				<Properties>
+					<string name="Name">ZoneService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Миры: покупка доступа и телепортация. Позиция/доступ проверяются на сервере.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage.Shared
+
+local ZoneData = require(Shared.ZoneData)
+
+local AntiExploit = require(script.Parent.AntiExploit)
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+local WorldBuilder = require(script.Parent.WorldBuilder)
+
+local ZoneService = {}
+
+local rng = Random.new()
+
+-- Перемещает персонажа в текущую зону игрока (вызывается при спавне и после телепорта)
+function ZoneService.moveToZone(player: Player, zoneId: string)
+	local character = player.Character
+	if not character then
+		return
+	end
+	local spawnCf = WorldBuilder.getZoneSpawn(zoneId)
+	local offset = Vector3.new(rng:NextNumber(-6, 6), 0, rng:NextNumber(-6, 6))
+	AntiExploit.markTeleport(player)
+	character:PivotTo(spawnCf + offset)
+end
+
+local function unlock(player: Player, zoneId: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(zoneId) ~= "string" then
+		return false, "Bad request"
+	end
+	local zone = ZoneData.ById[zoneId]
+	if not zone then
+		return false, "Unknown world"
+	end
+	if data.Zones[zoneId] then
+		return false, "Already unlocked"
+	end
+	if data.Rebirths < zone.RequiresRebirths then
+		return false, ("Requires %d rebirth(s)"):format(zone.RequiresRebirths)
+	end
+	if not Economy.trySpend(player, "Coins", zone.UnlockCost) then
+		return false, "Not enough coins"
+	end
+	data.Zones[zoneId] = true
+	State.markCore(player)
+	Notify.send(player, zone.Name .. " unlocked!", "success")
+	return true, nil
+end
+
+local function teleport(player: Player, zoneId: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data or type(zoneId) ~= "string" then
+		return false, "Bad request"
+	end
+	local zone = ZoneData.ById[zoneId]
+	if not zone or not data.Zones[zoneId] then
+		return false, "World is locked"
+	end
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid or humanoid.Health <= 0 then
+		return false, "Not now"
+	end
+	data.CurrentZone = zoneId
+	ZoneService.moveToZone(player, zoneId)
+	State.markCore(player)
+	return true, nil
+end
+
+function ZoneService.init()
+	Router.register("UnlockZone", 3, 3, unlock)
+	Router.register("Teleport", 1.5, 2, teleport)
+end
+
+return ZoneService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+		</Item>
+	</Item>
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000022">
+		<Properties>
+			<string name="Name">StarterPlayer</string>
+		</Properties>
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000023">
+			<Properties>
+				<string name="Name">StarterPlayerScripts</string>
+			</Properties>
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000024">
+				<Properties>
+					<string name="Name">PetFollower</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	PetFollower — отрисовка питомцев ВСЕХ игроков на клиенте.
+	Сервер лишь публикует атрибут игрока "EquippedPets" ("id:gold,id:gold"); модели строятся и анимируются
+	локально из примитивов (PetModel). Это дёшево для сервера и не создаёт лишней физики/репликации.
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local PetModel = require(Shared:WaitForChild("PetModel"))
+
+local RENDER_DISTANCE = 220
+local MAX_PETS_PER_PLAYER = 8
+
+type PetEntry = { Model: Model, Index: number, Current: CFrame? }
+type Rendered = { Key: string, Pets: { PetEntry } }
+
+local container = Instance.new("Folder")
+container.Name = "ClientPets"
+container.Parent = Workspace
+
+local rendered: { [Player]: Rendered } = {}
+
+local function clear(player: Player)
+	local r = rendered[player]
+	if r then
+		for _, entry in ipairs(r.Pets) do
+			entry.Model:Destroy()
+		end
+		rendered[player] = nil
+	end
+end
+
+local function rebuild(player: Player)
+	local attr = player:GetAttribute("EquippedPets")
+	local key = if type(attr) == "string" then attr else ""
+	local existing = rendered[player]
+	if existing and existing.Key == key then
+		return
+	end
+	clear(player)
+	if key == "" then
+		return
+	end
+	local pets: { PetEntry } = {}
+	for token in string.gmatch(key, "[^,]+") do
+		local id, gold = string.match(token, "^([%w_]+):([01])$")
+		if id and #pets < MAX_PETS_PER_PLAYER then
+			local model = PetModel.build(id, gold == "1")
+			model.Name = player.Name .. "_" .. id
+			table.insert(pets, { Model = model, Index = #pets + 1, Current = nil })
+		end
+	end
+	rendered[player] = { Key = key, Pets = pets }
+end
+
+local function watch(player: Player)
+	rebuild(player)
+	player:GetAttributeChangedSignal("EquippedPets"):Connect(function()
+		rebuild(player)
+	end)
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+	watch(p)
+end
+Players.PlayerAdded:Connect(watch)
+Players.PlayerRemoving:Connect(clear)
+
+-- Позиция питомца за спиной игрока веером
+local function slotOffset(index: number, count: number): Vector3
+	local radius = 4.5 + math.floor((count - 1) / 4) * 1.5
+	if count == 1 then
+		return Vector3.new(0, 0, 4)
+	end
+	local spread = math.rad(math.min(150, 40 + count * 18))
+	local a = -spread / 2 + spread * (index - 1) / (count - 1)
+	return Vector3.new(math.sin(a) * radius, 0, math.cos(a) * radius)
+end
+
+RunService.RenderStepped:Connect(function(dt)
+	local camera = Workspace.CurrentCamera
+	local camPos = if camera then camera.CFrame.Position else Vector3.zero
+	local t = os.clock()
+	local alpha = 1 - math.exp(-dt * 9)
+
+	for player, r in pairs(rendered) do
+		local character = player.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if root and root:IsA("BasePart") and (root.Position - camPos).Magnitude < RENDER_DISTANCE then
+			local count = #r.Pets
+			for _, entry in ipairs(r.Pets) do
+				local offset = slotOffset(entry.Index, count)
+				local bob = math.sin(t * 3 + entry.Index * 1.7) * 0.25
+				local worldPos = (root.CFrame * CFrame.new(offset.X, 0, offset.Z)).Position
+					+ Vector3.new(0, -1.4 + 1.1 + bob, 0)
+				local look = root.CFrame.LookVector
+				local flat = Vector3.new(look.X, 0, look.Z)
+				if flat.Magnitude < 0.01 then
+					flat = Vector3.new(0, 0, -1)
+				end
+				local target = CFrame.lookAt(worldPos, worldPos + flat)
+				local previous = entry.Current
+				local nextCf: CFrame
+				if previous == nil or (previous.Position - target.Position).Magnitude > 40 then
+					nextCf = target -- первое появление/телепорт
+				else
+					nextCf = previous:Lerp(target, alpha)
+				end
+				entry.Current = nextCf
+				entry.Model:PivotTo(nextCf)
+				if entry.Model.Parent ~= container then
+					entry.Model.Parent = container
+				end
+			end
+		else
+			for _, entry in ipairs(r.Pets) do
+				if entry.Model.Parent ~= nil then
+					entry.Model.Parent = nil
+				end
+			end
+		end
+	end
+end)
+]]></ProtectedString>
+				</Properties>
+			</Item>
+		</Item>
+	</Item>
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000025">
+		<Properties>
+			<string name="Name">StarterGui</string>
+		</Properties>
+		<Item class="ScreenGui" referent="RBX00000000000000000000000000000026">
+			<Properties>
+				<string name="Name">PetCollectorGui</string>
+				<bool name="ResetOnSpawn">false</bool>
+				<token name="ZIndexBehavior">1</token>
+			</Properties>
+			<Item class="Folder" referent="RBX00000000000000000000000000000027">
+				<Properties>
+					<string name="Name">Modules</string>
+				</Properties>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+					<Properties>
+						<string name="Name">Actions</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Вызов серверных действий. Любая ошибка от сервера показывается игроку тостом.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
+
+local Toasts = require(script.Parent.Toasts)
+
+local Actions = {}
+
+-- Возвращает true при успехе. Сервер — единственный источник правды: клиент ничего не "применяет" сам.
+function Actions.call(name: string, ...): boolean
+	local fn = Remotes.getFunction("Action")
+	local ok, result = pcall(fn.InvokeServer, fn, name, ...)
+	if not ok or type(result) ~= "table" then
+		Toasts.show("Connection problem, try again", "error")
+		return false
+	end
+	if not result.ok then
+		if result.msg then
+			Toasts.show(tostring(result.msg), "error")
+		end
+		return false
+	end
+	return true
+end
+
+return Actions
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+					<Properties>
+						<string name="Name">ClientState</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Клиентское состояние: хранит последний снимок от сервера и рассылает подписчикам.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Remotes = require(Shared:WaitForChild("Remotes"))
+
+local ClientState = {}
+
+ClientState.Core = nil :: any
+ClientState.Pets = {} :: { [string]: { Id: string, Gold: boolean } }
+ClientState.ReceivedClock = os.clock()
+ClientState.TimeOffset = 0
+
+local coreListeners: { (any) -> () } = {}
+local petListeners: { () -> () } = {}
+
+function ClientState.onCore(fn: (any) -> ())
+	table.insert(coreListeners, fn)
+	if ClientState.Core then
+		fn(ClientState.Core)
+	end
+end
+
+function ClientState.onPets(fn: () -> ())
+	table.insert(petListeners, fn)
+end
+
+-- Серверное время (unix) с поправкой, чтобы таймеры были одинаковыми у всех
+function ClientState.serverNow(): number
+	return os.time() + ClientState.TimeOffset
+end
+
+function ClientState.init()
+	Remotes.getEvent("State").OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" then
+			return
+		end
+		if payload.Pets then
+			ClientState.Pets = payload.Pets
+			for _, fn in ipairs(petListeners) do
+				task.spawn(fn)
+			end
+		end
+		if payload.Core then
+			ClientState.Core = payload.Core
+			ClientState.ReceivedClock = os.clock()
+			ClientState.TimeOffset = payload.Core.ServerTime - os.time()
+			for _, fn in ipairs(coreListeners) do
+				task.spawn(fn, payload.Core)
+			end
+		end
+	end)
+end
+
+-- Просит сервер прислать полный снимок (на случай, если первый пакет пришёл до подключения UI)
+function ClientState.requestResync()
+	task.spawn(function()
+		local fn = Remotes.getFunction("Action")
+		for _ = 1, 30 do
+			local ok, result = pcall(fn.InvokeServer, fn, "Resync")
+			if ok and type(result) == "table" and result.ok then
+				return
+			end
+			task.wait(1)
+		end
+	end)
+end
+
+return ClientState
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+					<Properties>
+						<string name="Name">DailyPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Config = require(Shared:WaitForChild("Config"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local DailyPanel = {}
+
+function DailyPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Daily Rewards")
+	local body = panel.Body
+
+	local grid = Widgets.New("Frame", {
+		Position = UDim2.fromOffset(12, 10),
+		Size = UDim2.new(1, -24, 1, -140),
+		BackgroundTransparency = 1,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UIGridLayout", {
+		CellSize = UDim2.new(0.25, -8, 0.5, -8),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+
+	local cards = {}
+	for day, reward in ipairs(Config.DAILY_REWARDS) do
+		local card = Widgets.New("Frame", {
+			BackgroundColor3 = Theme.BgCard,
+			LayoutOrder = day,
+			ZIndex = 23,
+			Parent = grid,
+		})
+		Widgets.corner(card, 12)
+		local stroke = Widgets.stroke(card, Theme.BgLight, 3)
+		Widgets.label({
+			Text = "Day " .. day,
+			Size = UDim2.new(1, -8, 0.25, 0),
+			Position = UDim2.fromOffset(4, 4),
+			Font = Theme.Font,
+			ZIndex = 24,
+			Parent = card,
+		})
+		local lines =
+			{ ("%d gems"):format(reward.Gems), ("%s clicks"):format(Util.formatNumber(reward.Clicks)) }
+		if reward.Luck2Minutes then
+			table.insert(lines, ("x2 luck %dm"):format(reward.Luck2Minutes))
+		end
+		Widgets.label({
+			Text = table.concat(lines, "\n"),
+			Size = UDim2.new(1, -8, 0.6, 0),
+			Position = UDim2.new(0, 4, 0.32, 0),
+			TextColor3 = Theme.Gem,
+			ZIndex = 24,
+			Parent = card,
+		})
+		cards[day] = { Card = card, Stroke = stroke }
+	end
+
+	local streakLabel = Widgets.label({
+		Size = UDim2.new(1, -24, 0, 22),
+		Position = UDim2.new(0, 12, 1, -122),
+		TextColor3 = Theme.TextDim,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 16, Parent = streakLabel })
+	local bonusLabel = Widgets.label({
+		Size = UDim2.new(1, -24, 0, 20),
+		Position = UDim2.new(0, 12, 1, -98),
+		TextColor3 = Theme.Gold,
+		Text = "VIP: double rewards  |  Roblox Premium: +"
+			.. Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS
+			.. " gems",
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 14, Parent = bonusLabel })
+
+	local claim = Widgets.button({
+		Text = "CLAIM",
+		Color = Theme.Green,
+		Size = UDim2.new(0.6, 0, 0, 52),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -12),
+		ZIndex = 23,
+		OnClick = function()
+			local core = ClientState.Core
+			if core and core.Daily.CanClaim then
+				Actions.call("ClaimDaily")
+			end
+		end,
+		Parent = body,
+	})
+
+	local function refresh()
+		local core = ClientState.Core
+		if not core then
+			return
+		end
+		local d = core.Daily
+		for day, c in pairs(cards) do
+			local isNext = day == d.Day
+			c.Stroke.Color = if isNext then Theme.Gold else Theme.BgLight
+			c.Card.BackgroundColor3 = if isNext then Theme.BgLight else Theme.BgCard
+		end
+		streakLabel.Text = ("Current streak: %d day(s)"):format(d.Streak)
+		if d.CanClaim then
+			claim.Text = ("CLAIM DAY %d"):format(d.Day)
+			Widgets.setEnabled(claim, true, Theme.Green)
+		else
+			local left = d.SecondsLeft - (os.clock() - ClientState.ReceivedClock)
+			claim.Text = "Next reward in " .. Util.formatTime(left)
+			Widgets.setEnabled(claim, false)
+		end
+	end
+
+	ClientState.onCore(refresh)
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc >= 1 and panel.IsOpen() then
+			acc = 0
+			refresh()
+		end
+	end)
+	return panel
+end
+
+return DailyPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+					<Properties>
+						<string name="Name">EggPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Окно яйца: честно показывает шансы выпадения (с учётом удачи игрока) и кнопки открытия.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Config = require(Shared:WaitForChild("Config"))
+local PetData = require(Shared:WaitForChild("PetData"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local EggPanel = {}
+
+-- Шансы показываем в процентах с достаточной точностью (требование Roblox к платным случайным предметам)
+local function formatChance(percent: number): string
+	if percent >= 10 then
+		return string.format("%.2f%%", percent)
+	elseif percent >= 1 then
+		return string.format("%.3f%%", percent)
+	end
+	return string.format("%.4f%%", percent)
+end
+
+function EggPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Egg")
+	local body = panel.Body
+	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
+
+	local sub = Widgets.label({
+		Size = UDim2.new(1, -24, 0, 24),
+		Position = UDim2.fromOffset(12, 2),
+		TextColor3 = Theme.TextDim,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = sub })
+
+	local list = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 30),
+		Size = UDim2.new(1, -20, 1, -112),
+	})
+	Widgets.New(
+		"UIListLayout",
+		{ Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = list }
+	)
+
+	local note = Widgets.label({
+		Size = UDim2.new(1, -24, 0, 30),
+		Position = UDim2.new(0, 12, 1, -92),
+		TextColor3 = Theme.TextDim,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8, Parent = note })
+
+	local currentEgg: string? = nil
+	local buttons = {}
+	for i, count in ipairs(Config.HATCH_COUNTS) do
+		local n = #Config.HATCH_COUNTS
+		local b = Widgets.button({
+			Text = "",
+			Color = if i == 1 then Theme.Green else Theme.Blue,
+			Size = UDim2.new(1 / n, -14, 0, 48),
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new((i - 1) / n, 8, 1, -10),
+			ZIndex = 23,
+			OnClick = function()
+				if currentEgg then
+					Actions.call("Hatch", currentEgg, count)
+				end
+			end,
+			Parent = body,
+		})
+		buttons[i] = b
+	end
+
+	local function render()
+		local core = ClientState.Core
+		local egg = currentEgg and PetData.EggsById[currentEgg]
+		if not core or not egg then
+			return
+		end
+		titleLabel.Text = egg.Name
+		sub.Text = ("%s each  -  you have %s"):format(
+			Util.formatNumber(egg.Price) .. " " .. egg.Currency,
+			Util.formatNumber(if egg.Currency == "Gems" then core.Gems else core.Coins)
+		)
+		for i, count in ipairs(Config.HATCH_COUNTS) do
+			buttons[i].Text = ("Hatch x%d  (%s)"):format(count, Util.formatNumber(egg.Price * count))
+		end
+		note.Text = ("Your luck: x%.2f (already included in the odds above). Any pet can be Golden (x%d power) with a %.0f%% chance. Probabilities are rounded."):format(
+			core.Luck,
+			Config.GOLD_POWER_MULT,
+			Config.GOLD_CHANCE * 100
+		)
+
+		Widgets.clear(list)
+		local odds = PetData.getOdds(egg.Id, core.Luck)
+		-- Сортировка: редкие выше
+		table.sort(odds, function(a, b)
+			return PetData.PetsById[a.Id].Power > PetData.PetsById[b.Id].Power
+		end)
+		for i, o in ipairs(odds) do
+			local def = PetData.PetsById[o.Id]
+			local rarity = PetData.Rarities[def.Rarity]
+			local row = Widgets.New("Frame", {
+				Size = UDim2.new(1, -8, 0, 38),
+				BackgroundColor3 = Theme.BgCard,
+				LayoutOrder = i,
+				ZIndex = 22,
+				Parent = list,
+			})
+			Widgets.corner(row, 8)
+			local dot = Widgets.New("Frame", {
+				Position = UDim2.fromOffset(8, 7),
+				Size = UDim2.fromOffset(24, 24),
+				BackgroundColor3 = def.Look.Body,
+				ZIndex = 23,
+				Parent = row,
+			})
+			Widgets.corner(dot, 12)
+			Widgets.label({
+				Text = def.Name,
+				Size = UDim2.new(0.38, 0, 1, -14),
+				Position = UDim2.fromOffset(40, 7),
+				TextXAlignment = Enum.TextXAlignment.Left,
+				TextColor3 = rarity.Color,
+				ZIndex = 23,
+				Parent = row,
+			})
+			Widgets.label({
+				Text = def.Rarity,
+				Size = UDim2.new(0.18, 0, 1, -18),
+				Position = UDim2.new(0.44, 0, 0, 9),
+				TextColor3 = Theme.TextDim,
+				ZIndex = 23,
+				Parent = row,
+			})
+			Widgets.label({
+				Text = "x" .. Util.formatNumber(def.Power),
+				Size = UDim2.new(0.16, 0, 1, -14),
+				Position = UDim2.new(0.63, 0, 0, 7),
+				ZIndex = 23,
+				Parent = row,
+			})
+			Widgets.label({
+				Text = formatChance(o.Chance),
+				Size = UDim2.new(0.16, 0, 1, -14),
+				Position = UDim2.new(0.82, 0, 0, 7),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				ZIndex = 23,
+				Parent = row,
+			})
+		end
+	end
+
+	local lastKey = ""
+	ClientState.onCore(function(core)
+		if panel.IsOpen() then
+			-- перерисовываем только при смене валюты/удачи (иначе список мигал бы каждую секунду)
+			local key = tostring(core.Coins) .. "|" .. tostring(core.Gems) .. "|" .. tostring(core.Luck)
+			if key ~= lastKey then
+				lastKey = key
+				render()
+			end
+		end
+	end)
+
+	Remotes.getEvent("OpenEgg").OnClientEvent:Connect(function(eggId)
+		if type(eggId) ~= "string" or not PetData.EggsById[eggId] then
+			return
+		end
+		currentEgg = eggId
+		lastKey = ""
+		render()
+		if not panel.IsOpen() then
+			panel.Open()
+		end
+	end)
+
+	return panel
+end
+
+return EggPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+					<Properties>
+						<string name="Name">HatchPopup</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Анимация результата открытия яиц: карточки с 3D-превью питомцев (ViewportFrame из примитивов).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local PetData = require(Shared:WaitForChild("PetData"))
+local PetModel = require(Shared:WaitForChild("PetModel"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local HatchPopup = {}
+
+local function petViewport(parent: Instance, petId: string, gold: boolean): ViewportFrame
+	local vp = Widgets.New("ViewportFrame", {
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 0.55),
+		Position = UDim2.fromOffset(0, 4),
+		Ambient = Color3.fromRGB(190, 190, 200),
+		LightColor = Color3.fromRGB(255, 255, 255),
+		LightDirection = Vector3.new(-0.4, -0.8, 0.6),
+		ZIndex = 53,
+		Parent = parent,
+	})
+	local model = PetModel.build(petId, gold)
+	model.Parent = vp
+	local cam = Instance.new("Camera")
+	cam.FieldOfView = 40
+	cam.Parent = vp
+	vp.CurrentCamera = cam
+	local center, size = model:GetBoundingBox()
+	local dist = size.Magnitude * 1.25
+	-- питомец смотрит в -Z, камера стоит перед ним
+	cam.CFrame =
+		CFrame.lookAt(center.Position + Vector3.new(size.X * 0.35, size.Y * 0.25, -dist), center.Position)
+	return vp
+end
+
+function HatchPopup.init(gui: ScreenGui)
+	local overlay = Widgets.New("TextButton", {
+		Name = "HatchOverlay",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.new(0, 0, 0),
+		BackgroundTransparency = 0.35,
+		Text = "",
+		AutoButtonColor = false,
+		Visible = false,
+		ZIndex = 50,
+		Parent = gui,
+	})
+	local title = Widgets.label({
+		Text = "You hatched!",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.12),
+		Size = UDim2.fromOffset(360, 56),
+		Font = Theme.Font,
+		TextColor3 = Theme.Gold,
+		ZIndex = 51,
+		Parent = overlay,
+	})
+	local row = Widgets.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(0.9, 0, 0, 230),
+		BackgroundTransparency = 1,
+		ZIndex = 51,
+		Parent = overlay,
+	})
+	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(640, 260), Parent = row })
+	Widgets.New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Padding = UDim.new(0, 12),
+		Parent = row,
+	})
+
+	local buttons = Widgets.New("Frame", {
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0.5, 140),
+		Size = UDim2.fromOffset(340, 50),
+		BackgroundTransparency = 1,
+		ZIndex = 51,
+		Parent = overlay,
+	})
+	Widgets.New("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		Padding = UDim.new(0, 10),
+		Parent = buttons,
+	})
+	Widgets.button({
+		Text = "Awesome!",
+		Color = Theme.Green,
+		Size = UDim2.fromOffset(160, 46),
+		ZIndex = 52,
+		OnClick = function()
+			overlay.Visible = false
+		end,
+		Parent = buttons,
+	})
+	Widgets.button({
+		Text = "Equip Best",
+		Color = Theme.Blue,
+		Size = UDim2.fromOffset(160, 46),
+		ZIndex = 52,
+		OnClick = function()
+			Actions.call("EquipBest")
+			overlay.Visible = false
+		end,
+		Parent = buttons,
+	})
+	overlay.Activated:Connect(function() end) -- перехватываем клики под окном
+
+	Remotes.getEvent("HatchResult").OnClientEvent:Connect(function(results)
+		if type(results) ~= "table" or #results == 0 then
+			return
+		end
+		Widgets.clear(row)
+		overlay.Visible = true
+		local best = 0
+		for i, r in ipairs(results) do
+			local def = PetData.PetsById[r.Id]
+			if def then
+				local rarity = PetData.Rarities[def.Rarity]
+				best = math.max(best, rarity.Order)
+				local card = Widgets.New("Frame", {
+					Size = UDim2.fromOffset(190, 220),
+					BackgroundColor3 = Theme.BgCard,
+					LayoutOrder = i,
+					ZIndex = 52,
+					Parent = row,
+				})
+				Widgets.corner(card, 16)
+				Widgets.stroke(card, rarity.Color, 4)
+				Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(200, 230), Parent = card })
+				local scale = Widgets.New("UIScale", { Scale = 0.2, Parent = card })
+				petViewport(card, r.Id, r.Gold == true)
+				Widgets.label({
+					Text = (if r.Gold then "GOLDEN " else "") .. def.Name,
+					Size = UDim2.new(1, -12, 0, 30),
+					Position = UDim2.new(0, 6, 0.57, 0),
+					TextColor3 = rarity.Color,
+					Font = Theme.Font,
+					ZIndex = 53,
+					Parent = card,
+				})
+				Widgets.label({
+					Text = def.Rarity,
+					Size = UDim2.new(1, -12, 0, 20),
+					Position = UDim2.new(0, 6, 0.57, 32),
+					TextColor3 = Theme.TextDim,
+					ZIndex = 53,
+					Parent = card,
+				})
+				Widgets.label({
+					Text = "Power x" .. Util.formatNumber(PetData.getPower(r.Id, r.Gold)),
+					Size = UDim2.new(1, -12, 0, 24),
+					Position = UDim2.new(0, 6, 0.57, 56),
+					ZIndex = 53,
+					Parent = card,
+				})
+				task.delay((i - 1) * 0.15, function()
+					Widgets.tween(scale, 0.35, { Scale = 1 }, Enum.EasingStyle.Back)
+				end)
+			end
+		end
+		title.Text = if best >= 5 then "INCREDIBLE!" elseif best >= 4 then "Great find!" else "You hatched!"
+	end)
+end
+
+return HatchPopup
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+					<Properties>
+						<string name="Name">Hud</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Основной HUD: валюты, мир, кнопка COLLECT, автосбор, меню слева.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Util = require(Shared:WaitForChild("Util"))
+local ZoneData = require(Shared:WaitForChild("ZoneData"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local Hud = {}
+
+local MENU = {
+	{ Id = "Pets", Text = "PETS", Color = Theme.Orange },
+	{ Id = "Upgrades", Text = "UPGRADES", Color = Theme.Blue },
+	{ Id = "Zones", Text = "WORLDS", Color = Theme.Green },
+	{ Id = "Rebirth", Text = "REBIRTH", Color = Theme.Purple },
+	{ Id = "Daily", Text = "DAILY", Color = Theme.Gold },
+	{ Id = "Shop", Text = "SHOP", Color = Theme.Red },
+}
+
+local function statPill(parent: Instance, order: number, icon: string, color: Color3): TextLabel
+	local pill = Widgets.New("Frame", {
+		Name = "Stat" .. order,
+		Size = UDim2.fromOffset(190, 38),
+		Position = UDim2.fromOffset(12, 12 + (order - 1) * 44),
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.1,
+		Parent = parent,
+	})
+	Widgets.corner(pill, 19)
+	Widgets.stroke(pill, color, 2)
+	local badge = Widgets.label({
+		Text = icon,
+		Size = UDim2.fromOffset(30, 30),
+		Position = UDim2.fromOffset(4, 4),
+		BackgroundTransparency = 0,
+		BackgroundColor3 = color,
+		TextColor3 = Color3.new(1, 1, 1),
+		Font = Theme.Font,
+		Parent = pill,
+	})
+	Widgets.corner(badge, 15)
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = badge })
+	local value = Widgets.label({
+		Name = "Value",
+		Size = UDim2.new(1, -46, 1, -10),
+		Position = UDim2.fromOffset(40, 5),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Font = Theme.Font,
+		Parent = pill,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, Parent = value })
+	return value
+end
+
+function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
+	local clickRemote = Remotes.getEvent("Click")
+
+	local coinsLabel = statPill(gui, 1, "$", Theme.Gold)
+	local gemsLabel = statPill(gui, 2, "G", Theme.Gem)
+	local rebirthLabel = statPill(gui, 3, "R", Theme.Purple)
+
+	-- Мир и множитель сверху по центру
+	local zoneBox = Widgets.New("Frame", {
+		Name = "ZoneBox",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 10),
+		Size = UDim2.fromOffset(300, 54),
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.1,
+		Parent = gui,
+	})
+	Widgets.corner(zoneBox, 14)
+	Widgets.stroke(zoneBox, Theme.BgLight, 2)
+	local zoneLabel = Widgets.label({
+		Size = UDim2.new(1, -12, 0.55, -2),
+		Position = UDim2.fromOffset(6, 3),
+		Font = Theme.Font,
+		Parent = zoneBox,
+	})
+	local buffLabel = Widgets.label({
+		Size = UDim2.new(1, -12, 0.4, -2),
+		Position = UDim2.new(0, 6, 0.58, 0),
+		TextColor3 = Theme.TextDim,
+		Parent = zoneBox,
+	})
+
+	-- Кнопка COLLECT
+	local perClickLabel = Widgets.label({
+		Name = "PerClick",
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -104),
+		Size = UDim2.fromOffset(260, 24),
+		TextColor3 = Theme.Gold,
+		TextStrokeTransparency = 0.5,
+		Parent = gui,
+	})
+	local collect = Widgets.button({
+		Name = "Collect",
+		Text = "COLLECT",
+		Color = Theme.Orange,
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -24),
+		Size = UDim2.fromOffset(250, 76),
+		MaxTextSize = 40,
+		Parent = gui,
+	})
+
+	local autoBtn = Widgets.button({
+		Name = "AutoToggle",
+		Text = "AUTO: ON",
+		Color = Theme.Green,
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0.5, 140, 1, -24),
+		Size = UDim2.fromOffset(110, 40),
+		Visible = false,
+		Parent = gui,
+		OnClick = function()
+			local core = ClientState.Core
+			if core then
+				Actions.call("SetAutoCollect", not core.AutoCollect)
+			end
+		end,
+	})
+
+	-- Удержание кнопки = повторные клики (сервер всё равно ограничивает частоту)
+	local holding = false
+	local function popup(text: string)
+		local absPos = collect.AbsolutePosition
+		local absSize = collect.AbsoluteSize
+		-- координаты переводим в систему ScreenGui (учитывает верхний отступ GUI inset)
+		local x = absPos.X - gui.AbsolutePosition.X + absSize.X * (0.2 + math.random() * 0.6)
+		local y = absPos.Y - gui.AbsolutePosition.Y - 10
+		local l = Widgets.label({
+			Text = text,
+			Size = UDim2.fromOffset(110, 28),
+			Position = UDim2.fromOffset(x - 55, y),
+			TextColor3 = Theme.Gold,
+			TextStrokeTransparency = 0.3,
+			Font = Theme.Font,
+			ZIndex = 40,
+			Parent = gui,
+		})
+		local tw = Widgets.tween(
+			l,
+			0.7,
+			{ Position = UDim2.fromOffset(x - 55, y - 70), TextTransparency = 1, TextStrokeTransparency = 1 }
+		)
+		tw.Completed:Once(function()
+			l:Destroy()
+		end)
+	end
+	local function collectOnce()
+		clickRemote:FireServer()
+		local core = ClientState.Core
+		if core then
+			popup("+" .. Util.formatNumber(core.PerClick))
+		end
+	end
+	local function startHolding()
+		if holding then
+			return
+		end
+		holding = true
+		task.spawn(function()
+			while holding do
+				collectOnce()
+				task.wait(0.1)
+			end
+		end)
+	end
+	collect.MouseButton1Down:Connect(startHolding)
+	collect.MouseButton1Up:Connect(function()
+		holding = false
+	end)
+	collect.MouseLeave:Connect(function()
+		holding = false
+	end)
+	UserInputService.InputEnded:Connect(function(input)
+		if
+			input.UserInputType == Enum.UserInputType.MouseButton1
+			or input.UserInputType == Enum.UserInputType.Touch
+			or input.KeyCode == Enum.KeyCode.Space
+		then
+			holding = false
+		end
+	end)
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if not processed and input.KeyCode == Enum.KeyCode.F then
+			collectOnce()
+		end
+	end)
+
+	-- Меню слева
+	local menu = Widgets.New("Frame", {
+		Name = "Menu",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 12, 0.5, 40),
+		Size = UDim2.fromOffset(112, #MENU * 46),
+		BackgroundTransparency = 1,
+		Parent = gui,
+	})
+	Widgets.New("UIListLayout", { Padding = UDim.new(0, 6), Parent = menu })
+	local dailyDot
+	for _, item in ipairs(MENU) do
+		local b = Widgets.button({
+			Name = item.Id,
+			Text = item.Text,
+			Color = item.Color,
+			Size = UDim2.fromOffset(112, 40),
+			OnClick = function()
+				openPanel(item.Id)
+			end,
+			Parent = menu,
+		})
+		if item.Id == "Daily" then
+			dailyDot = Widgets.label({
+				Text = "!",
+				BackgroundTransparency = 0,
+				BackgroundColor3 = Theme.Red,
+				Size = UDim2.fromOffset(22, 22),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.new(1, -4, 0, 4),
+				Font = Theme.Font,
+				Visible = false,
+				ZIndex = 5,
+				Parent = b,
+			})
+			Widgets.corner(dailyDot, 11)
+		end
+	end
+
+	-- Обновление при каждом снимке состояния
+	ClientState.onCore(function(core)
+		coinsLabel.Text = Util.formatNumber(core.Coins)
+		gemsLabel.Text = Util.formatNumber(core.Gems)
+		rebirthLabel.Text = "Rebirth " .. tostring(core.Rebirths)
+		local zone = ZoneData.ById[core.CurrentZone]
+		if zone then
+			zoneLabel.Text = ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
+		end
+		perClickLabel.Text = "+" .. Util.formatNumber(core.PerClick) .. " per collect"
+		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
+		autoBtn.Text = if core.AutoCollect then "AUTO: ON" else "AUTO: OFF"
+		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
+		if dailyDot then
+			dailyDot.Visible = core.Daily.CanClaim
+		end
+	end)
+
+	-- Таймер буста удачи (обновляется каждый кадр "дёшево": только текст раз в 0.5с)
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc < 0.5 then
+			return
+		end
+		acc = 0
+		local core = ClientState.Core
+		if not core then
+			return
+		end
+		local left = core.LuckBoostEnds - ClientState.serverNow()
+		if core.LuckBoost > 1 and left > 0 then
+			buffLabel.Text = ("Luck x%d  %s"):format(core.LuckBoost, Util.formatTime(left))
+			buffLabel.TextColor3 = Theme.Green
+		else
+			buffLabel.Text = ("Luck x%.2f"):format(core.Luck)
+			buffLabel.TextColor3 = Theme.TextDim
+		end
+	end)
+end
+
+return Hud
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+					<Properties>
+						<string name="Name">PetsPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Панель питомцев: инвентарь, экипировка, продажа.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local PetData = require(Shared:WaitForChild("PetData"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local PetsPanel = {}
+
+function PetsPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Pets")
+	local body = panel.Body
+
+	local info = Widgets.label({
+		Size = UDim2.new(1, -150, 0, 26),
+		Position = UDim2.fromOffset(14, 4),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, Parent = info })
+	Widgets.button({
+		Text = "Equip Best",
+		Color = Theme.Green,
+		Size = UDim2.fromOffset(130, 30),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 3),
+		ZIndex = 22,
+		OnClick = function()
+			Actions.call("EquipBest")
+		end,
+		Parent = body,
+	})
+
+	local scroll = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 40),
+		Size = UDim2.new(1, -20, 1, -112),
+	})
+	Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(112, 132),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = scroll,
+	})
+	Widgets.padding(scroll, 4)
+
+	-- Нижняя панель действий для выбранного питомца
+	local footer = Widgets.New("Frame", {
+		Position = UDim2.new(0, 10, 1, -66),
+		Size = UDim2.new(1, -20, 0, 60),
+		BackgroundColor3 = Theme.BgLight,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.corner(footer, 12)
+	local selLabel = Widgets.label({
+		Size = UDim2.new(0.5, -10, 1, -12),
+		Position = UDim2.fromOffset(10, 6),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Text = "Select a pet",
+		ZIndex = 23,
+		Parent = footer,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, Parent = selLabel })
+	local equipBtn = Widgets.button({
+		Text = "Equip",
+		Color = Theme.Green,
+		Size = UDim2.new(0.22, 0, 0, 40),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.fromScale(0.74, 0.5),
+		ZIndex = 23,
+		Parent = footer,
+	})
+	local sellBtn = Widgets.button({
+		Text = "Sell",
+		Color = Theme.Red,
+		Size = UDim2.new(0.24, 0, 0, 40),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -8, 0.5, 0),
+		ZIndex = 23,
+		Parent = footer,
+	})
+
+	local selected: string? = nil
+	local confirmSell = false
+
+	local function equippedIndex(core, uid: string): boolean
+		for _, v in ipairs(core.Equipped) do
+			if v == uid then
+				return true
+			end
+		end
+		return false
+	end
+
+	local function refreshFooter()
+		local core = ClientState.Core
+		local uid = selected
+		local pet = uid and ClientState.Pets[uid]
+		if not core or not uid or not pet then
+			selected = nil
+			selLabel.Text = "Select a pet"
+			Widgets.setEnabled(equipBtn, false)
+			Widgets.setEnabled(sellBtn, false)
+			sellBtn.Text = "Sell"
+			return
+		end
+		local def = PetData.PetsById[pet.Id]
+		local eq = equippedIndex(core, uid)
+		selLabel.Text = ("%s%s  x%s"):format(
+			if pet.Gold then "Golden " else "",
+			def.Name,
+			Util.formatNumber(PetData.getPower(pet.Id, pet.Gold))
+		)
+		selLabel.TextColor3 = PetData.Rarities[def.Rarity].Color
+		equipBtn.Text = if eq then "Unequip" else "Equip"
+		Widgets.setEnabled(equipBtn, true, if eq then Theme.Orange else Theme.Green)
+		local value = PetData.sellValue(pet.Id, pet.Gold)
+		sellBtn.Text = if confirmSell then "Sure?" else ("Sell " .. Util.formatNumber(value))
+		Widgets.setEnabled(sellBtn, not eq, Theme.Red)
+	end
+
+	equipBtn.Activated:Connect(function()
+		local core = ClientState.Core
+		if not selected or not core then
+			return
+		end
+		if equippedIndex(core, selected) then
+			Actions.call("Unequip", selected)
+		else
+			Actions.call("Equip", selected)
+		end
+	end)
+	sellBtn.Activated:Connect(function()
+		if not selected then
+			return
+		end
+		local pet = ClientState.Pets[selected]
+		local def = pet and PetData.PetsById[pet.Id]
+		local needsConfirm = def and (PetData.Rarities[def.Rarity].Order >= 3 or pet.Gold)
+		if needsConfirm and not confirmSell then
+			confirmSell = true
+			refreshFooter()
+			task.delay(3, function()
+				confirmSell = false
+				refreshFooter()
+			end)
+			return
+		end
+		confirmSell = false
+		Actions.call("Sell", selected)
+	end)
+
+	local lastSig = ""
+	local function signature(core): string
+		return table.concat(core.Equipped, ",")
+			.. "|"
+			.. core.PetCount
+			.. "|"
+			.. core.Slots
+			.. "|"
+			.. core.BagSize
+	end
+
+	local function rebuild()
+		local core = ClientState.Core
+		if not core then
+			return
+		end
+		lastSig = signature(core)
+		info.Text = ("Pets %d/%d   Equipped %d/%d"):format(
+			core.PetCount,
+			core.BagSize,
+			#core.Equipped,
+			core.Slots
+		)
+		Widgets.clear(scroll)
+
+		local list = {}
+		for uid, pet in pairs(ClientState.Pets) do
+			table.insert(list, { Uid = uid, Pet = pet, Power = PetData.getPower(pet.Id, pet.Gold) })
+		end
+		table.sort(list, function(a, b)
+			if a.Power ~= b.Power then
+				return a.Power > b.Power
+			end
+			return a.Uid < b.Uid
+		end)
+
+		for i, entry in ipairs(list) do
+			local def = PetData.PetsById[entry.Pet.Id]
+			local rarity = PetData.Rarities[def.Rarity]
+			local eq = equippedIndex(core, entry.Uid)
+			local card = Widgets.New("TextButton", {
+				Name = entry.Uid,
+				Text = "",
+				AutoButtonColor = false,
+				BackgroundColor3 = Theme.BgCard,
+				LayoutOrder = i,
+				ZIndex = 22,
+				Parent = scroll,
+			})
+			Widgets.corner(card, 12)
+			Widgets.stroke(
+				card,
+				if entry.Uid == selected then Color3.new(1, 1, 1) else rarity.Color,
+				if entry.Uid == selected then 4 else 2
+			)
+
+			local dot = Widgets.New("Frame", {
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 0, 0, 8),
+				Size = UDim2.fromOffset(46, 46),
+				BackgroundColor3 = if entry.Pet.Gold then Color3.fromRGB(255, 208, 70) else def.Look.Body,
+				ZIndex = 23,
+				Parent = card,
+			})
+			Widgets.corner(dot, 23)
+			local accent = Widgets.New("Frame", {
+				Position = UDim2.fromOffset(28, 28),
+				Size = UDim2.fromOffset(16, 16),
+				BackgroundColor3 = def.Look.Accent,
+				ZIndex = 24,
+				Parent = dot,
+			})
+			Widgets.corner(accent, 8)
+			Widgets.label({
+				Text = def.Name,
+				Size = UDim2.new(1, -8, 0, 24),
+				Position = UDim2.fromOffset(4, 58),
+				TextColor3 = rarity.Color,
+				ZIndex = 23,
+				Parent = card,
+			})
+			Widgets.label({
+				Text = "x" .. Util.formatNumber(entry.Power),
+				Size = UDim2.new(1, -8, 0, 20),
+				Position = UDim2.fromOffset(4, 84),
+				ZIndex = 23,
+				Parent = card,
+			})
+			Widgets.label({
+				Text = (if entry.Pet.Gold then "GOLD " else "") .. def.Rarity,
+				Size = UDim2.new(1, -8, 0, 14),
+				Position = UDim2.fromOffset(4, 106),
+				TextColor3 = Theme.TextDim,
+				ZIndex = 23,
+				Parent = card,
+			})
+			if eq then
+				local tag = Widgets.label({
+					Text = "ON",
+					BackgroundTransparency = 0,
+					BackgroundColor3 = Theme.Green,
+					Size = UDim2.fromOffset(30, 18),
+					Position = UDim2.new(1, -34, 0, 4),
+					Font = Theme.Font,
+					ZIndex = 25,
+					Parent = card,
+				})
+				Widgets.corner(tag, 6)
+			end
+			card.Activated:Connect(function()
+				selected = entry.Uid
+				confirmSell = false
+				rebuild()
+			end)
+		end
+		refreshFooter()
+	end
+
+	ClientState.onPets(function()
+		if panel.IsOpen() then
+			rebuild()
+		end
+	end)
+	-- Сервер присылает Core каждую секунду; перестраиваем список только если что-то реально изменилось,
+	-- иначе карточки пересоздавались бы под пальцем игрока и клики терялись бы.
+	ClientState.onCore(function(core)
+		if panel.IsOpen() and signature(core) ~= lastSig then
+			rebuild()
+		end
+	end)
+
+	local open = panel.Open
+	panel.Open = function()
+		open()
+		rebuild()
+	end
+	return panel
+end
+
+return PetsPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+					<Properties>
+						<string name="Name">RebirthPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Formulas = require(Shared:WaitForChild("Formulas"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local RebirthPanel = {}
+
+function RebirthPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Rebirth")
+	local body = panel.Body
+
+	local main = Widgets.label({
+		Size = UDim2.new(1, -30, 0, 70),
+		Position = UDim2.fromOffset(15, 10),
+		Font = Theme.Font,
+		TextColor3 = Theme.Purple,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 32, Parent = main })
+	local detail = Widgets.label({
+		Size = UDim2.new(1, -30, 0, 90),
+		Position = UDim2.fromOffset(15, 84),
+		TextColor3 = Theme.TextDim,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, Parent = detail })
+
+	local barBg = Widgets.New("Frame", {
+		Position = UDim2.fromOffset(15, 184),
+		Size = UDim2.new(1, -30, 0, 26),
+		BackgroundColor3 = Theme.BgLight,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.corner(barBg, 13)
+	local bar = Widgets.New("Frame", {
+		Size = UDim2.fromScale(0, 1),
+		BackgroundColor3 = Theme.Purple,
+		ZIndex = 23,
+		Parent = barBg,
+	})
+	Widgets.corner(bar, 13)
+	local barText = Widgets.label({ Size = UDim2.fromScale(1, 1), ZIndex = 24, Parent = barBg })
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 16, Parent = barText })
+
+	local confirm = false
+	local btn
+	btn = Widgets.button({
+		Text = "REBIRTH",
+		Color = Theme.Purple,
+		Size = UDim2.new(0.6, 0, 0, 56),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -14),
+		ZIndex = 23,
+		OnClick = function()
+			local core = ClientState.Core
+			if not core or core.Coins < core.RebirthCost then
+				Actions.call("Rebirth") -- сервер вернёт понятную ошибку
+				return
+			end
+			if not confirm then
+				confirm = true
+				btn.Text = "Tap again to confirm!"
+				task.delay(3, function()
+					confirm = false
+					btn.Text = "REBIRTH"
+				end)
+				return
+			end
+			confirm = false
+			btn.Text = "REBIRTH"
+			Actions.call("Rebirth")
+		end,
+		Parent = body,
+	})
+
+	ClientState.onCore(function(core)
+		local cur = Formulas.rebirthMultiplier(core.Rebirths)
+		local nxt = Formulas.rebirthMultiplier(core.Rebirths + 1)
+		main.Text = ("Coin bonus: x%.1f  >  x%.1f"):format(cur, nxt)
+		detail.Text = ("Cost: %s coins\nReward: +%d gems and a permanent coin bonus.\nResets: coins and Click Power. You keep pets, gems, worlds and other upgrades."):format(
+			Util.formatNumber(core.RebirthCost),
+			Formulas.rebirthGems(core.Rebirths)
+		)
+		local ratio = math.clamp(core.Coins / core.RebirthCost, 0, 1)
+		bar.Size = UDim2.fromScale(ratio, 1)
+		barText.Text = ("%s / %s"):format(Util.formatNumber(core.Coins), Util.formatNumber(core.RebirthCost))
+		btn.BackgroundColor3 = if ratio >= 1 then Theme.Purple else Theme.Disabled
+	end)
+	return panel
+end
+
+return RebirthPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+					<Properties>
+						<string name="Name">ShopPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Магазин: геймпассы и девелоперские продукты. Покупка проходит через Roblox (Prompt*),
+-- а выдачу награды делает только сервер (ProcessReceipt / PromptGamePassPurchaseFinished).
+local MarketplaceService = game:GetService("MarketplaceService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Config = require(Shared:WaitForChild("Config"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
+local Widgets = require(script.Parent.Widgets)
+
+local ShopPanel = {}
+
+local localPlayer = Players.LocalPlayer
+
+local function section(parent: Instance, title: string, order: number): (Frame, TextLabel)
+	local header = Widgets.label({
+		Text = title,
+		Size = UDim2.new(1, -8, 0, 30),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Font = Theme.Font,
+		TextColor3 = Theme.Gold,
+		LayoutOrder = order,
+		ZIndex = 22,
+		Parent = parent,
+	})
+	local grid = Widgets.New("Frame", {
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = order + 1,
+		ZIndex = 22,
+		Parent = parent,
+	})
+	Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(150, 150),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+	return grid, header
+end
+
+local function card(parent: Instance, name: string, desc: string, color: Color3): (Frame, TextButton)
+	local c = Widgets.New("Frame", { BackgroundColor3 = Theme.BgCard, ZIndex = 23, Parent = parent })
+	Widgets.corner(c, 12)
+	Widgets.stroke(c, color, 2)
+	Widgets.label({
+		Text = name,
+		Size = UDim2.new(1, -10, 0, 26),
+		Position = UDim2.fromOffset(5, 5),
+		Font = Theme.Font,
+		TextColor3 = color,
+		ZIndex = 24,
+		Parent = c,
+	})
+	local d = Widgets.label({
+		Text = desc,
+		Size = UDim2.new(1, -12, 0, 54),
+		Position = UDim2.fromOffset(6, 34),
+		TextColor3 = Theme.TextDim,
+		ZIndex = 24,
+		Parent = c,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = d })
+	local buy = Widgets.button({
+		Text = "...",
+		Color = Theme.Green,
+		Size = UDim2.new(1, -16, 0, 36),
+		AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -8),
+		ZIndex = 24,
+		Parent = c,
+	})
+	return c, buy
+end
+
+-- Цена из Marketplace (с запасным вариантом — подсказка из Config)
+local function fetchPrice(id: number, infoType: Enum.InfoType, fallback: number, apply: (number) -> ())
+	if id == 0 then
+		return
+	end
+	task.spawn(function()
+		local ok, info = pcall(function()
+			return MarketplaceService:GetProductInfo(id, infoType)
+		end)
+		if ok and type(info) == "table" and type(info.PriceInRobux) == "number" then
+			apply(info.PriceInRobux)
+		else
+			apply(fallback)
+		end
+	end)
+end
+
+local function notConfigured()
+	Toasts.show("Not available yet: set the ID in ReplicatedStorage/Shared/Config", "error")
+end
+
+function ShopPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Shop")
+	local scroll =
+		Widgets.scroller(panel.Body, { Position = UDim2.fromOffset(10, 6), Size = UDim2.new(1, -20, 1, -12) })
+	Widgets.New(
+		"UIListLayout",
+		{ Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll }
+	)
+	Widgets.padding(scroll, 4)
+
+	-- Геймпассы
+	local passGrid = section(scroll, "Game Passes (forever!)", 1)
+	local passButtons = {}
+	for _, key in ipairs(Config.GAMEPASS_ORDER) do
+		local info = Config.GAMEPASSES[key]
+		local id = Config.GAMEPASS_IDS[key]
+		local _, buy = card(passGrid, info.Name, info.Description, Theme.Gold)
+		passButtons[key] = buy
+		buy.Text = if id == 0 then "Soon" else "R$ ?"
+		fetchPrice(id, Enum.InfoType.GamePass, info.SuggestedPrice, function(price)
+			if passButtons[key] and not (ClientState.Core and ClientState.Core.Passes[key]) then
+				passButtons[key].Text = "R$ " .. tostring(price)
+			end
+		end)
+		buy.Activated:Connect(function()
+			if ClientState.Core and ClientState.Core.Passes[key] then
+				return
+			end
+			if id == 0 then
+				notConfigured()
+				return
+			end
+			MarketplaceService:PromptGamePassPurchase(localPlayer, id)
+		end)
+	end
+
+	-- Продукты по видам. Валюта и бусты удачи — это "платные случайные предметы" (через яйца),
+	-- поэтому для игроков с PolicyService.ArePaidRandomItemsRestricted эти разделы скрываются.
+	local groups = {
+		{ Title = "Gems", Kind = "Gems", Color = Theme.Gem },
+		{ Title = "Coins", Kind = "Coins", Color = Theme.Gold },
+		{ Title = "Luck Boosts", Kind = "Luck", Color = Theme.Green },
+	}
+	local order = 10
+	local restrictedNote = Widgets.label({
+		Text = "Gem, coin and luck packs are not available for your account or region.",
+		Size = UDim2.new(1, -8, 0, 40),
+		TextColor3 = Theme.TextDim,
+		LayoutOrder = 9,
+		Visible = false,
+		ZIndex = 22,
+		Parent = scroll,
+	})
+	local groupFrames = {}
+	for _, group in ipairs(groups) do
+		local grid, header = section(scroll, group.Title, order)
+		table.insert(groupFrames, { Grid = grid, Header = header })
+		order += 10
+		for _, key in ipairs(Config.PRODUCT_ORDER) do
+			local def = Config.PRODUCTS[key]
+			if def.Kind == group.Kind then
+				local id = Config.PRODUCT_IDS[key]
+				local desc
+				if def.Kind == "Gems" then
+					desc = ("%s gems. Use them for Crystal Eggs and Pet Slots."):format(
+						Util.formatNumber(def.Amount)
+					)
+				elseif def.Kind == "Coins" then
+					desc = ("Instant coins that scale with your progress (about %s collects)."):format(
+						Util.formatNumber(def.Clicks)
+					)
+				else
+					desc = ("Hatch luck x%d for %d minutes. Better odds for rare pets!"):format(
+						def.Multiplier,
+						def.Seconds // 60
+					)
+				end
+				local _, buy = card(grid, def.Name, desc, group.Color)
+				buy.Text = if id == 0 then "Soon" else "R$ ?"
+				fetchPrice(id, Enum.InfoType.Product, def.SuggestedPrice, function(price)
+					buy.Text = "R$ " .. tostring(price)
+				end)
+				buy.Activated:Connect(function()
+					if id == 0 then
+						notConfigured()
+						return
+					end
+					MarketplaceService:PromptProductPurchase(localPlayer, id)
+				end)
+			end
+		end
+	end
+
+	Widgets.label({
+		Text = "Pets are random. Odds are shown in every egg window. Purchases are processed by Roblox.",
+		Size = UDim2.new(1, -8, 0, 36),
+		TextColor3 = Theme.TextDim,
+		LayoutOrder = 1000,
+		ZIndex = 22,
+		Parent = scroll,
+	})
+
+	ClientState.onCore(function(core)
+		local restricted = core.PaidRandomRestricted == true
+		restrictedNote.Visible = restricted
+		for _, g in ipairs(groupFrames) do
+			g.Grid.Visible = not restricted
+			g.Header.Visible = not restricted
+		end
+		for key, btn in pairs(passButtons) do
+			if core.Passes[key] then
+				btn.Text = "OWNED"
+				btn.BackgroundColor3 = Theme.Disabled
+			end
+		end
+	end)
+	return panel
+end
+
+return ShopPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+					<Properties>
+						<string name="Name">Theme</string>
+						<ProtectedString name="Source"><![CDATA[--!strict
+local Theme = {}
+
+local c3 = Color3.fromRGB
+
+Theme.Bg = c3(28, 32, 48)
+Theme.BgLight = c3(44, 50, 74)
+Theme.BgCard = c3(56, 64, 94)
+Theme.Text = c3(245, 247, 255)
+Theme.TextDim = c3(170, 180, 205)
+Theme.Gold = c3(255, 208, 70)
+Theme.Gem = c3(100, 220, 255)
+Theme.Purple = c3(180, 110, 255)
+Theme.Green = c3(80, 205, 110)
+Theme.Red = c3(235, 85, 85)
+Theme.Blue = c3(70, 140, 250)
+Theme.Orange = c3(255, 150, 50)
+Theme.Disabled = c3(90, 96, 120)
+Theme.Font = Enum.Font.FredokaOne
+Theme.FontBody = Enum.Font.GothamBold
+
+return Theme
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+					<Properties>
+						<string name="Name">Toasts</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Всплывающие уведомления сверху экрана.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
+
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local Toasts = {}
+
+local container: Frame
+
+local COLORS = {
+	info = Theme.Blue,
+	success = Theme.Green,
+	error = Theme.Red,
+	reward = Theme.Purple,
+}
+
+function Toasts.show(text: string, kind: string?)
+	if not container then
+		return
+	end
+	local color = COLORS[kind or "info"] or Theme.Blue
+	local toast = Widgets.New("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 40),
+		BackgroundColor3 = color,
+		Text = text,
+		TextColor3 = Theme.Text,
+		Font = Theme.FontBody,
+		TextScaled = true,
+		TextWrapped = true,
+		ZIndex = 60,
+		Parent = container,
+	})
+	Widgets.corner(toast, 10)
+	Widgets.stroke(toast, Color3.new(0, 0, 0), 2).Transparency = 0.5
+	Widgets.New("UIPadding", {
+		PaddingLeft = UDim.new(0, 10),
+		PaddingRight = UDim.new(0, 10),
+		PaddingTop = UDim.new(0, 5),
+		PaddingBottom = UDim.new(0, 5),
+		Parent = toast,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 22, MinTextSize = 10, Parent = toast })
+	task.delay(3.2, function()
+		if toast.Parent then
+			local tw = Widgets.tween(toast, 0.4, { BackgroundTransparency = 1, TextTransparency = 1 })
+			tw.Completed:Once(function()
+				toast:Destroy()
+			end)
+		end
+	end)
+end
+
+function Toasts.init(gui: ScreenGui)
+	container = Widgets.New("Frame", {
+		Name = "Toasts",
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 96),
+		Size = UDim2.new(0.5, 0, 0, 200),
+		BackgroundTransparency = 1,
+		ZIndex = 60,
+		Parent = gui,
+	})
+	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(460, 300), Parent = container })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = container,
+	})
+	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
+		if type(text) == "string" then
+			Toasts.show(text, if type(kind) == "string" then kind else "info")
+		end
+	end)
+end
+
+return Toasts
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+					<Properties>
+						<string name="Name">UpgradesPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local Formulas = require(Shared:WaitForChild("Formulas"))
+local UpgradeData = require(Shared:WaitForChild("UpgradeData"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local UpgradesPanel = {}
+
+function UpgradesPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Upgrades")
+	local scroll =
+		Widgets.scroller(panel.Body, { Position = UDim2.fromOffset(10, 6), Size = UDim2.new(1, -20, 1, -12) })
+	Widgets.New(
+		"UIListLayout",
+		{ Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll }
+	)
+	Widgets.padding(scroll, 4)
+
+	local rows = {}
+	for i, def in ipairs(UpgradeData.List) do
+		local row = Widgets.New("Frame", {
+			Size = UDim2.new(1, -8, 0, 74),
+			BackgroundColor3 = Theme.BgCard,
+			LayoutOrder = i,
+			ZIndex = 22,
+			Parent = scroll,
+		})
+		Widgets.corner(row, 12)
+		local name = Widgets.label({
+			Text = def.Name,
+			Size = UDim2.new(0.55, 0, 0, 26),
+			Position = UDim2.fromOffset(12, 6),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Theme.Font,
+			ZIndex = 23,
+			Parent = row,
+		})
+		Widgets.label({
+			Text = def.Description,
+			Size = UDim2.new(0.55, 0, 0, 30),
+			Position = UDim2.fromOffset(12, 34),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Theme.TextDim,
+			ZIndex = 23,
+			Parent = row,
+		})
+		local level = Widgets.label({
+			Size = UDim2.new(0.2, 0, 0, 22),
+			Position = UDim2.new(0.58, 0, 0, 6),
+			ZIndex = 23,
+			Parent = row,
+		})
+		local buy = Widgets.button({
+			Text = "",
+			Size = UDim2.new(0.34, -8, 0, 40),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 8),
+			ZIndex = 23,
+			OnClick = function()
+				Actions.call("BuyUpgrade", def.Id)
+			end,
+			Parent = row,
+		})
+		rows[def.Id] = { Level = level, Buy = buy, Name = name }
+	end
+
+	ClientState.onCore(function(core)
+		for _, def in ipairs(UpgradeData.List) do
+			local r = rows[def.Id]
+			local lv = core.Upgrades[def.Id] or 0
+			r.Level.Text = ("Lv %d/%d"):format(lv, def.MaxLevel)
+			local cost = Formulas.upgradeCost(def.Id, lv)
+			if not cost then
+				r.Buy.Text = "MAX"
+				Widgets.setEnabled(r.Buy, false)
+			else
+				local have = if def.Currency == "Gems" then core.Gems else core.Coins
+				r.Buy.Text = Util.formatNumber(cost) .. " " .. def.Currency
+				Widgets.setEnabled(r.Buy, have >= cost, Theme.Green)
+				-- Кнопка остаётся кликабельной всегда (сервер проверит), но цвет подсказывает, хватает ли валюты
+				r.Buy.Active = true
+			end
+		end
+	end)
+	return panel
+end
+
+return UpgradesPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+					<Properties>
+						<string name="Name">Widgets</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+-- Небольшая обёртка для создания интерфейса кодом (никаких внешних ассетов).
+local TweenService = game:GetService("TweenService")
+local Theme = require(script.Parent.Theme)
+
+local Widgets = {}
+
+-- Универсальный конструктор: New("Frame", { Name = "X", Size = ..., Parent = ... }, { children })
+function Widgets.New(className: string, props: { [string]: any }?, children: { Instance }?): any
+	local inst = Instance.new(className)
+	local parent = nil
+	if props then
+		for k, v in pairs(props) do
+			if k == "Parent" then
+				parent = v
+			else
+				(inst :: any)[k] = v
+			end
+		end
+	end
+	if children then
+		for _, child in ipairs(children) do
+			child.Parent = inst
+		end
+	end
+	if parent then
+		inst.Parent = parent
+	end
+	return inst
+end
+local New = Widgets.New
+
+function Widgets.corner(parent: Instance, radius: number?): UICorner
+	return New("UICorner", { CornerRadius = UDim.new(0, radius or 10), Parent = parent })
+end
+
+function Widgets.stroke(parent: Instance, color: Color3, thickness: number?): UIStroke
+	return New("UIStroke", {
+		Color = color,
+		Thickness = thickness or 2,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = parent,
+	})
+end
+
+function Widgets.padding(parent: Instance, px: number)
+	return New("UIPadding", {
+		PaddingTop = UDim.new(0, px),
+		PaddingBottom = UDim.new(0, px),
+		PaddingLeft = UDim.new(0, px),
+		PaddingRight = UDim.new(0, px),
+		Parent = parent,
+	})
+end
+
+function Widgets.label(props: { [string]: any }): TextLabel
+	local p = {
+		BackgroundTransparency = 1,
+		Font = Theme.FontBody,
+		TextColor3 = Theme.Text,
+		TextScaled = true,
+		TextWrapped = true,
+		Text = "",
+	}
+	for k, v in pairs(props) do
+		p[k] = v
+	end
+	return New("TextLabel", p)
+end
+
+function Widgets.tween(inst: Instance, duration: number, goal: { [string]: any }, style: Enum.EasingStyle?)
+	local t = TweenService:Create(
+		inst,
+		TweenInfo.new(duration, style or Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		goal
+	)
+	t:Play()
+	return t
+end
+
+-- Кнопка со скруглением, обводкой и анимацией нажатия
+function Widgets.button(props: { [string]: any }): TextButton
+	local onClick = props.OnClick
+	local maxTextSize: number = props.MaxTextSize or 28
+	local baseColor: Color3 = props.Color or Theme.Blue
+	local p = {
+		BackgroundColor3 = baseColor,
+		Font = Theme.Font,
+		TextColor3 = Theme.Text,
+		TextScaled = true,
+		AutoButtonColor = false,
+		Text = "",
+		Size = UDim2.fromOffset(120, 40),
+	}
+	for k, v in pairs(props) do
+		if k ~= "OnClick" and k ~= "Color" and k ~= "MaxTextSize" then
+			p[k] = v
+		end
+	end
+	local btn: TextButton = New("TextButton", p)
+	Widgets.corner(btn, 10)
+	Widgets.stroke(btn, Color3.new(0, 0, 0), 2).Transparency = 0.6
+	New("UITextSizeConstraint", { MaxTextSize = maxTextSize, MinTextSize = 8, Parent = btn })
+	local scale = New("UIScale", { Parent = btn })
+
+	btn.MouseEnter:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1.05 })
+	end)
+	btn.MouseLeave:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1 })
+	end)
+	btn.MouseButton1Down:Connect(function()
+		Widgets.tween(scale, 0.06, { Scale = 0.94 })
+	end)
+	btn.MouseButton1Up:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1.05 })
+	end)
+	if onClick then
+		btn.Activated:Connect(onClick)
+	end
+	return btn
+end
+
+function Widgets.setEnabled(btn: TextButton, enabled: boolean, color: Color3?)
+	btn.Active = enabled
+	btn.BackgroundColor3 = if enabled then (color or Theme.Green) else Theme.Disabled
+end
+
+-- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
+function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
+	local root = New("Frame", {
+		Name = title .. "Panel",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.fromScale(0.62, 0.72),
+		BackgroundColor3 = Theme.Bg,
+		Visible = false,
+		ZIndex = 20,
+		Parent = gui,
+	})
+	Widgets.corner(root, 16)
+	Widgets.stroke(root, Theme.BgLight, 3)
+	New(
+		"UISizeConstraint",
+		{ MaxSize = Vector2.new(760, 540), MinSize = Vector2.new(300, 240), Parent = root }
+	)
+	local scale = New("UIScale", { Parent = root })
+
+	local header = New("Frame", {
+		Name = "Header",
+		Size = UDim2.new(1, 0, 0, 52),
+		BackgroundColor3 = Theme.BgLight,
+		ZIndex = 21,
+		Parent = root,
+	})
+	Widgets.corner(header, 16)
+	Widgets.label({
+		Name = "Title",
+		Text = title,
+		Size = UDim2.new(1, -120, 1, -14),
+		Position = UDim2.fromOffset(16, 7),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Font = Theme.Font,
+		ZIndex = 22,
+		Parent = header,
+	})
+
+	local api = { Root = root }
+	local function close()
+		root.Visible = false
+		if onClose then
+			onClose()
+		end
+	end
+	local closeBtn = Widgets.button({
+		Text = "X",
+		Color = Theme.Red,
+		Size = UDim2.fromOffset(40, 36),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -10, 0.5, 0),
+		ZIndex = 22,
+		OnClick = close,
+		Parent = header,
+	})
+	closeBtn.Name = "Close"
+
+	local body = New("Frame", {
+		Name = "Body",
+		Position = UDim2.fromOffset(0, 56),
+		Size = UDim2.new(1, 0, 1, -56),
+		BackgroundTransparency = 1,
+		ZIndex = 21,
+		Parent = root,
+	})
+	api.Body = body
+	api.Header = header
+
+	function api.Open()
+		root.Visible = true
+		scale.Scale = 0.85
+		Widgets.tween(scale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+	end
+	api.Close = close
+	function api.IsOpen(): boolean
+		return root.Visible
+	end
+	return api
+end
+
+function Widgets.scroller(parent: Instance, props: { [string]: any }?): ScrollingFrame
+	local p = {
+		Name = "Scroll",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		ScrollBarThickness = 6,
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		CanvasSize = UDim2.new(),
+		ZIndex = 21,
+		Parent = parent,
+	}
+	if props then
+		for k, v in pairs(props) do
+			p[k] = v
+		end
+	end
+	return New("ScrollingFrame", p)
+end
+
+function Widgets.clear(container: Instance, keep: { string }?)
+	for _, child in ipairs(container:GetChildren()) do
+		if not child:IsA("UIListLayout") and not child:IsA("UIGridLayout") and not child:IsA("UIPadding") then
+			local skip = false
+			if keep then
+				for _, name in ipairs(keep) do
+					if child.Name == name then
+						skip = true
+					end
+				end
+			end
+			if not skip then
+				child:Destroy()
+			end
+		end
+	end
+end
+
+return Widgets
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+					<Properties>
+						<string name="Name">ZonesPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local PetData = require(Shared:WaitForChild("PetData"))
+local Util = require(Shared:WaitForChild("Util"))
+local ZoneData = require(Shared:WaitForChild("ZoneData"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local ZonesPanel = {}
+
+function ZonesPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Worlds")
+	local scroll =
+		Widgets.scroller(panel.Body, { Position = UDim2.fromOffset(10, 6), Size = UDim2.new(1, -20, 1, -12) })
+	Widgets.New(
+		"UIListLayout",
+		{ Padding = UDim.new(0, 8), SortOrder = Enum.SortOrder.LayoutOrder, Parent = scroll }
+	)
+	Widgets.padding(scroll, 4)
+
+	local rows = {}
+	for i, zone in ipairs(ZoneData.List) do
+		local row = Widgets.New("Frame", {
+			Size = UDim2.new(1, -8, 0, 78),
+			BackgroundColor3 = Theme.BgCard,
+			LayoutOrder = i,
+			ZIndex = 22,
+			Parent = scroll,
+		})
+		Widgets.corner(row, 12)
+		Widgets.stroke(row, zone.Accent, 2)
+		local swatch = Widgets.New("Frame", {
+			Position = UDim2.fromOffset(10, 10),
+			Size = UDim2.fromOffset(58, 58),
+			BackgroundColor3 = zone.Floor,
+			ZIndex = 23,
+			Parent = row,
+		})
+		Widgets.corner(swatch, 12)
+		Widgets.stroke(swatch, zone.Accent, 3)
+		Widgets.label({
+			Text = zone.Name,
+			Size = UDim2.new(0.5, 0, 0, 26),
+			Position = UDim2.fromOffset(80, 8),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Theme.Font,
+			ZIndex = 23,
+			Parent = row,
+		})
+		local eggNames = {}
+		for _, egg in ipairs(PetData.Eggs) do
+			if egg.Zone == zone.Id then
+				table.insert(eggNames, egg.Name)
+			end
+		end
+		Widgets.label({
+			Text = ("x%d coins  |  %s"):format(zone.Multiplier, table.concat(eggNames, ", ")),
+			Size = UDim2.new(0.5, 0, 0, 34),
+			Position = UDim2.fromOffset(80, 36),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextColor3 = Theme.TextDim,
+			ZIndex = 23,
+			Parent = row,
+		})
+		local btn = Widgets.button({
+			Text = "",
+			Size = UDim2.new(0.3, -8, 0, 44),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -10, 0.5, 0),
+			ZIndex = 23,
+			OnClick = function()
+				local core = ClientState.Core
+				if not core then
+					return
+				end
+				if core.Zones[zone.Id] then
+					if Actions.call("Teleport", zone.Id) then
+						panel.Close()
+					end
+				else
+					Actions.call("UnlockZone", zone.Id)
+				end
+			end,
+			Parent = row,
+		})
+		rows[zone.Id] = btn
+	end
+
+	ClientState.onCore(function(core)
+		for _, zone in ipairs(ZoneData.List) do
+			local btn = rows[zone.Id]
+			if core.Zones[zone.Id] then
+				btn.Text = if core.CurrentZone == zone.Id then "Go to spawn" else "Teleport"
+				Widgets.setEnabled(btn, true, Theme.Blue)
+			elseif core.Rebirths < zone.RequiresRebirths then
+				btn.Text = ("Needs %d rebirth"):format(zone.RequiresRebirths)
+				Widgets.setEnabled(btn, false)
+			else
+				btn.Text = "Unlock " .. Util.formatNumber(zone.UnlockCost)
+				Widgets.setEnabled(btn, core.Coins >= zone.UnlockCost, Theme.Green)
+				btn.Active = true
+			end
+		end
+	end)
+	return panel
+end
+
+return ZonesPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+			</Item>
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000036">
+				<Properties>
+					<string name="Name">UIController</string>
+					<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	UIController — собирает весь интерфейс кодом (никаких ручных ассетов).
+	Лежит внутри ScreenGui "PetCollectorGui" (ResetOnSpawn = false), поэтому не дублируется при респавне.
+]]
+local gui = script.Parent :: ScreenGui
+local Modules = script.Parent:WaitForChild("Modules")
+
+local ClientState = require(Modules:WaitForChild("ClientState"))
+local Toasts = require(Modules:WaitForChild("Toasts"))
+local Hud = require(Modules:WaitForChild("Hud"))
+
+ClientState.init()
+Toasts.init(gui)
+
+local panels = {}
+panels.Pets = require(Modules:WaitForChild("PetsPanel")).init(gui)
+panels.Upgrades = require(Modules:WaitForChild("UpgradesPanel")).init(gui)
+panels.Zones = require(Modules:WaitForChild("ZonesPanel")).init(gui)
+panels.Rebirth = require(Modules:WaitForChild("RebirthPanel")).init(gui)
+panels.Daily = require(Modules:WaitForChild("DailyPanel")).init(gui)
+panels.Shop = require(Modules:WaitForChild("ShopPanel")).init(gui)
+panels.Egg = require(Modules:WaitForChild("EggPanel")).init(gui)
+require(Modules:WaitForChild("HatchPopup")).init(gui)
+
+local function openPanel(name: string)
+	local target = panels[name]
+	if not target then
+		return
+	end
+	local wasOpen = target.IsOpen()
+	for _, p in pairs(panels) do
+		if p.IsOpen() then
+			p.Close()
+		end
+	end
+	if not wasOpen then
+		target.Open()
+	end
+end
+
+Hud.init(gui, openPanel)
+ClientState.requestResync()
+]]></ProtectedString>
+				</Properties>
+			</Item>
+		</Item>
+	</Item>
+</roblox>

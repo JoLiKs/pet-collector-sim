@@ -1,0 +1,553 @@
+{
+ "generator": "roblox2web 1.0.0",
+ "project": "PetCollectorSimulator",
+ "sourceKind": "rojo",
+ "genre": "pet-simulator",
+ "genreReason": "Найден модуль с таблицами Pets+Eggs (питомцы и яйца).",
+ "scripts": [
+  [
+   "ReplicatedStorage.Shared.Config",
+   "ModuleScript",
+   8893
+  ],
+  [
+   "ReplicatedStorage.Shared.Formulas",
+   "ModuleScript",
+   1863
+  ],
+  [
+   "ReplicatedStorage.Shared.PetData",
+   "ModuleScript",
+   10710
+  ],
+  [
+   "ReplicatedStorage.Shared.PetModel",
+   "ModuleScript",
+   7358
+  ],
+  [
+   "ReplicatedStorage.Shared.Remotes",
+   "ModuleScript",
+   1766
+  ],
+  [
+   "ReplicatedStorage.Shared.UpgradeData",
+   "ModuleScript",
+   1527
+  ],
+  [
+   "ReplicatedStorage.Shared.Util",
+   "ModuleScript",
+   1937
+  ],
+  [
+   "ReplicatedStorage.Shared.ZoneData",
+   "ModuleScript",
+   2370
+  ],
+  [
+   "ServerScriptService.Main",
+   "Script",
+   1105
+  ],
+  [
+   "ServerScriptService.Server.AntiExploit",
+   "ModuleScript",
+   3491
+  ],
+  [
+   "ServerScriptService.Server.ClickService",
+   "ModuleScript",
+   2215
+  ],
+  [
+   "ServerScriptService.Server.DailyService",
+   "ModuleScript",
+   2609
+  ],
+  [
+   "ServerScriptService.Server.DataService",
+   "ModuleScript",
+   10970
+  ],
+  [
+   "ServerScriptService.Server.Economy",
+   "ModuleScript",
+   5335
+  ],
+  [
+   "ServerScriptService.Server.LeaderboardService",
+   "ModuleScript",
+   2922
+  ],
+  [
+   "ServerScriptService.Server.Monetization",
+   "ModuleScript",
+   6171
+  ],
+  [
+   "ServerScriptService.Server.Notify",
+   "ModuleScript",
+   470
+  ],
+  [
+   "ServerScriptService.Server.PetService",
+   "ModuleScript",
+   5703
+  ],
+  [
+   "ServerScriptService.Server.PlayerService",
+   "ModuleScript",
+   6563
+  ],
+  [
+   "ServerScriptService.Server.RebirthService",
+   "ModuleScript",
+   1233
+  ],
+  [
+   "ServerScriptService.Server.Router",
+   "ModuleScript",
+   2508
+  ],
+  [
+   "ServerScriptService.Server.Session",
+   "ModuleScript",
+   1591
+  ],
+  [
+   "ServerScriptService.Server.State",
+   "ModuleScript",
+   4436
+  ],
+  [
+   "ServerScriptService.Server.UpgradeService",
+   "ModuleScript",
+   1367
+  ],
+  [
+   "ServerScriptService.Server.WorldBuilder",
+   "ModuleScript",
+   14934
+  ],
+  [
+   "ServerScriptService.Server.ZoneService",
+   "ModuleScript",
+   2533
+  ],
+  [
+   "StarterPlayer.StarterPlayerScripts.PetFollower",
+   "LocalScript",
+   4017
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.Actions",
+   "ModuleScript",
+   836
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.ClientState",
+   "ModuleScript",
+   1868
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.DailyPanel",
+   "ModuleScript",
+   3807
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.EggPanel",
+   "ModuleScript",
+   5445
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.HatchPopup",
+   "ModuleScript",
+   5258
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.Hud",
+   "ModuleScript",
+   8109
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.PetsPanel",
+   "ModuleScript",
+   7834
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.RebirthPanel",
+   "ModuleScript",
+   3131
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.ShopPanel",
+   "ModuleScript",
+   6859
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.Theme",
+   "ModuleScript",
+   540
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.Toasts",
+   "ModuleScript",
+   2182
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.UpgradesPanel",
+   "ModuleScript",
+   2814
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.Widgets",
+   "ModuleScript",
+   6236
+  ],
+  [
+   "StarterGui.PetCollectorGui.Modules.ZonesPanel",
+   "ModuleScript",
+   3218
+  ],
+  [
+   "StarterGui.PetCollectorGui.UIController",
+   "LocalScript",
+   1365
+  ]
+ ],
+ "limitations": [
+  "Luau-логика НЕ транслируется. Конвертер читает только данные (таблицы значений и чистые функции-конструкторы вида `local function pet(...) return {...} end`), выполняя их в песочнице с лимитом шагов.",
+  "Геймплей — готовый шаблон «pet / clicker simulator», параметризованный вашими данными (питомцы, яйца, миры, апгрейды, баланс). Если ваша игра устроена иначе (другие механики, тайкун, обби, шутер) — шаблон не подойдёт, будет страница-отчёт.",
+  "Формулы экономики зашиты в шаблон (как в Pet Collector Simulator). Если в проекте есть модуль Formulas, конвертер сверяет его ответы с шаблоном и сообщает о расхождениях; остальные расчёты (Economy/Services) не проверяются.",
+  "Графика — упрощённый 2D-канвас; 3D-модели, текстуры, звуки, GUI из .rbxlx не переносятся.",
+  "Сервер, DataStore, лидерборд и покупки — демо (localStorage, вымышленные игроки, без платежей)."
+ ],
+ "modules": [
+  {
+   "module": "ReplicatedStorage.Shared.Config",
+   "role": "config",
+   "keys": [
+    "GAMEPASS_IDS",
+    "PRODUCT_IDS",
+    "PRODUCTS",
+    "GAMEPASSES",
+    "GAMEPASS_ORDER",
+    "PRODUCT_ORDER",
+    "PASS_EFFECTS",
+    "STUDIO_GRANT_ALL_PASSES",
+    "DATASTORE_NAME",
+    "LEADERBOARD_DATASTORE",
+    "AUTOSAVE_INTERVAL",
+    "SESSION_LOCK_TIMEOUT",
+    "LOAD_ATTEMPTS",
+    "LOAD_LOCK_RETRY_DELAY",
+    "SAVE_ATTEMPTS",
+    "STUDIO_FALLBACK_TO_EPHEMERAL",
+    "GAME_NAME",
+    "MAX_CLICKS_PER_SECOND",
+    "CLICK_BURST",
+    "BASE_PET_SLOTS",
+    "BASE_BAG_SIZE",
+    "BASE_WALKSPEED",
+    "MAX_WALKSPEED",
+    "JUMP_POWER",
+    "GOLD_CHANCE"
+   ],
+   "preview": "{\"GAMEPASS_IDS\": {\"DOUBLE_COINS\": 0, \"DOUBLE_SPEED\": 0, \"AUTO_COLLECT\": 0, \"VIP\": 0}, \"PRODUCT_IDS\": {\"GEMS_SMALL\": 0, \"GEMS_MEDIUM\": 0, \"GEMS_LARGE\": 0, \"COINS_SMALL\": 0, \"COINS_LARGE\": 0, \"LUCK_2X_15M\": 0, \"LUCK_5X_10M\": 0}, \"PRODUCTS\": {\"GEMS_SMALL\": {\"Kind\": \"Gems\", \"Amount\": 100, \"Name\": \"Pile of Gems\", \"SuggestedPrice\": 79}, \"GEMS_MEDIUM\": {\"Kind\": \"Gems\", \"Amount\": 550, \"Name\": \"Bag of Gems\", \"SuggestedPrice\": 349}, \"GEMS_LARGE\": {\"Kind\": \"Gems\", \"Amount\": 1500, \"Name\": \"Chest of Gems\", \"SuggestedPrice\": 899}, \"COINS_SMALL\": {\"Kind\": \"Coins\", \"Clicks\": 1500, \"Min\": 2000, \"Name\": \"Coin Pouch\", \"SuggestedPrice\": 79}, \"COINS_LARGE\": {\"Kind\": \"Coins\", \"Clicks\": 15000, \"Min\": 25000, \"Name\": \"Coin Vault\", \"SuggestedPrice\": 399}, \"LUCK_2X_15M\": {\"Kind\": \"Luck\", \"Boost\": \"Luck2\", \"Multiplier\": 2, \"Seconds\": 900, \"Name\": \"Lucky Clover x2 (15m)\", \"SuggestedPrice\": 79}, \"LUCK_5X_10M\": {\"Kind\": \"Luck\", \"Boost\": \"Luck5\", \"Multiplier\": 5, \"Seconds\": 600, \"Name\": \"Super Clover x5 (10m)\", \"SuggestedPrice\": 199}}, \"GAMEPASSES\": {\"DOUBLE_COINS\": {\"Name\": \"2x Coins\", \"Description\": \"Double ALL coins you collect. Forever!\", \"SuggestedPrice\": 299}, \"DOUBLE_SPEED\": {\"Name\": \"2x Speed\", \"Descripti …"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.Formulas",
+   "role": "formulas",
+   "keys": [
+    "rebirthCost",
+    "rebirthMultiplier",
+    "rebirthGems",
+    "upgradeCost",
+    "petSlots",
+    "bagSize",
+    "clickBase",
+    "upgradeLuck",
+    "walkSpeed"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.PetData",
+   "role": "petdata",
+   "keys": [
+    "Rarities",
+    "LUCK_MIN_ORDER",
+    "Pets",
+    "PetsById",
+    "Eggs",
+    "EggsById",
+    "getPower",
+    "sellValue",
+    "getOdds",
+    "roll"
+   ],
+   "preview": "{\"Rarities\": {\"Common\": {\"Order\": 1, \"Color\": \"#bebec8\", \"Scale\": 1}, \"Uncommon\": {\"Order\": 2, \"Color\": \"#5ad26e\", \"Scale\": 1.08}, \"Rare\": {\"Order\": 3, \"Color\": \"#4696ff\", \"Scale\": 1.16}, \"Epic\": {\"Order\": 4, \"Color\": \"#b45aff\", \"Scale\": 1.26}, \"Legendary\": {\"Order\": 5, \"Color\": \"#ffaa28\", \"Scale\": 1.38}, \"Mythic\": {\"Order\": 6, \"Color\": \"#ff4678\", \"Scale\": 1.5}}, \"LUCK_MIN_ORDER\": 3, \"Pets\": [{\"Id\": \"bunbun\", \"Name\": \"Bunbun\", \"Rarity\": \"Common\", \"Power\": 1, \"Look\": {\"Body\": \"#faf0e1\", \"Accent\": \"#ffaab9\", \"Shape\": \"Round\", \"Ears\": \"Long\", \"Extras\": [\"Tail\"]}}, {\"Id\": \"chirpy\", \"Name\": \"Chirpy\", \"Rarity\": \"Common\", \"Power\": 1.5, \"Look\": {\"Body\": \"#ffe25a\", \"Accent\": \"#ff9632\", \"Shape\": \"Round\", \"Ears\": \"None\", \"Extras\": [\"Beak\", \"Wings\"]}}, {\"Id\": \"mossy\", \"Name\": \"Mossy Frog\", \"Rarity\": \"Uncommon\", \"Power\": 3, \"Look\": {\"Body\": \"#6ec85a\", \"Accent\": \"#3c8c3c\", \"Shape\": \"Wide\", \"Ears\": \"Round\", \"Extras\": {}}}, {\"Id\": \"bumblet\", \"Name\": \"Bumblet\", \"Rarity\": \"Rare\", \"Power\": 8, \"Look\": {\"Body\": \"#ffcd32\", \"Accent\": \"#282828\", \"Shape\": \"Round\", \"Ears\": \"None\", \"Extras\": [\"Wings\", \"Antenna\"]}}, {\"Id\": \"sunfox\", \"Name\": \"Sunny Fox\", \"Rarity\": \"Epic\", \"Power\": 25, \"Look\": {\"Body\": \"#ff8c32 …"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.PetModel",
+   "role": null,
+   "keys": [
+    "build"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.Remotes",
+   "role": null,
+   "keys": [
+    "Events",
+    "Functions",
+    "init",
+    "getEvent",
+    "getFunction"
+   ],
+   "preview": "{\"Events\": [\"State\", \"Notify\", \"HatchResult\", \"OpenEgg\", \"Click\"], \"Functions\": [\"Action\"]}"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.UpgradeData",
+   "role": "upgradedata",
+   "keys": [
+    "CLICK_PER_LEVEL",
+    "SPEED_PER_LEVEL",
+    "LUCK_PER_LEVEL",
+    "BAG_PER_LEVEL",
+    "List",
+    "ById"
+   ],
+   "preview": "{\"CLICK_PER_LEVEL\": 1, \"SPEED_PER_LEVEL\": 1.5, \"LUCK_PER_LEVEL\": 0.03, \"BAG_PER_LEVEL\": 10, \"List\": [{\"Id\": \"Click\", \"Name\": \"Click Power\", \"Description\": \"+1 base coin per collect. (Resets on Rebirth)\", \"MaxLevel\": 60, \"Currency\": \"Coins\", \"BaseCost\": 20, \"Growth\": 1.45}, {\"Id\": \"Speed\", \"Name\": \"Swift Shoes\", \"Description\": \"+1.5 walk speed per level.\", \"MaxLevel\": 8, \"Currency\": \"Coins\", \"BaseCost\": 500, \"Growth\": 2.2}, {\"Id\": \"Luck\", \"Name\": \"Lucky Charm\", \"Description\": \"+3% hatch luck per level (better odds for rare pets).\", \"MaxLevel\": 10, \"Currency\": \"Coins\", \"BaseCost\": 2000, \"Growth\": 2.1}, {\"Id\": \"Bag\", \"Name\": \"Bigger Bag\", \"Description\": \"+10 pet storage per level.\", \"MaxLevel\": 10, \"Currency\": \"Coins\", \"BaseCost\": 300, \"Growth\": 1.9}, {\"Id\": \"Slots\", \"Name\": \"Pet Slot\", \"Description\": \"+1 equipped pet slot.\", \"MaxLevel\": 4, \"Currency\": \"Gems\", \"BaseCost\": 0, \"Growth\": 1, \"Costs\": [100, 300, 800, 2000]}], \"ById\": {\"Click\": {\"Id\": \"Click\", \"Name\": \"Click Power\", \"Description\": \"+1 base coin per collect. (Resets on Rebirth)\", \"MaxLevel\": 60, \"Currency\": \"Coins\", \"BaseCost\": 20, \"Growth\": 1.45}, \"Speed\": {\"Id\": \"Speed\", \"Name\": \"Swift Shoes\", \"Description\": \"+1.5 walk spe …"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.Util",
+   "role": null,
+   "keys": [
+    "formatNumber",
+    "formatTime",
+    "deepCopy",
+    "reconcile",
+    "isFiniteNumber"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ReplicatedStorage.Shared.ZoneData",
+   "role": "zonedata",
+   "keys": [
+    "PLATFORM_SIZE",
+    "List",
+    "ById",
+    "Index",
+    "DEFAULT"
+   ],
+   "preview": "{\"PLATFORM_SIZE\": 180, \"List\": [{\"Id\": \"Meadow\", \"Name\": \"Sunny Meadow\", \"Multiplier\": 1, \"UnlockCost\": 0, \"RequiresRebirths\": 0, \"Position\": {\"x\": 0, \"y\": 0, \"z\": 0}, \"Floor\": \"#68be54\", \"Accent\": \"#ffd65a\", \"Material\": \"Enum.Material.Grass\", \"Sky\": \"#96cdff\", \"Decor\": \"Trees\"}, {\"Id\": \"Forest\", \"Name\": \"Whispering Forest\", \"Multiplier\": 3, \"UnlockCost\": 5000, \"RequiresRebirths\": 0, \"Position\": {\"x\": 400, \"y\": 0, \"z\": 0}, \"Floor\": \"#3a8446\", \"Accent\": \"#8b5e3c\", \"Material\": \"Enum.Material.Grass\", \"Sky\": \"#78af96\", \"Decor\": \"Trees\"}, {\"Id\": \"Desert\", \"Name\": \"Golden Dunes\", \"Multiplier\": 9, \"UnlockCost\": 100000, \"RequiresRebirths\": 0, \"Position\": {\"x\": 800, \"y\": 0, \"z\": 0}, \"Floor\": \"#e7c881\", \"Accent\": \"#56a050\", \"Material\": \"Enum.Material.Sand\", \"Sky\": \"#ffdca0\", \"Decor\": \"Cacti\"}, {\"Id\": \"Frost\", \"Name\": \"Frostpeak Glade\", \"Multiplier\": 27, \"UnlockCost\": 2500000, \"RequiresRebirths\": 0, \"Position\": {\"x\": 1200, \"y\": 0, \"z\": 0}, \"Floor\": \"#e2f0fc\", \"Accent\": \"#82c8ff\", \"Material\": \"Enum.Material.Snow\", \"Sky\": \"#bedcf5\", \"Decor\": \"Crystals\"}, {\"Id\": \"Volcano\", \"Name\": \"Ember Caldera\", \"Multiplier\": 81, \"UnlockCost\": 60000000, \"RequiresRebirths\": 1, \"Position\": {\"x\": 1600, \"y\": 0, \"z …"
+  },
+  {
+   "module": "ServerScriptService.Server.AntiExploit",
+   "role": null,
+   "keys": [
+    "strike",
+    "markTeleport",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.ClickService",
+   "role": null,
+   "keys": [
+    "award",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.DailyService",
+   "role": null,
+   "keys": [
+    "getInfo",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.DataService",
+   "role": null,
+   "keys": [
+    "makeTemplate",
+    "_isLockedByOther",
+    "load",
+    "get",
+    "isNewPlayer",
+    "saveNow",
+    "release",
+    "isLoaded",
+    "waitForData",
+    "init",
+    "storeOk"
+   ],
+   "preview": "{\"storeOk\": false}"
+  },
+  {
+   "module": "ServerScriptService.Server.Economy",
+   "role": null,
+   "keys": [
+    "isVip",
+    "getPetPower",
+    "getPetSlots",
+    "getBagSize",
+    "countPets",
+    "getBonusMultiplier",
+    "getPerClick",
+    "getLuckBoost",
+    "getLuck",
+    "getWalkSpeed",
+    "addCoins",
+    "addGems",
+    "canAfford",
+    "trySpend"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.LeaderboardService",
+   "role": null,
+   "keys": [
+    "submit",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.Monetization",
+   "role": null,
+   "keys": [
+    "onStatusChanged",
+    "loadPlayer",
+    "init"
+   ],
+   "preview": "{\"onStatusChanged\": {}}"
+  },
+  {
+   "module": "ServerScriptService.Server.Notify",
+   "role": null,
+   "keys": [
+    "send"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.PetService",
+   "role": null,
+   "keys": [
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.PlayerService",
+   "role": null,
+   "keys": [
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.RebirthService",
+   "role": null,
+   "keys": [
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.Router",
+   "role": null,
+   "keys": [
+    "register",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.Session",
+   "role": null,
+   "keys": [
+    "create",
+    "get",
+    "destroy",
+    "hasPass"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.State",
+   "role": null,
+   "keys": [
+    "markCore",
+    "markPets",
+    "push",
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.UpgradeService",
+   "role": null,
+   "keys": [
+    "init"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.WorldBuilder",
+   "role": null,
+   "keys": [
+    "build",
+    "getZoneSpawn",
+    "getEggPosition",
+    "onEggPrompt",
+    "setBoard",
+    "clearPlayer"
+   ],
+   "preview": "{}"
+  },
+  {
+   "module": "ServerScriptService.Server.ZoneService",
+   "role": null,
+   "keys": [
+    "moveToZone",
+    "init"
+   ],
+   "preview": "{}"
+  }
+ ],
+ "recognized": {
+  "config": "ReplicatedStorage.Shared.Config",
+  "formulas": "ReplicatedStorage.Shared.Formulas",
+  "petdata": "ReplicatedStorage.Shared.PetData",
+  "upgradedata": "ReplicatedStorage.Shared.UpgradeData",
+  "zonedata": "ReplicatedStorage.Shared.ZoneData"
+ },
+ "formulaCheck": "формулы rebirthCost, rebirthMultiplier, rebirthGems, bagSize, clickBase, upgradeLuck, walkSpeed, upgradeCost совпали с шаблоном на тестовых значениях",
+ "stats": {
+  "pets": 35,
+  "eggs": 6,
+  "zones": 5,
+  "upgrades": 5,
+  "gamepasses": 4,
+  "products": 7
+ },
+ "verdict": "Сгенерирована играбельная веб-демо (жанр pet-simulator). Это шаблон, наполненный вашими данными, а НЕ перевод вашего Luau-кода.",
+ "warnings": [],
+ "log": [
+  "DataService:41 пропущено (Roblox API: Instance:GenerateGUID)",
+  "PetService:19 пропущено (Roblox API: Random)",
+  "ZoneService:18 пропущено (Roblox API: Random)",
+  "ShopPanel:19 пропущено (Roblox API: Players.LocalPlayer)"
+ ]
+}

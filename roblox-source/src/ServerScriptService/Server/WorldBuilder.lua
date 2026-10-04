@@ -1,0 +1,573 @@
+--!strict
+-- Строит весь мир скриптом из примитивов (нет внешних ассетов): платформы миров, декор, яйца, табло лидеров.
+local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage.Shared
+
+local PetData = require(Shared.PetData)
+local Util = require(Shared.Util)
+local ZoneData = require(Shared.ZoneData)
+
+local WorldBuilder = {}
+
+local zoneSpawns: { [string]: CFrame } = {}
+local eggPositions: { [string]: Vector3 } = {}
+local eggCallbacks: { (Player, string) -> () } = {}
+local lastPrompt: { [Player]: number } = {}
+local boardRows: { TextLabel } = {}
+local boardStatus: TextLabel? = nil
+local built = false
+
+local function mk(
+	parent: Instance,
+	name: string,
+	shape: Enum.PartType,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	material: Enum.Material?,
+	collide: boolean?
+): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Shape = shape
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = material or Enum.Material.SmoothPlastic
+	p.Anchored = true
+	p.CanCollide = collide ~= false
+	p.CastShadow = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = parent
+	return p
+end
+
+local function block(
+	parent: Instance,
+	name: string,
+	size: Vector3,
+	pos: Vector3,
+	color: Color3,
+	material: Enum.Material?
+)
+	return mk(parent, name, Enum.PartType.Block, size, CFrame.new(pos), color, material, true)
+end
+
+local function makeLabel(parent: Instance, text: string, size: UDim2, color: Color3): TextLabel
+	local l = Instance.new("TextLabel")
+	l.BackgroundTransparency = 1
+	l.Size = size
+	l.Font = Enum.Font.FredokaOne
+	l.TextScaled = true
+	l.Text = text
+	l.TextColor3 = color
+	l.TextStrokeTransparency = 0.4
+	l.Parent = parent
+	return l
+end
+
+local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
+	local gui = Instance.new("BillboardGui")
+	gui.Size = UDim2.fromOffset(width, height)
+	gui.StudsOffset = offset
+	gui.MaxDistance = 90
+	gui.LightInfluence = 0
+	gui.Parent = parent
+	return gui
+end
+
+-- ---------------------------------------------------------------------------
+-- Декор
+-- ---------------------------------------------------------------------------
+local function decorTree(folder: Folder, pos: Vector3, rng: Random, leaf: Color3, trunk: Color3)
+	local h = rng:NextNumber(7, 12)
+	local m = Instance.new("Model")
+	m.Name = "Tree"
+	mk(
+		m,
+		"Trunk",
+		Enum.PartType.Cylinder,
+		Vector3.new(h, 2, 2),
+		CFrame.new(pos + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		trunk,
+		Enum.Material.Wood,
+		true
+	)
+	local d = rng:NextNumber(9, 13)
+	mk(
+		m,
+		"Leaves",
+		Enum.PartType.Ball,
+		Vector3.new(d, d, d),
+		CFrame.new(pos + Vector3.new(0, h + d * 0.3, 0)),
+		leaf,
+		Enum.Material.Grass,
+		false
+	)
+	m.Parent = folder
+end
+
+local function decorCactus(folder: Folder, pos: Vector3, rng: Random, color: Color3)
+	local h = rng:NextNumber(6, 10)
+	local m = Instance.new("Model")
+	m.Name = "Cactus"
+	mk(
+		m,
+		"Stem",
+		Enum.PartType.Cylinder,
+		Vector3.new(h, 2.2, 2.2),
+		CFrame.new(pos + Vector3.new(0, h / 2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		color,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	mk(
+		m,
+		"ArmL",
+		Enum.PartType.Cylinder,
+		Vector3.new(3, 1.2, 1.2),
+		CFrame.new(pos + Vector3.new(-1.8, h * 0.55, 0)),
+		color,
+		nil,
+		false
+	)
+	mk(
+		m,
+		"ArmR",
+		Enum.PartType.Cylinder,
+		Vector3.new(3, 1.2, 1.2),
+		CFrame.new(pos + Vector3.new(1.8, h * 0.7, 0)),
+		color,
+		nil,
+		false
+	)
+	m.Parent = folder
+end
+
+local function decorCrystal(folder: Folder, pos: Vector3, rng: Random, color: Color3)
+	local m = Instance.new("Model")
+	m.Name = "Crystal"
+	for i = 1, 3 do
+		local h = rng:NextNumber(5, 11)
+		local part = mk(
+			m,
+			"Shard" .. i,
+			Enum.PartType.Block,
+			Vector3.new(2, h, 2),
+			CFrame.new(pos + Vector3.new(rng:NextNumber(-2, 2), h / 2 - 0.5, rng:NextNumber(-2, 2)))
+				* CFrame.Angles(
+					math.rad(rng:NextNumber(-12, 12)),
+					rng:NextNumber(0, 6),
+					math.rad(rng:NextNumber(-12, 12))
+				),
+			color,
+			Enum.Material.Glass,
+			false
+		)
+		part.Transparency = 0.25
+	end
+	m.Parent = folder
+end
+
+local function decorRock(folder: Folder, pos: Vector3, rng: Random, color: Color3, glow: Color3)
+	local d = rng:NextNumber(5, 10)
+	local m = Instance.new("Model")
+	m.Name = "Rock"
+	mk(
+		m,
+		"Rock",
+		Enum.PartType.Ball,
+		Vector3.new(d, d, d),
+		CFrame.new(pos + Vector3.new(0, d * 0.3, 0)),
+		color,
+		Enum.Material.Slate,
+		true
+	)
+	if rng:NextNumber() < 0.5 then
+		mk(
+			m,
+			"Lava",
+			Enum.PartType.Ball,
+			Vector3.new(d * 0.4, d * 0.4, d * 0.4),
+			CFrame.new(pos + Vector3.new(d * 0.2, d * 0.7, 0)),
+			glow,
+			Enum.Material.Neon,
+			false
+		)
+	end
+	m.Parent = folder
+end
+
+-- ---------------------------------------------------------------------------
+-- Яйцо
+-- ---------------------------------------------------------------------------
+local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
+	local m = Instance.new("Model")
+	m.Name = "Egg_" .. egg.Id
+
+	mk(
+		m,
+		"Base",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.4, 11, 11),
+		CFrame.new(pos + Vector3.new(0, 0.7, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(235, 235, 240),
+		Enum.Material.Marble,
+		true
+	)
+	mk(
+		m,
+		"BaseRing",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.4, 12, 12),
+		CFrame.new(pos + Vector3.new(0, 0.2, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		egg.Pattern,
+		Enum.Material.Neon,
+		false
+	)
+
+	local eggCenter = pos + Vector3.new(0, 5.6, 0)
+	local shell = mk(
+		m,
+		"Shell",
+		Enum.PartType.Ball,
+		Vector3.new(7, 7, 7),
+		CFrame.new(eggCenter),
+		egg.Color,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	-- пятна на скорлупе
+	local spots = {
+		Vector3.new(1.2, 2.4, -2.4),
+		Vector3.new(-2.2, 0.6, -2.5),
+		Vector3.new(2.5, -0.8, -2.2),
+		Vector3.new(-0.6, -2.2, -2.6),
+		Vector3.new(0.4, 0.2, -3.5),
+		Vector3.new(-2.8, 2.0, 1.2),
+		Vector3.new(2.9, 1.6, 1.0),
+	}
+	for i, offset in ipairs(spots) do
+		local dir = offset.Unit * 3.45
+		mk(
+			m,
+			"Spot" .. i,
+			Enum.PartType.Ball,
+			Vector3.new(1.3, 1.3, 1.3),
+			CFrame.new(eggCenter + dir),
+			egg.Pattern,
+			Enum.Material.SmoothPlastic,
+			false
+		)
+	end
+
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = "Open"
+	prompt.ObjectText = egg.Name
+	prompt.HoldDuration = 0
+	prompt.MaxActivationDistance = 14
+	prompt.RequiresLineOfSight = false
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Parent = shell
+	prompt.Triggered:Connect(function(player: Player)
+		local now = os.clock()
+		if now - (lastPrompt[player] or 0) < 0.5 then
+			return
+		end
+		lastPrompt[player] = now
+		for _, cb in ipairs(eggCallbacks) do
+			task.spawn(cb, player, egg.Id)
+		end
+	end)
+
+	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70)
+	makeLabel(gui, egg.Name, UDim2.fromScale(1, 0.55), Color3.fromRGB(255, 255, 255))
+	local priceColor = if egg.Currency == "Gems"
+		then Color3.fromRGB(120, 230, 255)
+		else Color3.fromRGB(255, 220, 90)
+	local priceLabel = makeLabel(
+		gui,
+		Util.formatNumber(egg.Price) .. " " .. egg.Currency,
+		UDim2.fromScale(1, 0.4),
+		priceColor
+	)
+	priceLabel.Position = UDim2.fromScale(0, 0.58)
+
+	eggPositions[egg.Id] = pos
+	m.Parent = parent
+end
+
+-- ---------------------------------------------------------------------------
+-- Табло лидеров
+-- ---------------------------------------------------------------------------
+local function buildBoard(parent: Instance, center: Vector3)
+	local m = Instance.new("Model")
+	m.Name = "Leaderboard"
+	local face = Color3.fromRGB(30, 34, 48)
+	local board = mk(
+		m,
+		"Board",
+		Enum.PartType.Block,
+		Vector3.new(30, 18, 1),
+		CFrame.new(center + Vector3.new(0, 11, 0)) * CFrame.Angles(0, math.pi, 0),
+		face,
+		Enum.Material.SmoothPlastic,
+		true
+	)
+	block(
+		m,
+		"PostL",
+		Vector3.new(1.5, 11, 1.5),
+		center + Vector3.new(-10, 5.5, 0.2),
+		Color3.fromRGB(110, 80, 60),
+		Enum.Material.Wood
+	)
+	block(
+		m,
+		"PostR",
+		Vector3.new(1.5, 11, 1.5),
+		center + Vector3.new(10, 5.5, 0.2),
+		Color3.fromRGB(110, 80, 60),
+		Enum.Material.Wood
+	)
+
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 40
+	gui.Parent = board
+
+	local title = makeLabel(gui, "TOP COLLECTORS", UDim2.fromScale(0.9, 0.12), Color3.fromRGB(255, 214, 90))
+	title.Position = UDim2.fromScale(0.05, 0.02)
+	local sub =
+		makeLabel(gui, "Lifetime coins earned", UDim2.fromScale(0.6, 0.05), Color3.fromRGB(190, 200, 220))
+	sub.Position = UDim2.fromScale(0.2, 0.135)
+	boardStatus = sub
+
+	for i = 1, 10 do
+		local row = Instance.new("TextLabel")
+		row.Name = "Row" .. i
+		row.BackgroundTransparency = if i % 2 == 0 then 0.92 else 1
+		row.BackgroundColor3 = Color3.new(1, 1, 1)
+		row.Size = UDim2.fromScale(0.9, 0.07)
+		row.Position = UDim2.fromScale(0.05, 0.2 + (i - 1) * 0.078)
+		row.Font = Enum.Font.GothamBold
+		row.TextScaled = true
+		row.TextXAlignment = Enum.TextXAlignment.Left
+		row.TextColor3 = if i == 1 then Color3.fromRGB(255, 214, 90) else Color3.fromRGB(235, 240, 250)
+		row.Text = string.format("%d.  ---", i)
+		row.Parent = gui
+		boardRows[i] = row
+	end
+	m.Parent = parent
+end
+
+-- ---------------------------------------------------------------------------
+-- Публичный API
+-- ---------------------------------------------------------------------------
+function WorldBuilder.build()
+	if built then
+		return
+	end
+	built = true
+
+	Lighting.ClockTime = 14
+	Lighting.Brightness = 2.5
+	Lighting.Ambient = Color3.fromRGB(110, 110, 125)
+	Lighting.OutdoorAmbient = Color3.fromRGB(130, 135, 150)
+	Lighting.EnvironmentDiffuseScale = 0.5
+	Lighting.EnvironmentSpecularScale = 0.3
+	if not Lighting:FindFirstChildOfClass("Atmosphere") then
+		local atmo = Instance.new("Atmosphere")
+		atmo.Density = 0.25
+		atmo.Haze = 1
+		atmo.Color = Color3.fromRGB(200, 220, 245)
+		atmo.Parent = Lighting
+	end
+
+	local old = Workspace:FindFirstChild("World")
+	if old then
+		old:Destroy()
+	end
+	local world = Instance.new("Folder")
+	world.Name = "World"
+	world.Parent = Workspace
+
+	local size = ZoneData.PLATFORM_SIZE
+	for index, zone in ipairs(ZoneData.List) do
+		local folder = Instance.new("Folder")
+		folder.Name = zone.Id
+		folder.Parent = world
+		local center = zone.Position
+		local rng = Random.new(1000 + index)
+
+		-- пол
+		block(
+			folder,
+			"Floor",
+			Vector3.new(size, 2, size),
+			center + Vector3.new(0, -1, 0),
+			zone.Floor,
+			zone.Material
+		)
+		-- декоративный центр
+		local plaza = mk(
+			folder,
+			"Plaza",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.3, 70, 70),
+			CFrame.new(center + Vector3.new(0, 0.1, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			zone.Accent,
+			Enum.Material.SmoothPlastic,
+			false
+		)
+		plaza.Transparency = 0.5
+		-- видимый бортик и невидимые стены
+		local half = size / 2
+		for _, side in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+			local sx, sz = side[1], side[2]
+			local along = if sx == 0 then Vector3.new(size, 1.5, 1) else Vector3.new(1, 1.5, size)
+			block(
+				folder,
+				"Rim",
+				along,
+				center + Vector3.new(sx * half, 0.75, sz * half),
+				zone.Accent,
+				Enum.Material.Neon
+			)
+			local wallSize = if sx == 0 then Vector3.new(size, 40, 1) else Vector3.new(1, 40, size)
+			local wall = block(
+				folder,
+				"Wall",
+				wallSize,
+				center + Vector3.new(sx * half, 20, sz * half),
+				Color3.new(1, 1, 1),
+				nil
+			)
+			wall.Transparency = 1
+		end
+
+		-- декор по кольцу
+		local decor = Instance.new("Folder")
+		decor.Name = "Decor"
+		decor.Parent = folder
+		for i = 1, 22 do
+			local angle = (i / 22) * math.pi * 2 + rng:NextNumber(-0.1, 0.1)
+			local radius = rng:NextNumber(52, 82)
+			local pos = center + Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+			if zone.Decor == "Trees" then
+				local leaf = if zone.Id == "Meadow"
+					then Color3.fromRGB(80, 170, 70)
+					else Color3.fromRGB(40, 110, 60)
+				decorTree(decor, pos, rng, leaf, Color3.fromRGB(120, 80, 50))
+			elseif zone.Decor == "Cacti" then
+				decorCactus(decor, pos, rng, Color3.fromRGB(70, 150, 80))
+			elseif zone.Decor == "Crystals" then
+				decorCrystal(decor, pos, rng, zone.Accent)
+			else
+				decorRock(decor, pos, rng, Color3.fromRGB(60, 50, 52), zone.Accent)
+			end
+		end
+
+		-- точка появления
+		local spawnPos = center + Vector3.new(0, 0, 38)
+		zoneSpawns[zone.Id] =
+			CFrame.lookAt(spawnPos + Vector3.new(0, 3.5, 0), center + Vector3.new(0, 3.5, 0))
+		if zone.Id == ZoneData.DEFAULT then
+			local sp = Instance.new("SpawnLocation")
+			sp.Name = "SpawnLocation"
+			sp.Anchored = true
+			sp.Neutral = true
+			sp.Size = Vector3.new(14, 1, 14)
+			sp.Position = spawnPos + Vector3.new(0, 0.5, 0)
+			sp.Color = zone.Accent
+			sp.Material = Enum.Material.Neon
+			sp.Duration = 0
+			sp.Parent = folder
+		else
+			local pad = mk(
+				folder,
+				"SpawnPad",
+				Enum.PartType.Cylinder,
+				Vector3.new(0.6, 14, 14),
+				CFrame.new(spawnPos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+				zone.Accent,
+				Enum.Material.Neon,
+				false
+			)
+			pad.Name = "SpawnPad"
+		end
+
+		-- вывеска
+		local signPost = block(
+			folder,
+			"SignPost",
+			Vector3.new(1, 12, 1),
+			center + Vector3.new(0, 6, 62),
+			Color3.fromRGB(110, 80, 60),
+			Enum.Material.Wood
+		)
+		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
+		gui.MaxDistance = 140
+		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
+		local mult = makeLabel(
+			gui,
+			("x%d coins per collect"):format(zone.Multiplier),
+			UDim2.fromScale(1, 0.38),
+			zone.Accent
+		)
+		mult.Position = UDim2.fromScale(0, 0.6)
+
+		-- яйца этой зоны
+		local eggsHere = {}
+		for _, egg in ipairs(PetData.Eggs) do
+			if egg.Zone == zone.Id then
+				table.insert(eggsHere, egg)
+			end
+		end
+		for k, egg in ipairs(eggsHere) do
+			local x = (k - (#eggsHere + 1) / 2) * 32
+			buildEgg(folder, egg, center + Vector3.new(x, 0, -14))
+		end
+
+		if zone.Id == ZoneData.DEFAULT then
+			buildBoard(folder, center + Vector3.new(0, 0, -62))
+		end
+	end
+end
+
+function WorldBuilder.getZoneSpawn(zoneId: string): CFrame
+	return zoneSpawns[zoneId] or zoneSpawns[ZoneData.DEFAULT] or CFrame.new(0, 5, 0)
+end
+
+function WorldBuilder.getEggPosition(eggId: string): Vector3?
+	return eggPositions[eggId]
+end
+
+function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())
+	table.insert(eggCallbacks, cb)
+end
+
+-- Обновление табло: entries = { { Name, Value } } (до 10 строк) или nil + статус
+function WorldBuilder.setBoard(entries: { { Name: string, Value: number } }?, status: string?)
+	if boardStatus and status then
+		boardStatus.Text = status
+	end
+	for i, row in ipairs(boardRows) do
+		local e = entries and entries[i]
+		if e then
+			row.Text = string.format("%d.  %s  —  %s", i, e.Name, Util.formatNumber(e.Value))
+		else
+			row.Text = string.format("%d.  ---", i)
+		end
+	end
+end
+
+function WorldBuilder.clearPlayer(player: Player)
+	lastPrompt[player] = nil
+end
+
+return WorldBuilder

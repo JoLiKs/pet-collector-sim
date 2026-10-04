@@ -1,0 +1,7 @@
+tools_dl/
+build/rojo_reference.rbxlx
+build/_test_bundle.lua
+build/*.zip
+sourcemap.json
+roblox.yml
+dist/

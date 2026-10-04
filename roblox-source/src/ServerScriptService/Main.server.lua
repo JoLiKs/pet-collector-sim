@@ -1,0 +1,33 @@
+--!strict
+--[[
+	Main — точка входа сервера. Порядок важен: сначала Remotes и мир, затем сервисы (регистрируют действия),
+	и только потом PlayerService (начинает принимать игроков).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+Players.CharacterAutoLoads = false -- персонажей создаём сами, когда данные игрока загружены
+
+local Server = script.Parent:WaitForChild("Server")
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+Remotes.init()
+
+local WorldBuilder = require(Server.WorldBuilder)
+WorldBuilder.build()
+
+require(Server.DataService).init()
+require(Server.Router).init()
+require(Server.State).init()
+require(Server.AntiExploit).init()
+require(Server.ClickService).init()
+require(Server.PetService).init()
+require(Server.UpgradeService).init()
+require(Server.ZoneService).init()
+require(Server.RebirthService).init()
+require(Server.DailyService).init()
+require(Server.Monetization).init()
+require(Server.LeaderboardService).init()
+require(Server.PlayerService).init()
+
+print("[PetCollector] Server started. JobId:", game.JobId)
