@@ -21,6 +21,7 @@ local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
 local Progress = require(script.Parent.Progress)
 local Router = require(script.Parent.Router)
+local Session = require(script.Parent.Session)
 local State = require(script.Parent.State)
 local Stations = require(script.Parent.Stations)
 
@@ -304,7 +305,16 @@ end
 -- Действия
 -- ---------------------------------------------------------------------------
 
+-- Политика Roblox: торговля платными предметами доступна не во всех регионах/возрастах.
+local function tradeAllowed(player: Player): boolean
+	local s = Session.get(player)
+	return s ~= nil and s.TradeAllowed
+end
+
 local function startBot(player: Player): (boolean, string?)
+	if not tradeAllowed(player) then
+		return false, "Trading is not available for your account"
+	end
 	if not Config.DEMO_BOT_ENABLED then
 		return false, "Trading with the trader is disabled"
 	end
@@ -335,6 +345,9 @@ local function invite(player: Player, userId: any): (boolean, string?)
 	local target = Players:GetPlayerByUserId(userId)
 	if not target or target == player then
 		return false, "Player not found"
+	end
+	if not tradeAllowed(player) or not tradeAllowed(target) then
+		return false, "Trading is not available for one of the accounts"
 	end
 	if trades[player] or trades[target] then
 		return false, "One of you is already trading"

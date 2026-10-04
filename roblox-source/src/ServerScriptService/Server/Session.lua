@@ -5,6 +5,7 @@ local Config = require(game:GetService("ReplicatedStorage").Shared.Config)
 export type PlayerSession = {
 	Passes: { [string]: boolean },
 	Premium: boolean,
+	TradeAllowed: boolean, -- PolicyService.IsPaidItemTradingAllowed (false, пока политика не получена)
 	PaidRandomRestricted: boolean, -- PolicyService: игрок не может участвовать в платных случайных механиках
 	ClickTokens: number,
 	LastRefill: number,
@@ -30,6 +31,7 @@ function Session.create(player: Player): PlayerSession
 	local s: PlayerSession = {
 		Passes = passes,
 		Premium = false,
+		TradeAllowed = false,
 		PaidRandomRestricted = true, -- пока политика не получена — считаем ограничение включённым (безопасный вариант)
 		ClickTokens = Config.CLICK_BURST,
 		LastRefill = os.clock(),

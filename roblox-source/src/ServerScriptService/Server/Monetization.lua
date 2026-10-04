@@ -52,17 +52,18 @@ end
 
 -- Политика Roblox для платных случайных предметов (яйца за Robux-валюту). yield!
 -- При любой ошибке считаем игрока ограниченным — это безопасная сторона.
-local function loadPolicy(player: Player): boolean
+-- Возвращает (ограничены ли платные случайные предметы, разрешена ли торговля платными предметами).
+local function loadPolicy(player: Player): (boolean, boolean)
 	for attempt = 1, 3 do
 		local ok, result = pcall(function()
 			return PolicyService:GetPolicyInfoForPlayerAsync(player)
 		end)
 		if ok and type(result) == "table" then
-			return result.ArePaidRandomItemsRestricted == true
+			return result.ArePaidRandomItemsRestricted == true, result.IsPaidItemTradingAllowed ~= false
 		end
 		task.wait(attempt)
 	end
-	return true
+	return true, false
 end
 
 -- Проверяет геймпассы, Premium и политику при входе (yield!)
@@ -72,7 +73,7 @@ function Monetization.loadPlayer(player: Player)
 		return
 	end
 	session.Premium = player.MembershipType == Enum.MembershipType.Premium
-	session.PaidRandomRestricted = loadPolicy(player)
+	session.PaidRandomRestricted, session.TradeAllowed = loadPolicy(player)
 
 	local grantAll = RunService:IsStudio() and Config.STUDIO_GRANT_ALL_PASSES
 	for key, id in pairs(Config.GAMEPASS_IDS) do

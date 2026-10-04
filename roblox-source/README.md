@@ -1,27 +1,50 @@
-# Pet Collector Simulator — шаблон Roblox-игры (клик → яйца → питомцы → ребёрт)
+# Pet Collector Simulator v2.0 — 3D-симулятор питомцев для Roblox (Luau)
 
-Готовый проект Roblox-игры в жанре **pet / clicker simulator**: сбор монет, яйца с питомцами пяти уровней редкости (плюс Mythic),
-апгрейды, ребёрт, пять миров, ежедневные награды, глобальный лидерборд и полноценная монетизация (геймпассы + девелоперские
-продукты + Premium-бонус). Всё сделано кодом на **Luau** — нет ни одного внешнего ассета: мир, интерфейс и питомцы строятся из примитивов.
+Игра в жанре **pet simulator + мини-RPG**: хаб с NPC и станциями, пять биомов-миров, добыча ресурсов, враги и боссы, автоатака питомцев, события по расписанию,
+питомцы с **редкостями, стихиями, ролями, уровнями, эволюцией, слиянием 3→1 (Golden/Rainbow/Shiny)**, команда, крафт, квесты с диалогами, достижения, ребёрт с **деревом талантов**,
+**торговля** (в демо — с ботом), **ротация магазина**, **батл-пасс** (free/premium), оффлайн-доход, лидерборды и полноценная монетизация.
+Всё — код на **Luau**, ни одного внешнего ассета: мир, интерфейс и питомцы строятся скриптами из примитивов.
 
-> ⚠️ **Прочитайте сразу.** Проект собран и проверен линтерами/тестами логики на сервере, но **не запускался в реальной Roblox Studio**
-> (нет доступа к Studio в среде сборки). Список проверенного и непроверенного — в [`docs/TESTING.md`](docs/TESTING.md).
-> **Никакого дохода проект не гарантирует** — честная оценка в [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md).
+▶ **Веб-демо (реальный Luau-код → JS через [roblox2web](https://github.com/JoLiKs/roblox2web)):** <https://joliks.github.io/pet-collector-sim/>
+Сам конвертор: <https://joliks.github.io/roblox2web/>
+
+> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1095 проверок), интеграционным сценарием (100 проверок) и браузерным UI-тестом **в эмуляторе Roblox**,
+> но **не запускался в настоящей Roblox Studio** (в среде сборки её нет). Список проверенного и непроверенного — [`docs/TESTING.md`](docs/TESTING.md);
+> честная оценка рисков и урезанного — [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md). **Никакого дохода проект не гарантирует.**
 
 ---
 
-## 1. Геймплей
+## Скриншоты (настоящая игра в веб-версии, Chromium)
 
-| Что делает игрок | Как устроено |
+| | |
 |---|---|
-| **COLLECT** (кнопка, удержание или клавиша `F`) | Сервер считает монеты: `(1 + Click Power) × (1 + сила экипированных питомцев) × множитель мира × множитель ребёрта × бонусы пассов`. |
-| **Яйца** (подойти → `E` → окно со шансами → Hatch ×1 / ×3) | 6 яиц: 5 за монеты (по одному на мир) + «Crystal Egg» за гемы. У каждого — честная таблица шансов (с учётом удачи игрока). 2% шанс «Golden» питомца (×2 сила). |
-| **Питомцы** | 35 оригинальных питомцев (Common → Mythic), собираются из шаров/блоков. Экипировка по слотам (3 + апгрейды + VIP), «Equip Best», продажа. Видны всем игрокам. |
-| **Апгрейды** | Click Power, Swift Shoes (скорость), Lucky Charm (удача), Bigger Bag (вместимость), Pet Slot (за гемы). |
-| **Миры** | Sunny Meadow → Whispering Forest → Golden Dunes → Frostpeak Glade → Ember Caldera (x1 / x3 / x9 / x27 / x81 монет). Последний требует 1 ребёрт. |
-| **Ребёрт** | Сброс монет и Click Power → постоянный бонус +50% монет за ребёрт + гемы. |
-| **Ежедневные награды** | Цикл из 7 дней со стриком (гемы, монеты, буст удачи). |
-| **Лидерборд** | `leaderstats` + глобальное табло «Top Collectors» в стартовом мире (OrderedDataStore). |
+| ![Хаб](docs/screens/01_hub.png) Хаб, HUD и меню | ![Яйцо](docs/screens/02_egg.png) Яйцо хаба |
+| ![Питомцы](docs/screens/03_pets.png) Инвентарь питомцев | ![Слияние](docs/screens/04_fusion.png) Слияние 3→1 |
+| ![Крафт](docs/screens/05_craft.png) Крафт | ![Диалог](docs/screens/06_dialog.png) NPC и квесты |
+| ![Рынок](docs/screens/08_market.png) Магазин с ротацией | ![Пасс](docs/screens/09_battlepass.png) Батл-пасс |
+| ![Таланты](docs/screens/10_talents.png) Таланты | ![Торговля](docs/screens/11_trade.png) Торговля с ботом |
+| ![Зоны](docs/screens/12_worlds.png) Зоны-биомы | ![Бой](docs/screens/13_combat.png) Враги и сбор ресурсов |
+| ![Рейд](docs/screens/14_raid.png) Событие: рейд-босс | ![Конвертор](docs/screens/20_converter.png) Онлайн-конвертор roblox2web |
+
+Скриншоты создаёт `tests/browser/test_game_ui.py` (см. `docs/TESTING.md`). Эмулятор рисует меши боксами, а табло — заглушками, в Studio картинка будет богаче.
+
+## 1. Геймплей (кратко; подробно — [`docs/MECHANICS.md`](docs/MECHANICS.md))
+
+| Система | Суть |
+|---|---|
+| **Мир** | Хаб (фонтан, NPC Mira/Bruno/Pip/Tom, верстак, рынок, алтарь ребёрта, портал, яйца, табло) + 5 биомов на расстоянии ~520 студов: Meadow, Forest, Desert, Frost, Volcano. Телепорт через портал/панель WORLDS, площадки «Return to Hub». |
+| **Ресурсы** | Дерево, камень, руда, трава, кристаллы (+эссенция с врагов). Узлы и сундуки собираются удержанием `E`, респавнятся. |
+| **Бой** | Враги бродят по биомам и атакуют игрока; питомцы бьют сами раз в секунду (урон = сила × роль × стихия), игрок помогает ударом `ATTACK`/`Q`. Боссы зон с полосой здоровья и наградой. |
+| **События** | По расписанию (`EventData`): **Golden Rain** (золотые монеты на хабе, x2 монеты), **Lunar Night** (редкие «лунные» питомцы + Lunar Egg), **Stone Colossus** (рейд-босс с таймером и общей наградой по доле урона). |
+| **Питомцы** | 39 видов; 6 редкостей; стихии Fire/Water/Earth/Air (круг слабостей); роли Fighter/Collector/Support; активные и пассивные способности; уровни/опыт; 3 эволюции; варианты Normal/Golden/Rainbow/Shiny. |
+| **Слияние** | 3 одинаковых (вид+вариант) → 1, шанс повысить вариант (+катализатор), шанс сразу Shiny. |
+| **Команда и инвентарь** | До 3+ слотов (апгрейд, VIP, талант; потолок 8), «Equip Best», избранное, фильтры по стихии/роли/редкости, сортировка. |
+| **Крафт** | Верстак в хабе: билеты на яйца, зелья, катализатор, инструменты и оружие. |
+| **Квесты** | 3 NPC × цепочки по 3 шага с диалогами, 3 ежедневных задания (меняются каждый UTC-день), 22 достижения. |
+| **Ребёрт и таланты** | Сброс монет/Click Power → множитель монет, гемы, очки талантов; дерево из 3 веток (Economy/Combat/Nature). |
+| **Торговля** | Окно обмена: питомцы + монеты, обе стороны жмут Ready и Confirm после отсчёта; серверная валидация. В демо партнёр — бот Trader Tom. |
+| **Магазин и батл-пасс** | Лавка с ротацией каждые 10 мин (6 из 14 предложений, лимит запасов); батл-пасс 30 уровней, free/premium треки. |
+| **Ретеншн** | Ежедневная серия, оффлайн-доход (до 8 ч), друзья на сервере (+5% монет за друга), лидерборды (сервер + глобальный). |
 
 ## 2. Монетизация (всё настраивается в одном файле)
 
@@ -33,20 +56,22 @@
 | Геймпасс | `DOUBLE_SPEED` | ×2 скорость бега | 149 R$ |
 | Геймпасс | `AUTO_COLLECT` | автосбор (2 клика/сек на сервере, переключатель AUTO) | 399 R$ |
 | Геймпасс | `VIP` | +25% монет, +1 слот питомца, тег `[VIP]`, ×2 ежедневные награды, +10% удачи | 599 R$ |
+| Геймпасс | `BATTLE_PASS` | премиум-трек батл-пасса сезона (в т. ч. питомец Season Owl) | 499 R$ |
 | Продукт | `GEMS_SMALL / MEDIUM / LARGE` | 100 / 550 / 1500 гемов | 79 / 349 / 899 R$ |
 | Продукт | `COINS_SMALL / LARGE` | монеты, масштабируемые под прогресс игрока | 79 / 399 R$ |
 | Продукт | `LUCK_2X_15M`, `LUCK_5X_10M` | лаки-буст ×2 на 15 мин, ×5 на 10 мин (суммируются по времени) | 79 / 199 R$ |
+| Продукт | `BP_SKIP` | +5 уровней батл-пасса | 129 R$ |
+| Продукт | `ESSENCE_PACK` | 30 эссенции для эволюции питомцев | 99 R$ |
 | Premium | автоматически | +10% монет и +5 гемов к ежедневной награде для подписчиков Roblox Premium | — |
 
 \*Цены — только ориентир; реальную цену вы задаёте в Creator Hub. ID по умолчанию `0` = «не настроено» (кнопка покажет подсказку, ошибок нет).
+В **веб-демо** ненулевые тестовые ID подставляются «патчами» конвертора из `roblox2web.config.json` — исходники игры при этом не меняются.
 
 **Правильный `ProcessReceipt`:** один обработчик; идемпотентность через `PurchaseId`, записанный в данные игрока вместе с наградой;
 `PurchaseGranted` возвращается **только после успешного сохранения**; любая неопределённость → `NotProcessedYet`.
 
-**Соответствие правилам Roblox для платных случайных предметов** (яйца за Robux-валюту): шансы показываются численно
-до покупки, удача отображается и динамически меняет шансы, используется `PolicyService.ArePaidRandomItemsRestricted`
-(для ограниченных игроков пакеты гемов/монет/лаки-бусты скрыты, платная удача не действует).
-Подробности и ограничения — в [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md).
+**Платные случайные предметы:** шансы показываются численно до покупки, удача отображается и меняет шансы, используется
+`PolicyService.ArePaidRandomItemsRestricted` (для ограниченных игроков пакеты гемов/монет/лаки-бусты скрыты, платная удача не действует).
 
 ## 3. Что в архиве
 
@@ -54,20 +79,21 @@
 roblox-game/
 ├── PetCollectorSimulator.rbxlx      ← готовый place-файл: открыть в Studio двойным кликом, Rojo не нужен
 ├── default.project.json             ← Rojo-проект
+├── roblox2web.config.json           ← настройки веб-демо (демо-ID пассов/продуктов патчами, каталог покупок)
 ├── src/
-│   ├── ReplicatedStorage/           ← общие модули: Config, PetData, ZoneData, UpgradeData, Formulas, PetModel, Remotes, Util
-│   ├── ServerScriptService/
-│   │   ├── Main.server.lua          ← точка входа сервера
-│   │   └── Server/                  ← DataService, Economy, State, Router, AntiExploit, PetService, ClickService,
-│   │                                   UpgradeService, ZoneService, RebirthService, DailyService, Monetization,
-│   │                                   LeaderboardService, PlayerService, WorldBuilder, Session, Notify
+│   ├── ReplicatedStorage/           ← общие данные и чистая логика: Config, PetData, PetMeta, Abilities, ZoneData, EnemyData, ResourceData,
+│   │                                   RecipeData, QuestData, AchievementData, TalentData, BattlePassData, ShopData, EventData,
+│   │                                   TradeLogic, Formulas, UpgradeData, PetModel, Remotes, Util
+│   ├── ServerScriptService/Server/  ← сервисы: Data, Economy, State, Router, AntiExploit, Pet, Click, Upgrade, Zone, Rebirth, Daily, Monetization,
+│   │                                   Leaderboard, Player, WorldBuilder, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
+│   │                                   Offline, Progress, Dailies, Migrations …
 │   ├── StarterPlayer/StarterPlayerScripts/PetFollower.client.lua   ← питомцы за игроками (клиентская отрисовка)
-│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController.client.lua + Modules/ (HUD, панели, магазин, анимация яиц)
-├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh
-├── tests/                           ← тесты серверной логики (Luau + эмуляция Roblox API)
-├── docs/                            ← документация (см. ниже)
-├── stylua.toml, selene.toml, rokit.toml
-└── build/PetCollectorSimulator.rbxlx
+│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Fx, панели Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
+├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, publish_web.sh
+├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium UI-тест)
+├── docs/                            ← документация и screens/ (скриншоты)
+├── dist/PetCollectorSimulator_v2.0.zip, PetCollectorSimulator_v2.0.zip
+└── stylua.toml, selene.toml, rokit.toml
 ```
 
 ## 4. Быстрый старт (без Rojo) — пошагово
@@ -84,7 +110,7 @@ roblox-game/
 
 ### Шаг 3. Быстрый тест
 1. Вкладка **Home → Play** (или **Test → Local Server** с 2 игроками для проверки питомцев).
-2. Нажмите **COLLECT** (или удерживайте), накопите 150 монет, подойдите к яйцу в центре → `E` → **Hatch**.
+2. Нажмите **COLLECT** (или удерживайте), накопите монет, подойдите к яйцу в хабе → `E` → **Hatch**; поговорите с NPC (`E`), возьмите квест, откройте PETS/CRAFT/MARKET.
 3. Пока игра не опубликована, DataStore недоступен — игра автоматически работает в режиме «без сохранения» (в Output будет предупреждение). Это нормально.
 
 ### Шаг 4. Опубликуйте (нужно для сохранений и покупок)
@@ -100,12 +126,12 @@ roblox-game/
 ### Шаг 6. Создайте геймпассы
 Creator Hub → ваш опыт → **Monetization → Passes → Create a Pass**:
 1. Загрузите иконку (квадрат, рекомендуется 512×512 — любая своя картинка/скриншот), введите название и описание (можно взять из `Config.GAMEPASSES`).
-2. Создайте 4 геймпасса: **2x Coins, 2x Speed, Auto Collect, VIP**.
+2. Создайте 5 геймпассов: **2x Coins, 2x Speed, Auto Collect, VIP, Battle Pass**.
 3. Откройте каждый → включите **Item for Sale**, задайте цену (ориентиры в таблице выше) → сохраните.
 4. Скопируйте числовой **ID** (он есть в URL страницы пасса и в списке).
 
 ### Шаг 7. Создайте девелоперские продукты
-**Monetization → Developer Products → Create** (7 штук): `GEMS_SMALL`, `GEMS_MEDIUM`, `GEMS_LARGE`, `COINS_SMALL`, `COINS_LARGE`, `LUCK_2X_15M`, `LUCK_5X_10M`.
+**Monetization → Developer Products → Create** (9 штук): `GEMS_SMALL`, `GEMS_MEDIUM`, `GEMS_LARGE`, `COINS_SMALL`, `COINS_LARGE`, `LUCK_2X_15M`, `LUCK_5X_10M`, `BP_SKIP`, `ESSENCE_PACK`.
 Название/описание — из `Config.PRODUCTS`, цену задайте в Creator Hub. Скопируйте **Product ID** каждого.
 
 ### Шаг 8. Подставьте ID
@@ -138,7 +164,7 @@ bash tools/check_all.sh            # формат + линт + типы + тес
 
 ## 6. Настройка баланса и контента
 
-- **Цены, множители, лимиты** — `Config.lua`, `UpgradeData.lua`, `ZoneData.lua`, `Formulas.lua`.
+- **Цены, множители, лимиты** — `Config.lua`, `UpgradeData.lua`, `ZoneData.lua`, `Formulas.lua`; подробный гайд — [`docs/BALANCE.md`](docs/BALANCE.md).
 - **Добавить питомца** — запись в `PetData.Pets` + строка в `Weight` нужного яйца (сумма весов яйца = 100; тест это проверяет).
 - **Добавить яйцо** — `PetData.Eggs` (поле `Zone` определяет, где оно стоит). **Добавить мир** — `ZoneData.List` (мир и яйца появятся сами).
 - Баланс (скорость прогрессии, цены) **не обкатан на реальных игроках** — запланируйте итерации по аналитике.
@@ -151,6 +177,8 @@ bash tools/check_all.sh            # формат + линт + типы + тес
 | [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md) | Честная оценка: что нужно для заработка/продажи, риски (модерация, авторские права, правила про лутбоксы), без обещаний |
 | [`docs/STORE_PAGE.md`](docs/STORE_PAGE.md) | Название, описание, иконка, тэги, анкета рейтинга, шаблоны текстов |
 | [`docs/TESTING.md`](docs/TESTING.md) | Что и как проверено, что НЕ проверено, чек-лист ручного теста в Studio |
+| [`docs/MECHANICS.md`](docs/MECHANICS.md) | Все механики: правила, формулы, данные, где лежит код |
+| [`docs/BALANCE.md`](docs/BALANCE.md) | Гайд баланса: что крутить и как это влияет на прогрессию |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Устройство кода: потоки данных, безопасность, как расширять |
 
 ## 8. Частые проблемы

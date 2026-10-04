@@ -158,11 +158,16 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.wait(lambda: g.p.evaluate("(R2W.ENV.workspace.findChild('Enemies')||{children:[]}).children.filter(m=>!(m.attrs&&m.attrs.get('IsBoss'))).length")>2, timeout=90, what='enemies')
     check('в зоне есть враги', True)
     g.vwait(6)
-    g.cmd('tpenemy'); g.vwait(0.4)
-    g.click('[data-n="Attack"]'); g.vwait(0.25)
+    JS_HURT = "(()=>{const f=R2W.ENV.workspace.findChild('Enemies'); if(!f) return 0; let n=0; for(const m of f.children){const a=m.attrs; if(a && a.get('Hp')!==undefined && a.get('MaxHp') && a.get('Hp')<a.get('MaxHp')) n++;} return n;})()"
+    hurt = 0
+    for _ in range(12):
+        g.cmd('tpenemy'); g.vwait(0.5)
+        g.click('[data-n="Attack"]'); g.vwait(0.6)
+        hurt = g.p.evaluate(JS_HURT)
+        if hurt:
+            break
     g.shot('13_combat')
-    g.vwait(1.5)
-    check('в бою появляются числа урона', g.p.locator('[data-n^="Fx_"]').count() >= 0)
+    check('удар игрока/питомцев наносит урон врагам', hurt > 0, 'hurt=%s' % hurt)
     g.cmd('event:BossRaid')
     g.wait(lambda: g.vis('[data-n="BossBar"]'), timeout=60, what='boss bar')
     g.vwait(3); g.shot('14_raid')

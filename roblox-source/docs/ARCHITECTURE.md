@@ -1,61 +1,58 @@
-# Архитектура
+# Архитектура (v2.0)
 
-## Принципы
-1. **Сервер — единственный источник истины.** Клиент отправляет *намерения* (`Click`, `Action("Hatch", eggId, count)`), сервер валидирует и считает.
-2. **Один вход для действий** — `RemoteFunction "Action"` + `Router` (rate-limit, проверка готовности, pcall, единый формат ответа `{ok, msg}`). Исключение — высокочастотный `Click` (`RemoteEvent` с собственным token bucket).
-3. **Состояние → клиенту одним способом**: `State` формирует снимки (`Core` часто, `Pets` редко) и шлёт не чаще ~6 раз/сек.
-4. **Данные только через `DataService`**; изменение валют — только через `Economy`.
-5. **Нет внешних ассетов**: мир (`WorldBuilder`), питомцы (`PetModel`), интерфейс (`StarterGui/PetCollectorGui`) строятся кодом.
+## 1. Слои
+```
+src/
+  ReplicatedStorage/         "Shared": данные и чистая логика (без Instance там, где можно) — тестируются вне Roblox
+    Config, Formulas, Util, Remotes
+    PetData, PetMeta, Abilities, PetModel
+    ZoneData, EnemyData, ResourceData, RecipeData
+    QuestData, AchievementData, TalentData, ShopData, BattlePassData, EventData, UpgradeData, TradeLogic
+  ServerScriptService/
+    Main.server.lua          порядок инициализации сервисов
+    Server/*                 сервисы (см. ниже)
+  StarterGui/PetCollectorGui/
+    Main.client.lua, Modules/*   клиентский интерфейс
+```
+`default.project.json` (Rojo) отображает `src/ReplicatedStorage` в `ReplicatedStorage/Shared`, поэтому пути вида `ReplicatedStorage.Shared.Config` одинаковы в Studio, в `.rbxlx` и в веб-версии.
 
-## Поток «открыть яйцо»
-`ProximityPrompt (сервер)` → `OpenEgg` (клиенту) → окно шансов (`EggPanel`) → `Action("Hatch", eggId, 1|3)` → `Router` (rate-limit) → `PetService.hatch`:
-проверка аргументов → мир открыт? → игрок рядом с яйцом? → место в сумке? → `Economy.trySpend` → бросок (`PetData.roll` с удачей) → запись питомцев → `State.markPets` → `HatchResult` клиенту (анимация).
-
-## Модули
-
-| Модуль | Роль |
+## 2. Серверные сервисы
+| Группа | Модули |
 |---|---|
-| `Config` | ID пассов/продуктов, баланс, лимиты, параметры античита |
-| `PetData` / `ZoneData` / `UpgradeData` / `Formulas` | Данные и формулы (используются и сервером, и клиентом для отображения) |
-| `PetModel` | Строит модель питомца из примитивов |
-| `Remotes` | Создание/получение Remote-объектов |
-| `DataService` | DataStore: session lock, ретраи, автосейв, BindToClose |
-| `Session` | Временное состояние игрока (пассы, Premium, политика, лимиты) |
-| `Economy` | Множители, удача, трата/начисление валют |
-| `State` | Снимки состояния клиенту, атрибут `EquippedPets` для отрисовки питомцев |
-| `Router` | Вход для действий клиента |
-| `AntiExploit` | Страйки, принудительные WalkSpeed/Jump, проверка скорости |
-| `ClickService`, `PetService`, `UpgradeService`, `ZoneService`, `RebirthService`, `DailyService` | Игровые механики |
-| `Monetization` | Геймпассы, продукты, `ProcessReceipt`, Premium, `PolicyService` |
-| `LeaderboardService` | `OrderedDataStore` + табло в мире |
-| `PlayerService` | Жизненный цикл: загрузка → leaderstats → персонаж → выход |
-| `WorldBuilder` | Мир, яйца, табло |
+| Ядро | `Session` (временное состояние), `DataService` (DataStore, блокировка сессии, автосохранение, миграции `Migrations` v1→v2), `State` (сборка снимка для клиента и событие `State`), `Router` (единый вход действий), `Notify`, `AntiExploit`, `PlayerService` |
+| Экономика | `Economy` (монеты/гемы/пределы/множители), `ClickService`, `UpgradeService`, `RebirthService`, `OfflineService`, `DailyService` |
+| Питомцы | `PetService` (яйца, команда, продажа, слияние, эволюция, Treat, избранное) |
+| Мир | `WorldBuilder` (хаб, биомы, NPC, станции, декор), `Stations` (проверка «игрок в хабе»), `StationService`, `ZoneService` (открытие и телепорт) |
+| Геймплей | `ResourceService`, `CombatService` (ИИ врагов, автоатака питомцев, боссы), `CraftService`, `EventService` + `EventState`, `ShopService` + `ShopLogic`, `BattlePassService`, `QuestService`, `Dailies`, `Progress` (единая точка учёта прогресса), `TradeService` |
+| Деньги | `Monetization` (геймпассы, `ProcessReceipt`, PolicyService), `LeaderboardService` |
 
-## Структура данных игрока (DataStore)
-
+### Router / Action
+Клиент не имеет отдельных Remote для каждой функции. Все действия идут через один `RemoteFunction "Action"`:
+```lua
+Router.register("Craft", 4, 4, function(player, recipeId) ... return ok, msg end)
 ```
-{ Version, Coins, Gems, Rebirths, TotalCoins, TotalHatched, TotalClicks,
-  Pets = { [uid] = { Id, Gold } }, NextPetId, Equipped = { uid, ... },
-  Upgrades = { Click, Speed, Luck, Bag, Slots }, Zones = { [id] = true }, CurrentZone,
-  Daily = { LastDay, Streak }, Boosts = { Luck2, Luck5 }, AutoCollect,
-  Receipts = { [PurchaseId] = unixTime }, Joined }
+Параметры — имя, частота (токенов/с), «всплеск» и обработчик, возвращающий `ok, msg`. Router сам проверяет типы аргументов на верхнем уровне, ограничивает частоту, ловит ошибки обработчика (`pcall`) и не пускает действия до загрузки данных игрока. Клиент вызывает `Net.action("Craft", id)` и показывает `msg`.
+
+### State
+Сервер — единственный источник правды. После любого изменения вызывается `State.push(player)`; клиент получает событие `State` с полным компактным снимком (монеты, питомцы, команда, ресурсы, квесты, таланты, батл-пасс…) и перерисовывает панели. Клиент ничего не «додумывает» локально.
+
+## 3. Поток данных
 ```
-Запись в хранилище: `{ Data = <выше>, Lock = { SessionId, Time }, SavedAt }`. Новые поля добавляются в шаблон — `reconcile` дополнит старые профили.
+Клиент: клик/кнопка → Action(name,args) → Router (rate-limit, pcall)
+  → сервис (проверка условий на сервере) → изменение данных в Session
+  → Progress.record(...) (квесты / достижения / батл-пасс)
+  → State.push → клиент → перерисовка
+Сохранение: DataService (автосейв + при выходе + BindToClose; блокировка сессии против дюпа)
+Покупки: MarketplaceService.ProcessReceipt → Monetization (идемпотентно, по PurchaseId)
+События: EventData (расписание от os.time) → EventService → атрибуты Workspace/Lighting → клиентские баннеры
+```
+Данные игрока — таблица версии 2; `Migrations` поднимает старые профили (v1) без потери питомцев/монет.
 
-## Безопасность — что и как
-- Типы/диапазоны аргументов проверяются в каждом обработчике; NaN/inf/таблицы вместо чисел отклоняются.
-- Цены/шансы/множители не приходят от клиента.
-- Rate-limit на всех действиях; страйки → кик при систематическом злоупотреблении.
-- Яйца: проверка расстояния от персонажа (серверная позиция).
-- Скорость/прыжок принудительно задаются сервером; горизонтальная скорость контролируется.
-- Покупки: идемпотентность по `PurchaseId`, награда и чек записываются вместе и сохраняются до подтверждения.
+## 4. Клиент
+`UiKit` — общие виджеты (кнопки, панели, тексты с автоподгонкой); `UIController` открывает панели (`openPanel`); `Hud` — кнопки меню и красные точки; панели: Pets (инвентарь + слияние), Egg + HatchPopup, Craft, Quests (Daily/Story/Achievements), Dialog (NPC), Talents, Trade, Market (Shop / Battle Pass / Robux Store), Boards (Leaderboards), Zones, Upgrades; `Fx` — всплывающие числа, баннеры событий, полоса босса, трекер заданий, кнопка атаки, окно оффлайн-награды.
 
-**Ограничения:** это базовый уровень. От читерства «в духе» автокликеров на стороне клиента защищает лимит частоты; от модифицированных клиентов с нестандартной физикой — только частично. Для крупного проекта добавьте логирование, аномалии по метрикам, бан-лист, серверные проверки полёта/ноклипа.
+## 5. Веб-версия и эмулятор
+Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.
 
-## Как расширять
-- **Новый питомец**: `PetData.Pets` + вес в `Eggs[...].Pets` (сумма весов = 100).
-- **Новое яйцо**: `PetData.Eggs` (поле `Zone`), стенд создастся `WorldBuilder` автоматически.
-- **Новый мир**: `ZoneData.List` (позиция по оси X с шагом 400), добавьте яйцо.
-- **Новый апгрейд**: `UpgradeData.List` + место, где он влияет (`Formulas`/`Economy`) + поле в шаблоне `DataService`.
-- **Новый продукт**: `Config.PRODUCT_IDS` + `Config.PRODUCTS` + ветка в `Monetization.grantProduct` (если новый `Kind`) + карточка в `ShopPanel`.
-- **Промокоды** (идея): `Action("Redeem", code)` с серверной таблицей кодов и защитой от повторов (хранить использованные коды в данных).
+## 6. Инструменты
+`tools/build_rbxlx.py` (сборка `.rbxlx` без Rojo), `tools/validate_rbxlx.py` (проверка + сверка с `rojo build`), `tools/check_all.sh` (все проверки), `tools/publish_web.sh` (веб-сборка для Pages). Стиль: stylua, selene, luau-lsp (strict-типы).

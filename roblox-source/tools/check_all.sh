@@ -19,6 +19,12 @@ if [ -f "$T/globalTypes.d.luau" ]; then DEFS="$T/globalTypes.d.luau"; else DEFS=
 out=$("$LSP" analyze --definitions="$DEFS" --sourcemap=sourcemap.json src 2>&1 | grep -v "^\[INFO\]\|^\[WARN\]")
 if [ -n "$out" ]; then echo "$out"; fail=1; else echo "no diagnostics"; fi
 step "5/7 Тесты серверной логики (Luau + эмуляция Roblox API)"; run python3 tests/run_tests.py --luau "$LUAU"
+step "5b/7 Игровой интеграционный сценарий в эмуляторе roblox2web (нужен Node и R2W_DIR)"
+R2W_DIR=${R2W_DIR:-/workspace/roblox2web}
+if command -v node >/dev/null && [ -d "$R2W_DIR/rbx" ]; then R2W_DIR=$R2W_DIR run node tests/game/run.js 260; else echo "пропущено: нет node или roblox2web (задайте R2W_DIR)"; fi
+if [ "${UI_TEST:-0}" = 1 ] && [ -d "$R2W_DIR/rbx" ]; then
+  step "5c/7 Chromium UI-тест (UI_TEST=1)"; R2W_DIR=$R2W_DIR run bash tests/browser/build_ui_site.sh; R2W_DIR=$R2W_DIR run python3 tests/browser/test_game_ui.py
+fi
 step "6/7 Сборка .rbxlx без Rojo";     run python3 tools/build_rbxlx.py
 step "7/7 Валидация .rbxlx (XML + сверка с эталоном rojo build)"
 "$ROJO" build default.project.json -o build/rojo_reference.rbxlx >/dev/null 2>&1

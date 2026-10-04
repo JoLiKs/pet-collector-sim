@@ -6,6 +6,14 @@
 их переводит в JavaScript транспилятор [roblox2web](https://github.com/JoLiKs/roblox2web) (<https://joliks.github.io/roblox2web/>),
 а `Workspace`, `Players`, `RemoteEvent`, `DataStore`, GUI, 3D (three.js) эмулирует его же рантайм. Серверные скрипты, клиентский интерфейс и общие модули выполняются в одной вкладке.
 
+## Скачать
+* [`PetCollectorSimulator_v2.0.zip`](PetCollectorSimulator_v2.0.zip) — проект целиком (src, документация, тесты, `.rbxlx`)
+* [`PetCollectorSimulator.rbxlx`](PetCollectorSimulator.rbxlx) — готовое место для Roblox Studio
+* [`PetCollectorSimulator_web.zip`](PetCollectorSimulator_web.zip) — эта веб-версия для самостоятельного хостинга
+* Скриншоты: [`roblox-source/docs/screens/`](roblox-source/docs/screens/), документация: [`roblox-source/docs/`](roblox-source/docs/)
+
+![Хаб](roblox-source/docs/screens/01_hub.png)
+
 ## Управление
 * **WASD / стрелки** — ходьба, **ЛКМ-перетаскивание** — камера, **Пробел** — прыжок
 * **E** — действие рядом с объектом (яйца, NPC, верстак, рынок, ресурсы, сундуки)
