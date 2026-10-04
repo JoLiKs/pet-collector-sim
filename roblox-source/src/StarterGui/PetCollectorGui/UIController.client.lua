@@ -21,23 +21,41 @@ panels.Rebirth = require(Modules:WaitForChild("RebirthPanel")).init(gui)
 panels.Daily = require(Modules:WaitForChild("DailyPanel")).init(gui)
 panels.Shop = require(Modules:WaitForChild("ShopPanel")).init(gui)
 panels.Egg = require(Modules:WaitForChild("EggPanel")).init(gui)
+panels.Quests = require(Modules:WaitForChild("QuestsPanel")).init(gui)
+panels.Craft = require(Modules:WaitForChild("CraftPanel")).init(gui)
+panels.Boards = require(Modules:WaitForChild("BoardsPanel")).init(gui)
+panels.Trade = require(Modules:WaitForChild("TradePanel")).init(gui)
+local Dialog = require(Modules:WaitForChild("DialogPanel")).init(gui)
 require(Modules:WaitForChild("HatchPopup")).init(gui)
 
-local function openPanel(name: string)
+local function openPanel(name: string, force: boolean?)
+	if name == "Worlds" then
+		name = "Zones"
+	end
 	local target = panels[name]
 	if not target then
 		return
 	end
 	local wasOpen = target.IsOpen()
+	Dialog.Close()
 	for _, p in pairs(panels) do
 		if p.IsOpen() then
 			p.Close()
 		end
 	end
-	if not wasOpen then
+	if not wasOpen or force then
 		target.Open()
 	end
 end
+panels.Talents = require(Modules:WaitForChild("TalentsPanel")).init(gui, function()
+	openPanel("Rebirth", true)
+end)
+panels.Market = require(Modules:WaitForChild("MarketPanel")).init(gui, function()
+	openPanel("Shop", true)
+end)
+require(Modules:WaitForChild("Fx")).init(gui, function(name: string)
+	openPanel(name, true)
+end)
 
 Hud.init(gui, openPanel)
 ClientState.requestResync()

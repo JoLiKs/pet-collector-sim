@@ -12,6 +12,7 @@ export type PlayerSession = {
 	ActionBuckets: { [string]: { Tokens: number, Last: number } },
 	Strikes: { number },
 	LastTeleport: number,
+	Friends: number, -- друзья на этом сервере (+ бот-друг в демо)
 	LastPosition: Vector3?,
 	LastPositionTime: number,
 	Ready: boolean, -- данные загружены, можно играть
@@ -36,6 +37,7 @@ function Session.create(player: Player): PlayerSession
 		ActionBuckets = {},
 		Strikes = {},
 		LastTeleport = 0,
+		Friends = 0,
 		LastPosition = nil,
 		LastPositionTime = 0,
 		Ready = false,

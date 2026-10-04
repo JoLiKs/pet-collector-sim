@@ -9,6 +9,13 @@ local Remotes = {}
 local FOLDER_NAME = "Remotes"
 
 Remotes.Events = {
+	"Fx", -- S->C: боевые эффекты (kind, ...)
+	"EventState", -- S->C: активные события и таймеры
+	"Dialog", -- S->C: диалог NPC
+	"OpenUi", -- S->C: открыть панель (станция в мире)
+	"TradeUpdate", -- S->C: состояние обмена
+	"Offline", -- S->C: оффлайн-награда при входе
+	"Boards", -- S->C: таблицы лидеров
 	"State", -- S->C: снимок состояния игрока
 	"Notify", -- S->C: всплывающее сообщение (text, kind)
 	"HatchResult", -- S->C: результат открытия яиц

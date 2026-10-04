@@ -14,6 +14,7 @@ local PolicyService = game:GetService("PolicyService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local BattlePassData = require(ReplicatedStorage.Shared.BattlePassData)
 local Config = require(ReplicatedStorage.Shared.Config)
 
 local DataService = require(script.Parent.DataService)
@@ -96,6 +97,20 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 		local base = math.max(boosts[def.Boost] or 0, os.time())
 		boosts[def.Boost] = base + def.Seconds
 		Notify.send(player, ("%s activated!"):format(def.Name), "reward")
+	elseif def.Kind == "Res" then
+		Economy.addResource(player, def.Res, def.Amount)
+		Notify.send(player, ("+%d %s! Thank you!"):format(def.Amount, def.Res), "reward")
+	elseif def.Kind == "BpLevels" then
+		local bp = data.BattlePass
+		local level = BattlePassData.progress(bp.Xp)
+		local target = math.min(BattlePassData.MaxLevel, level + def.Levels)
+		local xp = 0
+		for lv = level + 1, target do
+			xp += BattlePassData.xpForLevel(lv)
+		end
+		local _, into = BattlePassData.progress(bp.Xp)
+		Economy.addBpXp(player, math.max(0, xp - into))
+		Notify.send(player, ("Battle Pass: +%d levels!"):format(def.Levels), "reward")
 	end
 end
 

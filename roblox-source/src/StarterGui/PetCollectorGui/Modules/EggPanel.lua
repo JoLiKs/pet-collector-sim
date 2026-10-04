@@ -62,6 +62,7 @@ function EggPanel.init(gui: ScreenGui)
 	for i, count in ipairs(Config.HATCH_COUNTS) do
 		local n = #Config.HATCH_COUNTS
 		local b = Widgets.button({
+			Name = "Hatch" .. count,
 			Text = "",
 			Color = if i == 1 then Theme.Green else Theme.Blue,
 			Size = UDim2.new(1 / n, -14, 0, 48),
@@ -78,6 +79,23 @@ function EggPanel.init(gui: ScreenGui)
 		buttons[i] = b
 	end
 
+	local ticketBtn = Widgets.button({
+		Text = "Use Ticket",
+		Color = Theme.Purple,
+		Size = UDim2.fromOffset(150, 30),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -12, 0, 0),
+		ZIndex = 23,
+		Visible = false,
+		OnClick = function()
+			if currentEgg then
+				Actions.call("Hatch", currentEgg, 1, true)
+			end
+		end,
+		Parent = body,
+	})
+	ticketBtn.Name = "TicketButton"
+
 	local function render()
 		local core = ClientState.Core
 		local egg = currentEgg and PetData.EggsById[currentEgg]
@@ -92,10 +110,13 @@ function EggPanel.init(gui: ScreenGui)
 		for i, count in ipairs(Config.HATCH_COUNTS) do
 			buttons[i].Text = ("Hatch x%d  (%s)"):format(count, Util.formatNumber(egg.Price * count))
 		end
-		note.Text = ("Your luck: x%.2f (already included in the odds above). Any pet can be Golden (x%d power) with a %.0f%% chance. Probabilities are rounded."):format(
+		local tickets = core.Items and core.Items["ticket_" .. egg.Id] or 0
+		ticketBtn.Visible = tickets > 0
+		ticketBtn.Text = ("Use Ticket (%d)"):format(tickets)
+		note.Text = ("Your luck: x%.2f (already included in the odds above). Any pet can be Golden (%.0f%%, x2 power) or Rainbow (%.1f%%, x5). Rounded."):format(
 			core.Luck,
-			Config.GOLD_POWER_MULT,
-			Config.GOLD_CHANCE * 100
+			Config.GOLD_CHANCE * 100,
+			Config.RAINBOW_CHANCE * 100
 		)
 
 		Widgets.clear(list)
@@ -162,7 +183,13 @@ function EggPanel.init(gui: ScreenGui)
 	ClientState.onCore(function(core)
 		if panel.IsOpen() then
 			-- перерисовываем только при смене валюты/удачи (иначе список мигал бы каждую секунду)
-			local key = tostring(core.Coins) .. "|" .. tostring(core.Gems) .. "|" .. tostring(core.Luck)
+			local key = tostring(core.Coins)
+				.. "|"
+				.. tostring(core.Gems)
+				.. "|"
+				.. tostring(core.Luck)
+				.. "|"
+				.. tostring(core.Items and core.Items["ticket_" .. (currentEgg or "")])
 			if key ~= lastKey then
 				lastKey = key
 				render()

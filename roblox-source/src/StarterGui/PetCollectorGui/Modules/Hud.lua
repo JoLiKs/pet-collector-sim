@@ -1,10 +1,12 @@
 --!nonstrict
 -- Основной HUD: валюты, мир, кнопка COLLECT, автосбор, меню слева.
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local QuestData = require(Shared:WaitForChild("QuestData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
 local ZoneData = require(Shared:WaitForChild("ZoneData"))
@@ -18,11 +20,17 @@ local Hud = {}
 
 local MENU = {
 	{ Id = "Pets", Text = "PETS", Color = Theme.Orange },
-	{ Id = "Upgrades", Text = "UPGRADES", Color = Theme.Blue },
+	{ Id = "Quests", Text = "QUESTS", Color = Theme.Blue },
+	{ Id = "Craft", Text = "CRAFT", Color = Theme.Green },
+	{ Id = "Market", Text = "MARKET", Color = Theme.Gold },
 	{ Id = "Zones", Text = "WORLDS", Color = Theme.Green },
-	{ Id = "Rebirth", Text = "REBIRTH", Color = Theme.Purple },
+	{ Id = "Talents", Text = "TALENTS", Color = Theme.Purple },
+	{ Id = "Trade", Text = "TRADE", Color = Theme.Orange },
+	{ Id = "Boards", Text = "TOP", Color = Theme.Blue },
 	{ Id = "Daily", Text = "DAILY", Color = Theme.Gold },
-	{ Id = "Shop", Text = "SHOP", Color = Theme.Red },
+	{ Id = "Upgrades", Text = "UPGRADES", Color = Theme.Blue },
+	{ Id = "Rebirth", Text = "REBIRTH", Color = Theme.Purple },
+	{ Id = "Shop", Text = "STORE", Color = Theme.Red },
 }
 
 local function statPill(parent: Instance, order: number, icon: string, color: Color3): TextLabel
@@ -58,6 +66,12 @@ local function statPill(parent: Instance, order: number, icon: string, color: Co
 	})
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, Parent = value })
 	return value
+end
+
+local function inHub(): boolean
+	local char = Players.LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	return root ~= nil and root.Position.Magnitude < ZoneData.HUB_RADIUS
 end
 
 function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
@@ -198,34 +212,41 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		end
 	end)
 
-	-- Меню слева
+	-- Меню слева (две колонки)
 	local menu = Widgets.New("Frame", {
 		Name = "Menu",
 		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, 40),
-		Size = UDim2.fromOffset(112, #MENU * 46),
+		Position = UDim2.new(0, 12, 0.5, 60),
+		Size = UDim2.fromOffset(212, (#MENU // 2) * 44),
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
-	Widgets.New("UIListLayout", { Padding = UDim.new(0, 6), Parent = menu })
-	local dailyDot
-	for _, item in ipairs(MENU) do
+	Widgets.New("UIGridLayout", {
+		CellPadding = UDim2.fromOffset(6, 5),
+		CellSize = UDim2.fromOffset(103, 39),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = menu,
+	})
+	local dots = {}
+	for i, item in ipairs(MENU) do
 		local b = Widgets.button({
 			Name = item.Id,
 			Text = item.Text,
 			Color = item.Color,
-			Size = UDim2.fromOffset(112, 40),
+			Size = UDim2.fromOffset(103, 39),
+			MaxTextSize = 20,
 			OnClick = function()
 				openPanel(item.Id)
 			end,
 			Parent = menu,
 		})
-		if item.Id == "Daily" then
-			dailyDot = Widgets.label({
+		b.LayoutOrder = i
+		if item.Id == "Daily" or item.Id == "Quests" or item.Id == "Talents" or item.Id == "Market" then
+			local dot = Widgets.label({
 				Text = "!",
 				BackgroundTransparency = 0,
 				BackgroundColor3 = Theme.Red,
-				Size = UDim2.fromOffset(22, 22),
+				Size = UDim2.fromOffset(20, 20),
 				AnchorPoint = Vector2.new(0.5, 0.5),
 				Position = UDim2.new(1, -4, 0, 4),
 				Font = Theme.Font,
@@ -233,7 +254,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 				ZIndex = 5,
 				Parent = b,
 			})
-			Widgets.corner(dailyDot, 11)
+			Widgets.corner(dot, 10)
+			dots[item.Id] = dot
 		end
 	end
 
@@ -244,15 +266,32 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		rebirthLabel.Text = "Rebirth " .. tostring(core.Rebirths)
 		local zone = ZoneData.ById[core.CurrentZone]
 		if zone then
-			zoneLabel.Text = ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
+			zoneLabel.Text = if inHub()
+				then ("Hub  (coins: %s x%d)"):format(zone.Name, zone.Multiplier)
+				else ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
 		end
 		perClickLabel.Text = "+" .. Util.formatNumber(core.PerClick) .. " per collect"
 		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
 		autoBtn.Text = if core.AutoCollect then "AUTO: ON" else "AUTO: OFF"
 		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
-		if dailyDot then
-			dailyDot.Visible = core.Daily.CanClaim
+		dots.Daily.Visible = core.Daily.CanClaim
+		dots.Talents.Visible = core.TalentPoints > 0
+		local readyQuest = false
+		for id, e in pairs(core.Quests.Daily) do
+			local def = QuestData.DailyById[id]
+			if def and e.P >= def.Obj.Count and not e.C then
+				readyQuest = true
+			end
 		end
+		dots.Quests.Visible = readyQuest
+		local bpReady = false
+		for lv = 1, core.BattlePass.Level do
+			if not core.BattlePass.Free[tostring(lv)] then
+				bpReady = true
+				break
+			end
+		end
+		dots.Market.Visible = bpReady
 	end)
 
 	-- Таймер буста удачи (обновляется каждый кадр "дёшево": только текст раз в 0.5с)
@@ -266,6 +305,12 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		local core = ClientState.Core
 		if not core then
 			return
+		end
+		local zone = ZoneData.ById[core.CurrentZone]
+		if zone then
+			zoneLabel.Text = if inHub()
+				then ("Hub  (coins: %s x%d)"):format(zone.Name, zone.Multiplier)
+				else ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
 		end
 		local left = core.LuckBoostEnds - ClientState.serverNow()
 		if core.LuckBoost > 1 and left > 0 then

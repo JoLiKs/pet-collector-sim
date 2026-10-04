@@ -63,7 +63,21 @@ local function block(
 	return addPart(model, name, Enum.PartType.Block, size, cf, color, material)
 end
 
-function PetModel.build(petId: string, gold: boolean?): Model
+local function variantStyle(petId: string, variant: any): (Color3?, Enum.Material?)
+	if variant == true or variant == "Golden" then
+		return GOLD, Enum.Material.Metal
+	elseif variant == "Rainbow" then
+		local hue = (#petId * 0.137) % 1
+		return Color3.fromHSV(hue, 0.55, 1), Enum.Material.Neon
+	elseif variant == "Shiny" then
+		return Color3.fromRGB(150, 255, 245), Enum.Material.Neon
+	end
+	return nil, nil
+end
+
+-- variant: nil/"Normal"/"Golden"/"Rainbow"/"Shiny" (или boolean gold для совместимости)
+function PetModel.build(petId: string, variant: any?): Model
+	local gold = variant ~= nil and variant ~= false and variant ~= "Normal"
 	local def = PetData.PetsById[petId]
 	local model = Instance.new("Model")
 	model.Name = petId
@@ -76,9 +90,10 @@ function PetModel.build(petId: string, gold: boolean?): Model
 
 	local look = def.Look
 	local scale = PetData.Rarities[def.Rarity].Scale * 0.9
-	local bodyColor = if gold then GOLD else look.Body
+	local vColor, vMat = variantStyle(petId, variant)
+	local bodyColor = vColor or look.Body
 	local accent = look.Accent
-	local mat = if gold then Enum.Material.Metal else Enum.Material.SmoothPlastic
+	local mat = vMat or Enum.Material.SmoothPlastic
 
 	-- ----- Тело и голова -----
 	local br: number -- радиус тела

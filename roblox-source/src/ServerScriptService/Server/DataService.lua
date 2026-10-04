@@ -22,6 +22,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 local Util = require(ReplicatedStorage.Shared.Util)
 local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
+local Migrations = require(script.Parent.Migrations)
 
 export type Data = { [string]: any }
 
@@ -40,7 +41,7 @@ local DataService = {}
 
 DataService.SESSION_ID = HttpService:GenerateGUID(false)
 
-local TEMPLATE_VERSION = 1
+local TEMPLATE_VERSION = 2
 
 local function makeTemplate(): Data
 	return {
@@ -51,14 +52,24 @@ local function makeTemplate(): Data
 		TotalCoins = 0,
 		TotalHatched = 0,
 		TotalClicks = 0,
-		Pets = {}, -- [uid] = { Id = petId, Gold = boolean }
+		Pets = {}, -- [uid] = { Id, Variant, Level, Xp, Evo, Fav }
 		NextPetId = 1,
 		Equipped = {}, -- массив uid
 		Upgrades = { Click = 0, Speed = 0, Luck = 0, Bag = 0, Slots = 0 },
 		Zones = { [ZoneData.DEFAULT] = true },
 		CurrentZone = ZoneData.DEFAULT,
 		Daily = { LastDay = 0, Streak = 0 },
-		Boosts = { Luck2 = 0, Luck5 = 0 }, -- unix-время окончания
+		Boosts = { Luck2 = 0, Luck5 = 0, Coins2 = 0 }, -- unix-время окончания
+		Resources = {}, -- [Wood|Stone|Ore|Herb|Crystal|Essence] = n
+		Items = {}, -- [itemId] = n (зелья, билеты, инструменты)
+		Talents = {}, -- [talentId] = уровень
+		Stats = {}, -- счётчики для квестов и достижений
+		Achievements = {}, -- [id] = true
+		Quests = { Chains = {}, Daily = { Day = 0, Items = {} } },
+		BattlePass = { Season = 1, Xp = 0, ClaimedFree = {}, ClaimedPremium = {} },
+		Shop = { Slot = 0, Bought = {} },
+		LastSeen = os.time(),
+		OfflinePending = 0,
 		AutoCollect = true,
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		Joined = os.time(),
@@ -166,6 +177,7 @@ function DataService.load(player: Player): (Data?, string?)
 			local isNew = false
 			if type(result.Data) == "table" then
 				data = result.Data
+				Migrations.run(data)
 				Util.reconcile(data, makeTemplate())
 			else
 				data = makeTemplate()

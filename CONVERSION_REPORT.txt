@@ -1,14 +1,17 @@
-roblox2web 1.0.0 — отчёт
+roblox2web 2.0.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Жанр: pet-simulator — Найден модуль с таблицами Pets+Eggs (питомцы и яйца).
-Итог: Сгенерирована играбельная веб-демо (жанр pet-simulator). Это шаблон, наполненный вашими данными, а НЕ перевод вашего Luau-кода.
+Скрипты: 79/79 транспилированы в JS, 14901 строк Luau
 
-Данные: pets=35, eggs=6, zones=5, upgrades=5, gamepasses=4, products=7
-Сверка формул: формулы rebirthCost, rebirthMultiplier, rebirthGems, bagSize, clickBase, upgradeLuck, walkSpeed, upgradeCost совпали с шаблоном на тестовых значениях
+=== Покрытие API (статический анализ исходников) ===
+Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, os, pairs, pcall, print, require, string, table, task, tonumber, tostring, type, typeof, warn
+Глобальные API — НЕ найдены в эмуляторе: —
+Функции библиотек — НЕ поддержаны: —
+Сервисы — поддержаны: DataStoreService, HttpService, Lighting, MarketplaceService, Players, PolicyService, ReplicatedStorage, RunService, TweenService, UserInputService, Workspace
+Сервисы — НЕ поддержаны: —
+Сервисы-заглушки (вызовы логируются, функциональность урезана): —
+Instance.new — поддержаны: Atmosphere, BillboardGui, Camera, Folder, Frame, IntValue, Model, Part, ProximityPrompt, RemoteEvent, RemoteFunction, SpawnLocation, StringValue, SurfaceGui, TextLabel
+Instance.new — НЕ поддержаны: —
+Enum — НЕ поддержаны: —
+Методы вызываются, но не найдены ни в эмуляторе, ни в проекте: —
 
-Ограничения:
-  - Luau-логика НЕ транслируется. Конвертер читает только данные (таблицы значений и чистые функции-конструкторы вида `local function pet(...) return {...} end`), выполняя их в песочнице с лимитом шагов.
-  - Геймплей — готовый шаблон «pet / clicker simulator», параметризованный вашими данными (питомцы, яйца, миры, апгрейды, баланс). Если ваша игра устроена иначе (другие механики, тайкун, обби, шутер) — шаблон не подойдёт, будет страница-отчёт.
-  - Формулы экономики зашиты в шаблон (как в Pet Collector Simulator). Если в проекте есть модуль Formulas, конвертер сверяет его ответы с шаблоном и сообщает о расхождениях; остальные расчёты (Economy/Services) не проверяются.
-  - Графика — упрощённый 2D-канвас; 3D-модели, текстуры, звуки, GUI из .rbxlx не переносятся.
-  - Сервер, DataStore, лидерборд и покупки — демо (localStorage, вымышленные игроки, без платежей).
+Во время работы страницы неподдержанные обращения (свойства/методы/классы) попадают в консоль страницы: [r2w][unsupported] …

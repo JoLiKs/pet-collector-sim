@@ -10,12 +10,15 @@ local Util = require(Shared.Util)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local LeaderboardService = require(script.Parent.LeaderboardService)
+local Dailies = require(script.Parent.Dailies)
 local Monetization = require(script.Parent.Monetization)
+local OfflineService = require(script.Parent.OfflineService)
 local Notify = require(script.Parent.Notify)
 local Session = require(script.Parent.Session)
 local State = require(script.Parent.State)
 local WorldBuilder = require(script.Parent.WorldBuilder)
 local ZoneService = require(script.Parent.ZoneService)
+local ZoneData = require(Shared.ZoneData)
 
 local PlayerService = {}
 
@@ -142,7 +145,7 @@ local function onCharacterAdded(player: Player, character: Model)
 	humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 
-	ZoneService.moveToZone(player, data.CurrentZone)
+	ZoneService.moveToZone(player, ZoneData.HUB)
 	refreshTag(player)
 
 	humanoid.Died:Connect(function()
@@ -179,7 +182,10 @@ local function onPlayerAdded(player: Player)
 	end
 
 	createLeaderstats(player)
+	Dailies.ensure(data)
+	PlayerService.refreshFriends(player)
 	session.Ready = true
+	OfflineService.onJoin(player)
 
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
@@ -195,6 +201,7 @@ end
 local function onPlayerRemoving(player: Player)
 	local data = DataService.get(player)
 	if data then
+		OfflineService.touch(player)
 		-- последняя отправка в лидерборд (в фоне) и сохранение со снятием session lock
 		local userId, total = player.UserId, data.TotalCoins
 		task.spawn(LeaderboardService.submit, userId, total)
@@ -202,6 +209,28 @@ local function onPlayerRemoving(player: Player)
 	DataService.release(player)
 	Session.destroy(player)
 	WorldBuilder.clearPlayer(player)
+end
+
+-- Считает друзей на сервере (yield: IsFriendsWith — сетевой вызов). Бот «Trader Tom» в демо считается другом.
+function PlayerService.refreshFriends(player: Player)
+	local n = 0
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			local ok, result = pcall(function()
+				return player:IsFriendsWithAsync(other.UserId)
+			end)
+			if ok and result == true then
+				n += 1
+			end
+		end
+	end
+	if Config.DEMO_BOT_ENABLED then
+		n += 1
+	end
+	local s = Session.get(player)
+	if s then
+		s.Friends = n
+	end
 end
 
 function PlayerService.init()
@@ -226,6 +255,7 @@ function PlayerService.init()
 				local s = Session.get(player)
 				if s and s.Ready then
 					refreshTag(player)
+					OfflineService.touch(player)
 				end
 			end
 		end

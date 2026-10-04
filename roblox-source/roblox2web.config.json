@@ -1,0 +1,40 @@
+{
+  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов подставляются патчами при конвертации.",
+  "placeKey": "pet-collector-sim-v2",
+  "patches": [
+    { "script": "Shared.Config", "regex": "(\\bDOUBLE_COINS\\s*=\\s*)0,", "replace": "$1900001," },
+    { "script": "Shared.Config", "regex": "(\\bDOUBLE_SPEED\\s*=\\s*)0,", "replace": "$1900002," },
+    { "script": "Shared.Config", "regex": "(\\bAUTO_COLLECT\\s*=\\s*)0,", "replace": "$1900003," },
+    { "script": "Shared.Config", "regex": "(\\bVIP\\s*=\\s*)0,", "replace": "$1900004," },
+    { "script": "Shared.Config", "regex": "(\\bBATTLE_PASS\\s*=\\s*)0,", "replace": "$1900005," },
+    { "script": "Shared.Config", "regex": "(\\bGEMS_SMALL\\s*=\\s*)0,", "replace": "$1910001," },
+    { "script": "Shared.Config", "regex": "(\\bGEMS_MEDIUM\\s*=\\s*)0,", "replace": "$1910002," },
+    { "script": "Shared.Config", "regex": "(\\bGEMS_LARGE\\s*=\\s*)0,", "replace": "$1910003," },
+    { "script": "Shared.Config", "regex": "(\\bCOINS_SMALL\\s*=\\s*)0,", "replace": "$1910004," },
+    { "script": "Shared.Config", "regex": "(\\bCOINS_LARGE\\s*=\\s*)0,", "replace": "$1910005," },
+    { "script": "Shared.Config", "regex": "(\\bLUCK_2X_15M\\s*=\\s*)0,", "replace": "$1910006," },
+    { "script": "Shared.Config", "regex": "(\\bLUCK_5X_10M\\s*=\\s*)0,", "replace": "$1910007," },
+    { "script": "Shared.Config", "regex": "(\\bBP_SKIP\\s*=\\s*)0,", "replace": "$1910008," },
+    { "script": "Shared.Config", "regex": "(\\bESSENCE_PACK\\s*=\\s*)0,", "replace": "$1910009," }
+  ],
+  "catalog": {
+    "gamepasses": {
+      "900001": { "name": "x2 Coins", "price": 299, "description": "Double coins forever (demo)" },
+      "900002": { "name": "x2 Speed", "price": 149, "description": "Double walk speed (demo)" },
+      "900003": { "name": "Auto Collect", "price": 399, "description": "Coins collect themselves (demo)" },
+      "900004": { "name": "VIP", "price": 599, "description": "+25% coins, +1 slot (demo)" },
+      "900005": { "name": "Battle Pass Premium", "price": 499, "description": "Premium reward track (demo)" }
+    },
+    "products": {
+      "910001": { "name": "Pile of Gems", "price": 79, "description": "100 gems" },
+      "910002": { "name": "Bag of Gems", "price": 349, "description": "550 gems" },
+      "910003": { "name": "Chest of Gems", "price": 899, "description": "1500 gems" },
+      "910004": { "name": "Pocket of Coins", "price": 79, "description": "Coins" },
+      "910005": { "name": "Sack of Coins", "price": 399, "description": "Coins" },
+      "910006": { "name": "Luck x2 (15 min)", "price": 79, "description": "Luck boost" },
+      "910007": { "name": "Luck x5 (10 min)", "price": 199, "description": "Luck boost" },
+      "910008": { "name": "Battle Pass +5 Levels", "price": 129, "description": "Skip 5 levels" },
+      "910009": { "name": "Essence Pack", "price": 99, "description": "30 Essence" }
+    }
+  }
+}

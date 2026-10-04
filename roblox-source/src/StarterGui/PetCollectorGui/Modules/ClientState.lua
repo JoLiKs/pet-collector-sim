@@ -7,7 +7,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local ClientState = {}
 
 ClientState.Core = nil :: any
-ClientState.Pets = {} :: { [string]: { Id: string, Gold: boolean } }
+ClientState.Pets = {} :: { [string]: any }
 ClientState.ReceivedClock = os.clock()
 ClientState.TimeOffset = 0
 

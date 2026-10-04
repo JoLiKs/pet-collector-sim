@@ -6,6 +6,9 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Config = require(ReplicatedStorage.Shared.Config)
 
 local DataService = require(script.Parent.DataService)
+local PetMeta = require(ReplicatedStorage.Shared.PetMeta)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Router = require(script.Parent.Router)
 local WorldBuilder = require(script.Parent.WorldBuilder)
 
 local LeaderboardService = {}
@@ -64,6 +67,34 @@ function LeaderboardService.submit(userId: number, totalCoins: number)
 	end
 end
 
+local globalEntries: { { Name: string, Value: number } } = {}
+
+-- Таблицы по игрокам этого сервера (обновляются «вживую»)
+function LeaderboardService.live(): { [string]: { { Name: string, Value: number } } }
+	local boards: { [string]: { { Name: string, Value: number } } } =
+		{ Coins = {}, Kills = {}, Rebirths = {}, Power = {}, Hatched = {} }
+	for _, player in ipairs(Players:GetPlayers()) do
+		local data = DataService.get(player)
+		if data then
+			local power = 0
+			for _, p in pairs(data.Pets) do
+				power = math.max(power, PetMeta.power(p))
+			end
+			table.insert(boards.Coins, { Name = player.DisplayName, Value = data.TotalCoins })
+			table.insert(boards.Kills, { Name = player.DisplayName, Value = data.Stats.Kills or 0 })
+			table.insert(boards.Rebirths, { Name = player.DisplayName, Value = data.Rebirths })
+			table.insert(boards.Power, { Name = player.DisplayName, Value = math.floor(power * 10) / 10 })
+			table.insert(boards.Hatched, { Name = player.DisplayName, Value = data.TotalHatched })
+		end
+	end
+	for _, list in pairs(boards) do
+		table.sort(list, function(a, b)
+			return a.Value > b.Value
+		end)
+	end
+	return boards
+end
+
 local function refreshBoard()
 	local st = store
 	if not st then
@@ -90,10 +121,16 @@ local function refreshBoard()
 			table.insert(entries, { Name = nameFor(userId), Value = entry.value :: number })
 		end
 	end
+	globalEntries = entries
 	WorldBuilder.setBoard(entries, "Lifetime coins earned")
 end
 
 function LeaderboardService.init()
+	Router.register("GetBoards", 1, 2, function(player: Player)
+		Remotes.getEvent("Boards")
+			:FireClient(player, { Global = globalEntries, Live = LeaderboardService.live() })
+		return true, nil
+	end)
 	task.spawn(function()
 		task.wait(5)
 		while true do

@@ -1,161 +1,362 @@
 --!nonstrict
--- Панель питомцев: инвентарь, экипировка, продажа.
+--[[
+	Панель питомцев: инвентарь с фильтрами (стихия / роль / редкость), сортировкой и избранным,
+	команда (слоты), уровни/опыт, эволюция, продажа и слияние 3→1.
+]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local Abilities = require(Shared:WaitForChild("Abilities"))
 local PetData = require(Shared:WaitForChild("PetData"))
+local PetMeta = require(Shared:WaitForChild("PetMeta"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
 local PetsPanel = {}
+
+local ELEMENTS = { "All", "Fire", "Water", "Earth", "Air" }
+local ROLES = { "All", "Fighter", "Collector", "Support" }
+local RARITIES = { "All", "Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic" }
+local SORTS = { "Power", "Level", "Rarity", "Name", "Newest" }
+
+local function nextOf(list: { string }, current: string): string
+	for i, v in ipairs(list) do
+		if v == current then
+			return list[i % #list + 1]
+		end
+	end
+	return list[1]
+end
 
 function PetsPanel.init(gui: ScreenGui)
 	local panel = Widgets.panel(gui, "Pets")
 	local body = panel.Body
 
-	local info = Widgets.label({
-		Size = UDim2.new(1, -150, 0, 26),
-		Position = UDim2.fromOffset(14, 4),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 22,
+	local filters = { Element = "All", Role = "All", Rarity = "All", Sort = "Power", FavOnly = false }
+	local mode = "Pets" -- "Pets" | "Fusion"
+	local selected: string? = nil
+	local fuseSet: { [string]: boolean } = {}
+	local useCatalyst = false
+	local confirmSell = false
+
+	-- Верхняя строка: сводка, режим, лучшая команда
+	local info = UiKit.text(body, "", UDim2.fromOffset(14, 4), UDim2.new(1, -330, 0, 24), { MaxSize = 18 })
+	local modeBtn = Widgets.button({
+		Name = "ModeToggle",
+		Text = "Fusion mode",
+		Color = Theme.Purple,
+		Size = UDim2.fromOffset(120, 26),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -150, 0, 4),
+		ZIndex = 23,
+		MaxTextSize = 16,
 		Parent = body,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, Parent = info })
 	Widgets.button({
+		Name = "EquipBest",
 		Text = "Equip Best",
 		Color = Theme.Green,
-		Size = UDim2.fromOffset(130, 30),
+		Size = UDim2.fromOffset(130, 26),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 3),
-		ZIndex = 22,
+		Position = UDim2.new(1, -12, 0, 4),
+		ZIndex = 23,
+		MaxTextSize = 16,
 		OnClick = function()
 			Actions.call("EquipBest")
 		end,
 		Parent = body,
 	})
 
+	-- Фильтры
+	local filterBtns = {}
+	local function filterButton(key: string, _list: { string }, index: number)
+		local b = Widgets.button({
+			Name = "Filter" .. key,
+			Text = key .. ": " .. filters[key],
+			Color = Theme.BgLight,
+			Size = UDim2.new(0.2, -6, 0, 26),
+			Position = UDim2.new((index - 1) * 0.2, 10 + (index - 1) * 0, 0, 34),
+			ZIndex = 23,
+			MaxTextSize = 15,
+			Parent = body,
+		})
+		filterBtns[key] = b
+		return b
+	end
+	local rebuild
+	for i, def in ipairs({
+		{ "Element", ELEMENTS },
+		{ "Role", ROLES },
+		{ "Rarity", RARITIES },
+		{ "Sort", SORTS },
+	}) do
+		local key, list = def[1], def[2]
+		local b = filterButton(key, list, i)
+		b.Activated:Connect(function()
+			filters[key] = nextOf(list, filters[key])
+			b.Text = key .. ": " .. filters[key]
+			rebuild()
+		end)
+	end
+	local favBtn = Widgets.button({
+		Name = "FilterFav",
+		Text = "Favorites",
+		Color = Theme.BgLight,
+		Size = UDim2.new(0.2, -6, 0, 26),
+		Position = UDim2.new(0.8, 10, 0, 34),
+		ZIndex = 23,
+		MaxTextSize = 15,
+		Parent = body,
+	})
+	favBtn.Activated:Connect(function()
+		filters.FavOnly = not filters.FavOnly
+		favBtn.BackgroundColor3 = if filters.FavOnly then Theme.Gold else Theme.BgLight
+		rebuild()
+	end)
+
 	local scroll = Widgets.scroller(body, {
-		Position = UDim2.fromOffset(10, 40),
-		Size = UDim2.new(1, -20, 1, -112),
+		Position = UDim2.fromOffset(10, 66),
+		Size = UDim2.new(1, -20, 1, -66 - 134),
 	})
 	Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(112, 132),
+		CellSize = UDim2.fromOffset(104, 112),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = scroll,
 	})
 	Widgets.padding(scroll, 4)
 
-	-- Нижняя панель действий для выбранного питомца
+	-- Нижняя панель: сведения и действия
 	local footer = Widgets.New("Frame", {
-		Position = UDim2.new(0, 10, 1, -66),
-		Size = UDim2.new(1, -20, 0, 60),
+		Name = "Footer",
+		Position = UDim2.new(0, 10, 1, -128),
+		Size = UDim2.new(1, -20, 0, 124),
 		BackgroundColor3 = Theme.BgLight,
 		ZIndex = 22,
 		Parent = body,
 	})
 	Widgets.corner(footer, 12)
-	local selLabel = Widgets.label({
-		Size = UDim2.new(0.5, -10, 1, -12),
-		Position = UDim2.fromOffset(10, 6),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Text = "Select a pet",
-		ZIndex = 23,
-		Parent = footer,
-	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, Parent = selLabel })
-	local equipBtn = Widgets.button({
-		Text = "Equip",
-		Color = Theme.Green,
-		Size = UDim2.new(0.22, 0, 0, 40),
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.fromScale(0.74, 0.5),
-		ZIndex = 23,
-		Parent = footer,
-	})
-	local sellBtn = Widgets.button({
-		Text = "Sell",
-		Color = Theme.Red,
-		Size = UDim2.new(0.24, 0, 0, 40),
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -8, 0.5, 0),
-		ZIndex = 23,
-		Parent = footer,
-	})
+	local detailName = UiKit.text(
+		footer,
+		"Select a pet",
+		UDim2.fromOffset(12, 6),
+		UDim2.new(0.5, 0, 0, 24),
+		{ Font = Theme.Font, MaxSize = 22 }
+	)
+	local detailLine = UiKit.text(
+		footer,
+		"",
+		UDim2.fromOffset(12, 32),
+		UDim2.new(0.55, 0, 0, 18),
+		{ TextColor3 = Theme.TextDim, MaxSize = 15 }
+	)
+	local detailAbility = UiKit.text(
+		footer,
+		"",
+		UDim2.fromOffset(12, 52),
+		UDim2.new(0.55, 0, 0, 32),
+		{ TextColor3 = Theme.Gem, MaxSize = 14 }
+	)
+	local xpBar = UiKit.bar(footer, UDim2.fromOffset(12, 90), UDim2.new(0.5, 0, 0, 20), Theme.Green)
 
-	local selected: string? = nil
-	local confirmSell = false
-
-	local function equippedIndex(core, uid: string): boolean
-		for _, v in ipairs(core.Equipped) do
-			if v == uid then
-				return true
-			end
-		end
-		return false
+	local buttons = {}
+	local function actionButton(
+		name: string,
+		text: string,
+		color: Color3,
+		col: number,
+		row: number,
+		fn: () -> ()
+	)
+		local b = Widgets.button({
+			Name = name,
+			Text = text,
+			Color = color,
+			Size = UDim2.new(0.14, -4, 0, 34),
+			Position = UDim2.new(0.55 + (col - 1) * 0.15, 4, 0, 8 + (row - 1) * 40),
+			ZIndex = 23,
+			MaxTextSize = 15,
+			OnClick = fn,
+			Parent = footer,
+		})
+		buttons[name] = b
+		return b
 	end
-
-	local function refreshFooter()
-		local core = ClientState.Core
-		local uid = selected
-		local pet = uid and ClientState.Pets[uid]
-		if not core or not uid or not pet then
-			selected = nil
-			selLabel.Text = "Select a pet"
-			Widgets.setEnabled(equipBtn, false)
-			Widgets.setEnabled(sellBtn, false)
-			sellBtn.Text = "Sell"
+	actionButton("Equip", "Equip", Theme.Green, 1, 1, function()
+		if selected then
+			local core = ClientState.Core
+			local isOn = false
+			for _, u in ipairs(core.Equipped) do
+				if u == selected then
+					isOn = true
+				end
+			end
+			Actions.call(if isOn then "Unequip" else "Equip", selected)
+		end
+	end)
+	actionButton("Fav", "Favorite", Theme.Gold, 2, 1, function()
+		local pet = selected and ClientState.Pets[selected]
+		if pet then
+			Actions.call("SetFav", selected, not pet.Fav)
+		end
+	end)
+	actionButton("Sell", "Sell", Theme.Red, 3, 1, function()
+		local pet = selected and ClientState.Pets[selected]
+		if not pet then
 			return
 		end
 		local def = PetData.PetsById[pet.Id]
-		local eq = equippedIndex(core, uid)
-		selLabel.Text = ("%s%s  x%s"):format(
-			if pet.Gold then "Golden " else "",
-			def.Name,
-			Util.formatNumber(PetData.getPower(pet.Id, pet.Gold))
-		)
-		selLabel.TextColor3 = PetData.Rarities[def.Rarity].Color
-		equipBtn.Text = if eq then "Unequip" else "Equip"
-		Widgets.setEnabled(equipBtn, true, if eq then Theme.Orange else Theme.Green)
-		local value = PetData.sellValue(pet.Id, pet.Gold)
-		sellBtn.Text = if confirmSell then "Sure?" else ("Sell " .. Util.formatNumber(value))
-		Widgets.setEnabled(sellBtn, not eq, Theme.Red)
-	end
-
-	equipBtn.Activated:Connect(function()
-		local core = ClientState.Core
-		if not selected or not core then
-			return
-		end
-		if equippedIndex(core, selected) then
-			Actions.call("Unequip", selected)
-		else
-			Actions.call("Equip", selected)
-		end
-	end)
-	sellBtn.Activated:Connect(function()
-		if not selected then
-			return
-		end
-		local pet = ClientState.Pets[selected]
-		local def = pet and PetData.PetsById[pet.Id]
-		local needsConfirm = def and (PetData.Rarities[def.Rarity].Order >= 3 or pet.Gold)
-		if needsConfirm and not confirmSell then
+		if
+			(def and PetData.Rarities[def.Rarity].Order >= 3 or pet.Variant ~= "Normal") and not confirmSell
+		then
 			confirmSell = true
-			refreshFooter()
+			buttons.Sell.Text = "Sure?"
 			task.delay(3, function()
 				confirmSell = false
-				refreshFooter()
+				buttons.Sell.Text = "Sell"
 			end)
 			return
 		end
 		confirmSell = false
 		Actions.call("Sell", selected)
 	end)
+	actionButton("Feed", "Treat", Theme.Orange, 1, 2, function()
+		if selected then
+			Actions.call("FeedPet", selected)
+		end
+	end)
+	actionButton("Evolve", "Evolve", Theme.Purple, 2, 2, function()
+		if selected then
+			Actions.call("Evolve", selected)
+		end
+	end)
+	actionButton("FuseGo", "Fuse 3", Theme.Blue, 3, 2, function()
+		local uids = {}
+		for uid in pairs(fuseSet) do
+			table.insert(uids, uid)
+		end
+		if #uids == PetMeta.FUSE_COUNT then
+			if Actions.call("Fuse", uids, useCatalyst) then
+				fuseSet = {}
+				rebuild()
+			end
+		end
+	end)
+	local cataBtn = actionButton("Catalyst", "Catalyst: OFF", Theme.BgCard, 1, 3, function()
+		useCatalyst = not useCatalyst
+	end)
+	cataBtn.Size = UDim2.new(0.29, -4, 0, 34)
+	cataBtn.Position = UDim2.new(0.55, 4, 0, 88)
+	local autoBtn = actionButton("AutoPick", "Auto-pick", Theme.Blue, 3, 3, function()
+		local pet = selected and ClientState.Pets[selected]
+		for uid in pairs(fuseSet) do
+			pet = ClientState.Pets[uid] or pet -- ориентируемся на уже отмеченного питомца
+			break
+		end
+		if not pet then
+			return
+		end
+		fuseSet = {}
+		local n = 0
+		for uid, p in pairs(ClientState.Pets) do
+			if p.Id == pet.Id and p.Variant == pet.Variant and not p.Fav and n < PetMeta.FUSE_COUNT then
+				fuseSet[uid] = true
+				n += 1
+			end
+		end
+		rebuild()
+	end)
+	autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 88)
+
+	local function equippedIndex(core, uid: string): number?
+		for i, v in ipairs(core.Equipped) do
+			if v == uid then
+				return i
+			end
+		end
+		return nil
+	end
+
+	local function refreshFooter()
+		local core = ClientState.Core
+		local pet = selected and ClientState.Pets[selected]
+		local fusing = mode == "Fusion"
+		buttons.FuseGo.Visible = fusing
+		buttons.Catalyst.Visible = fusing
+		buttons.AutoPick.Visible = fusing
+		buttons.Equip.Visible = not fusing
+		buttons.Fav.Visible = not fusing
+		buttons.Sell.Visible = not fusing
+		buttons.Feed.Visible = not fusing
+		buttons.Evolve.Visible = not fusing
+		if not core then
+			return
+		end
+		if fusing then
+			local n = 0
+			for _ in pairs(fuseSet) do
+				n += 1
+			end
+			detailName.Text = ("Fusion: %d/3 selected"):format(n)
+			detailLine.Text = "Pick 3 identical pets (same species and variant)."
+			local chance = 0
+			for uid in pairs(fuseSet) do
+				local p = ClientState.Pets[uid]
+				chance = (PetMeta.FUSE_CHANCE[p.Variant] or 0)
+					+ (if useCatalyst then PetMeta.CATALYST_BONUS else 0)
+				break
+			end
+			detailAbility.Text = ("Upgrade chance: %d%%  -  Shiny bonus %d%%"):format(
+				math.floor(chance * 100 + 0.5),
+				PetMeta.FUSE_SHINY_BONUS * 100
+			)
+			xpBar.Set(n / 3, ("%d/3"):format(n))
+			Widgets.setEnabled(buttons.FuseGo, n == 3, Theme.Blue)
+			local have = core.Items and core.Items.catalyst or 0
+			buttons.Catalyst.Text = ("Catalyst %s (%d)"):format(if useCatalyst then "ON" else "OFF", have)
+			buttons.Catalyst.BackgroundColor3 = if useCatalyst then Theme.Purple else Theme.BgCard
+			return
+		end
+		if not pet then
+			detailName.Text = "Select a pet"
+			detailLine.Text = "Click a card to see details."
+			detailAbility.Text = ""
+			xpBar.Set(0, "")
+			return
+		end
+		local state = { Id = pet.Id, Variant = pet.Variant, Level = pet.Level, Evo = pet.Evo }
+		local info2 = PetMeta.info(pet.Id)
+		local ab = Abilities.ById[info2.Ability]
+		detailName.Text = PetMeta.displayName(state)
+		detailName.TextColor3 = UiKit.rarityColor(pet.Id)
+		detailLine.Text = ("%s  |  %s  |  Power x%s  |  Lv %d/%d"):format(
+			info2.Element,
+			info2.Role,
+			Util.formatNumber(pet.Power),
+			pet.Level,
+			pet.Max
+		)
+		detailAbility.Text = if ab then ("%s ability - %s: %s"):format(ab.Kind, ab.Name, ab.Desc) else ""
+		if pet.Level >= pet.Max then
+			xpBar.Set(
+				1,
+				if pet.Evo >= PetMeta.MAX_EVO then "MAX EVOLUTION" else "Max level - ready to evolve"
+			)
+		else
+			xpBar.Set(pet.Xp / pet.Need, ("XP %d / %d"):format(math.floor(pet.Xp), pet.Need))
+		end
+		buttons.Equip.Text = if selected and equippedIndex(core, selected) then "Unequip" else "Equip"
+		buttons.Fav.Text = if pet.Fav then "Unfavorite" else "Favorite"
+		local cost = PetMeta.evoCost(pet.Evo)
+		buttons.Evolve.Text = if cost then "Evolve" else "Maxed"
+		Widgets.setEnabled(buttons.Evolve, cost ~= nil and pet.Level >= pet.Max, Theme.Purple)
+		Widgets.setEnabled(buttons.Feed, pet.Level < pet.Max, Theme.Orange)
+	end
 
 	local lastSig = ""
 	local function signature(core): string
@@ -168,35 +369,84 @@ function PetsPanel.init(gui: ScreenGui)
 			.. core.BagSize
 	end
 
-	local function rebuild()
+	local function passes(pet): boolean
+		local i = PetMeta.info(pet.Id)
+		local def = PetData.PetsById[pet.Id]
+		if filters.Element ~= "All" and i.Element ~= filters.Element then
+			return false
+		end
+		if filters.Role ~= "All" and i.Role ~= filters.Role then
+			return false
+		end
+		if filters.Rarity ~= "All" and def.Rarity ~= filters.Rarity then
+			return false
+		end
+		if filters.FavOnly and not pet.Fav then
+			return false
+		end
+		return true
+	end
+
+	local function numericUid(uid: string): number
+		return tonumber(string.sub(uid, 2)) or 0
+	end
+
+	rebuild = function()
 		local core = ClientState.Core
 		if not core then
 			return
 		end
 		lastSig = signature(core)
-		info.Text = ("Pets %d/%d   Equipped %d/%d"):format(
+		info.Text = ("Pets %d/%d   Team %d/%d"):format(
 			core.PetCount,
 			core.BagSize,
 			#core.Equipped,
 			core.Slots
 		)
+		modeBtn.Text = if mode == "Fusion" then "Back to pets" else "Fusion mode"
 		Widgets.clear(scroll)
 
 		local list = {}
 		for uid, pet in pairs(ClientState.Pets) do
-			table.insert(list, { Uid = uid, Pet = pet, Power = PetData.getPower(pet.Id, pet.Gold) })
+			if passes(pet) then
+				table.insert(list, { Uid = uid, Pet = pet })
+			end
 		end
+		local sortKey = filters.Sort
 		table.sort(list, function(a, b)
-			if a.Power ~= b.Power then
-				return a.Power > b.Power
+			local pa, pb = a.Pet, b.Pet
+			if sortKey == "Level" and pa.Level ~= pb.Level then
+				return pa.Level > pb.Level
+			elseif sortKey == "Rarity" then
+				local ra = PetData.Rarities[PetData.PetsById[pa.Id].Rarity].Order
+				local rb = PetData.Rarities[PetData.PetsById[pb.Id].Rarity].Order
+				if ra ~= rb then
+					return ra > rb
+				end
+			elseif sortKey == "Name" then
+				local na, nb = PetData.PetsById[pa.Id].Name, PetData.PetsById[pb.Id].Name
+				if na ~= nb then
+					return na < nb
+				end
+			elseif sortKey == "Newest" then
+				return numericUid(a.Uid) > numericUid(b.Uid)
+			end
+			if pa.Fav ~= pb.Fav and sortKey ~= "Name" then
+				return pa.Fav == true
+			end
+			if pa.Power ~= pb.Power then
+				return pa.Power > pb.Power
 			end
 			return a.Uid < b.Uid
 		end)
 
 		for i, entry in ipairs(list) do
-			local def = PetData.PetsById[entry.Pet.Id]
+			local pet = entry.Pet
+			local def = PetData.PetsById[pet.Id]
 			local rarity = PetData.Rarities[def.Rarity]
-			local eq = equippedIndex(core, entry.Uid)
+			local meta = PetMeta.info(pet.Id)
+			local picked = (mode == "Fusion" and fuseSet[entry.Uid])
+				or (mode == "Pets" and entry.Uid == selected)
 			local card = Widgets.New("TextButton", {
 				Name = entry.Uid,
 				Text = "",
@@ -209,79 +459,100 @@ function PetsPanel.init(gui: ScreenGui)
 			Widgets.corner(card, 12)
 			Widgets.stroke(
 				card,
-				if entry.Uid == selected then Color3.new(1, 1, 1) else rarity.Color,
-				if entry.Uid == selected then 4 else 2
+				if picked then Color3.new(1, 1, 1) else rarity.Color,
+				if picked then 4 else 2
 			)
-
-			local dot = Widgets.New("Frame", {
-				AnchorPoint = Vector2.new(0.5, 0),
-				Position = UDim2.new(0.5, 0, 0, 8),
-				Size = UDim2.fromOffset(46, 46),
-				BackgroundColor3 = if entry.Pet.Gold then Color3.fromRGB(255, 208, 70) else def.Look.Body,
-				ZIndex = 23,
-				Parent = card,
-			})
-			Widgets.corner(dot, 23)
-			local accent = Widgets.New("Frame", {
-				Position = UDim2.fromOffset(28, 28),
-				Size = UDim2.fromOffset(16, 16),
-				BackgroundColor3 = def.Look.Accent,
-				ZIndex = 24,
-				Parent = dot,
-			})
-			Widgets.corner(accent, 8)
-			Widgets.label({
-				Text = def.Name,
-				Size = UDim2.new(1, -8, 0, 24),
-				Position = UDim2.fromOffset(4, 58),
-				TextColor3 = rarity.Color,
-				ZIndex = 23,
-				Parent = card,
-			})
-			Widgets.label({
-				Text = "x" .. Util.formatNumber(entry.Power),
-				Size = UDim2.new(1, -8, 0, 20),
-				Position = UDim2.fromOffset(4, 84),
-				ZIndex = 23,
-				Parent = card,
-			})
-			Widgets.label({
-				Text = (if entry.Pet.Gold then "GOLD " else "") .. def.Rarity,
-				Size = UDim2.new(1, -8, 0, 14),
-				Position = UDim2.fromOffset(4, 106),
-				TextColor3 = Theme.TextDim,
-				ZIndex = 23,
-				Parent = card,
-			})
-			if eq then
-				local tag = Widgets.label({
-					Text = "ON",
-					BackgroundTransparency = 0,
-					BackgroundColor3 = Theme.Green,
-					Size = UDim2.fromOffset(30, 18),
-					Position = UDim2.new(1, -34, 0, 4),
-					Font = Theme.Font,
-					ZIndex = 25,
-					Parent = card,
-				})
-				Widgets.corner(tag, 6)
+			UiKit.petIcon(card, pet.Id, pet.Variant, 44, UDim2.new(0.5, -22, 0, 8))
+			UiKit.text(
+				card,
+				def.Name,
+				UDim2.fromOffset(3, 54),
+				UDim2.new(1, -6, 0, 18),
+				{ TextColor3 = rarity.Color, TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 14 }
+			)
+			UiKit.text(
+				card,
+				("Lv %d  x%s"):format(pet.Level, Util.formatNumber(pet.Power)),
+				UDim2.fromOffset(3, 73),
+				UDim2.new(1, -6, 0, 16),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13 }
+			)
+			UiKit.text(
+				card,
+				(if pet.Variant ~= "Normal" then pet.Variant .. " " else "")
+					.. (if pet.Evo > 0 then string.rep("*", pet.Evo) else ""),
+				UDim2.fromOffset(3, 91),
+				UDim2.new(1, -6, 0, 14),
+				{
+					TextColor3 = (PetMeta.Variants[pet.Variant] or PetMeta.Variants.Normal).Color,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					MaxSize = 12,
+				}
+			)
+			UiKit.badge(
+				card,
+				PetMeta.Elements[meta.Element].Icon,
+				PetMeta.Elements[meta.Element].Color,
+				UDim2.fromOffset(4, 4)
+			)
+			UiKit.badge(
+				card,
+				string.sub(meta.Role, 1, 1),
+				PetMeta.Roles[meta.Role].Color,
+				UDim2.fromOffset(4, 22)
+			)
+			if equippedIndex(core, entry.Uid) then
+				UiKit.badge(card, "ON", Theme.Green, UDim2.new(1, -30, 0, 4), 26)
+			end
+			if pet.Fav then
+				UiKit.badge(card, "*", Theme.Gold, UDim2.new(1, -30, 0, 22), 26)
 			end
 			card.Activated:Connect(function()
-				selected = entry.Uid
-				confirmSell = false
+				if mode == "Fusion" then
+					if fuseSet[entry.Uid] then
+						fuseSet[entry.Uid] = nil
+					else
+						local n = 0
+						for _ in pairs(fuseSet) do
+							n += 1
+						end
+						if n < PetMeta.FUSE_COUNT then
+							fuseSet[entry.Uid] = true
+						end
+					end
+				else
+					selected = entry.Uid
+					confirmSell = false
+				end
 				rebuild()
 			end)
 		end
 		refreshFooter()
 	end
 
+	modeBtn.Activated:Connect(function()
+		mode = if mode == "Pets" then "Fusion" else "Pets"
+		fuseSet = {}
+		rebuild()
+	end)
+	buttons.Catalyst.Activated:Connect(function()
+		refreshFooter()
+	end)
+
 	ClientState.onPets(function()
+		if selected and not ClientState.Pets[selected] then
+			selected = nil
+		end
+		for uid in pairs(fuseSet) do
+			if not ClientState.Pets[uid] then
+				fuseSet[uid] = nil
+			end
+		end
 		if panel.IsOpen() then
 			rebuild()
 		end
 	end)
-	-- Сервер присылает Core каждую секунду; перестраиваем список только если что-то реально изменилось,
-	-- иначе карточки пересоздавались бы под пальцем игрока и клики терялись бы.
+	-- Core приходит каждую секунду; список перестраиваем только при реальных изменениях (иначе клики теряются)
 	ClientState.onCore(function(core)
 		if panel.IsOpen() and signature(core) ~= lastSig then
 			rebuild()

@@ -179,14 +179,28 @@ UDim2 = setmetatable({}, {
 	end,
 })
 UDim = UDim2
+-- Random.new(seed): детерминированный генератор (xorshift), как в Roblox выдаёт одинаковую последовательность на одинаковый seed
 Random = {
-	new = function()
+	new = function(seed)
+		local state = ((seed or os.time()) * 2654435761 + 12345) % 4294967296
+		if state == 0 then
+			state = 88172645
+		end
+		local function nextRaw()
+			state = (state * 1664525 + 1013904223) % 4294967296
+			return state / 4294967296
+		end
 		return {
 			NextNumber = function(_, a, b)
+				local r = if seed == nil then math.random() else nextRaw()
 				if a then
-					return a + (b - a) * math.random()
+					return a + (b - a) * r
 				end
-				return math.random()
+				return r
+			end,
+			NextInteger = function(_, a, b)
+				local r = if seed == nil then math.random() else nextRaw()
+				return a + math.floor(r * (b - a + 1))
 			end,
 		}
 	end,

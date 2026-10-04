@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local PetData = require(Shared:WaitForChild("PetData"))
+local PetMeta = require(Shared:WaitForChild("PetMeta"))
 local PetModel = require(Shared:WaitForChild("PetModel"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -14,7 +15,7 @@ local Widgets = require(script.Parent.Widgets)
 
 local HatchPopup = {}
 
-local function petViewport(parent: Instance, petId: string, gold: boolean): ViewportFrame
+local function petViewport(parent: Instance, petId: string, variant: string): ViewportFrame
 	local vp = Widgets.New("ViewportFrame", {
 		BackgroundTransparency = 1,
 		Size = UDim2.fromScale(1, 0.55),
@@ -25,7 +26,7 @@ local function petViewport(parent: Instance, petId: string, gold: boolean): View
 		ZIndex = 53,
 		Parent = parent,
 	})
-	local model = PetModel.build(petId, gold)
+	local model = PetModel.build(petId, variant)
 	model.Parent = vp
 	local cam = Instance.new("Camera")
 	cam.FieldOfView = 40
@@ -93,6 +94,7 @@ function HatchPopup.init(gui: ScreenGui)
 		Parent = buttons,
 	})
 	Widgets.button({
+		Name = "Awesome",
 		Text = "Awesome!",
 		Color = Theme.Green,
 		Size = UDim2.fromOffset(160, 46),
@@ -103,6 +105,7 @@ function HatchPopup.init(gui: ScreenGui)
 		Parent = buttons,
 	})
 	Widgets.button({
+		Name = "EquipBest",
 		Text = "Equip Best",
 		Color = Theme.Blue,
 		Size = UDim2.fromOffset(160, 46),
@@ -138,9 +141,11 @@ function HatchPopup.init(gui: ScreenGui)
 				Widgets.stroke(card, rarity.Color, 4)
 				Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(200, 230), Parent = card })
 				local scale = Widgets.New("UIScale", { Scale = 0.2, Parent = card })
-				petViewport(card, r.Id, r.Gold == true)
+				petViewport(card, r.Id, r.Variant or (r.Gold and "Golden") or "Normal")
 				Widgets.label({
-					Text = (if r.Gold then "GOLDEN " else "") .. def.Name,
+					Text = (if r.Variant and r.Variant ~= "Normal"
+						then string.upper(r.Variant) .. " "
+						else "") .. def.Name,
 					Size = UDim2.new(1, -12, 0, 30),
 					Position = UDim2.new(0, 6, 0.57, 0),
 					TextColor3 = rarity.Color,
@@ -157,7 +162,9 @@ function HatchPopup.init(gui: ScreenGui)
 					Parent = card,
 				})
 				Widgets.label({
-					Text = "Power x" .. Util.formatNumber(PetData.getPower(r.Id, r.Gold)),
+					Text = (if r.Fused then "Fusion  -  " else "") .. "Power x" .. Util.formatNumber(
+						PetMeta.power({ Id = r.Id, Variant = r.Variant, Level = 1 })
+					),
 					Size = UDim2.new(1, -12, 0, 24),
 					Position = UDim2.new(0, 6, 0.57, 56),
 					ZIndex = 53,
@@ -168,7 +175,11 @@ function HatchPopup.init(gui: ScreenGui)
 				end)
 			end
 		end
-		title.Text = if best >= 5 then "INCREDIBLE!" elseif best >= 4 then "Great find!" else "You hatched!"
+		title.Text = if results[1].Fused
+			then "Fusion complete!"
+			elseif best >= 5 then "INCREDIBLE!"
+			elseif best >= 4 then "Great find!"
+			else "You hatched!"
 	end)
 end
 

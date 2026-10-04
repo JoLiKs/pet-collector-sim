@@ -25,6 +25,8 @@ Config.GAMEPASS_IDS = {
 	AUTO_COLLECT = 0,
 	-- VIP: +25% монет, +1 слот питомца, тег [VIP], x2 ежедневные награды. Рекомендуемая цена: ~399-799 R$
 	VIP = 0,
+	-- Премиум-дорожка батл-пасса сезона (все премиум-награды). Рекомендуемая цена: ~399-599 R$
+	BATTLE_PASS = 0,
 }
 
 -- ============================================================================
@@ -39,6 +41,8 @@ Config.PRODUCT_IDS = {
 	COINS_LARGE = 0, -- пакет монет (большой), ~299-499 R$
 	LUCK_2X_15M = 0, -- лаки-буст x2 на 15 минут, ~49-99 R$
 	LUCK_5X_10M = 0, -- лаки-буст x5 на 10 минут, ~149-249 R$
+	BP_SKIP = 0, -- +5 уровней батл-пасса, ~99-149 R$
+	ESSENCE_PACK = 0, -- 30 эссенции для эволюции питомцев, ~79-129 R$
 }
 
 -- ============================================================================
@@ -64,6 +68,8 @@ Config.PRODUCTS = {
 		Name = "Lucky Clover x2 (15m)",
 		SuggestedPrice = 79,
 	},
+	BP_SKIP = { Kind = "BpLevels", Levels = 5, Name = "Battle Pass +5 Levels", SuggestedPrice = 129 },
+	ESSENCE_PACK = { Kind = "Res", Res = "Essence", Amount = 30, Name = "Essence Pack", SuggestedPrice = 99 },
 	LUCK_5X_10M = {
 		Kind = "Luck",
 		Boost = "Luck5",
@@ -91,6 +97,11 @@ Config.GAMEPASSES = {
 		Description = "Coins are collected for you automatically, even while you explore.",
 		SuggestedPrice = 399,
 	},
+	BATTLE_PASS = {
+		Name = "Battle Pass (Premium)",
+		Description = "Unlock every premium reward on the season track, including an exclusive pet.",
+		SuggestedPrice = 499,
+	},
 	VIP = {
 		Name = "VIP",
 		Description = "+25% coins, +1 pet slot, [VIP] tag, double daily rewards.",
@@ -99,7 +110,7 @@ Config.GAMEPASSES = {
 }
 
 -- Порядок отображения в магазине
-Config.GAMEPASS_ORDER = { "DOUBLE_COINS", "AUTO_COLLECT", "VIP", "DOUBLE_SPEED" }
+Config.GAMEPASS_ORDER = { "DOUBLE_COINS", "AUTO_COLLECT", "VIP", "BATTLE_PASS", "DOUBLE_SPEED" }
 Config.PRODUCT_ORDER = {
 	"GEMS_SMALL",
 	"GEMS_MEDIUM",
@@ -108,6 +119,8 @@ Config.PRODUCT_ORDER = {
 	"COINS_LARGE",
 	"LUCK_2X_15M",
 	"LUCK_5X_10M",
+	"BP_SKIP",
+	"ESSENCE_PACK",
 }
 
 -- ============================================================================
@@ -132,7 +145,7 @@ Config.STUDIO_GRANT_ALL_PASSES = false
 -- ============================================================================
 -- 5. ДАННЫЕ И СЕССИИ
 -- ============================================================================
-Config.DATASTORE_NAME = "PetCollector_Data_v1"
+Config.DATASTORE_NAME = "PetCollector_Data_v2"
 Config.LEADERBOARD_DATASTORE = "PetCollector_TopCoins_v1"
 Config.AUTOSAVE_INTERVAL = 60 -- секунд (также продлевает session lock)
 Config.SESSION_LOCK_TIMEOUT = 180 -- секунд; "мёртвая" блокировка (упавший сервер) считается свободной
@@ -147,6 +160,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
+Config.VERSION = "2.0.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -155,6 +169,7 @@ Config.BASE_WALKSPEED = 16
 Config.MAX_WALKSPEED = 56
 Config.JUMP_POWER = 50
 Config.GOLD_CHANCE = 0.02 -- шанс "золотого" питомца (x2 сила)
+Config.RAINBOW_CHANCE = 0.002 -- шанс «радужного» питомца из яйца (x5 сила)
 Config.GOLD_POWER_MULT = 2
 Config.SELL_VALUE_PER_POWER = 40 -- монет за 1 силы питомца при продаже
 Config.MAX_COINS = 1e15 -- защита от переполнения
@@ -178,6 +193,35 @@ Config.DAILY_REWARDS = {
 	{ Gems = 50, Clicks = 3000, Luck2Minutes = 15 },
 	{ Gems = 120, Clicks = 6000, Luck2Minutes = 30 },
 }
+
+-- ============================================================================
+-- 6b. МЕХАНИКИ v2 (баланс — см. docs/BALANCE.md)
+-- ============================================================================
+Config.TEAM_SLOTS_MAX = 8 -- жёсткий потолок слотов команды
+Config.DISABLE_STATION_CHECK = false -- true: можно крафтить/торговать/покупать везде (для отладки)
+Config.FRIEND_BONUS_PER = 0.05 -- +5% монет за каждого друга на сервере
+Config.FRIEND_BONUS_MAX_FRIENDS = 5
+Config.DEMO_BOT_ENABLED = true -- NPC «Trader Tom»: партнёр по обмену и «друг» для демо (в живой игре друзья настоящие)
+Config.DEMO_BOT_NAME = "Trader Tom"
+Config.OFFLINE_MAX_SECONDS = 8 * 3600
+Config.OFFLINE_RATE = 0.15 -- доля «активного» дохода в секунду, начисляемая оффлайн
+Config.OFFLINE_MIN_SECONDS = 120 -- меньше этого — не показываем награду
+Config.FUSE_COST_COINS = 0
+Config.TRADE_MAX_PETS = 6
+Config.TRADE_CONFIRM_SECONDS = 3
+Config.TRADE_RANGE = 30 -- студов между игроками (для запроса обмена)
+Config.COMBAT_TICK = 1.0 -- секунда между атаками питомцев
+Config.COMBAT_RANGE = 40 -- радиус боя вокруг игрока
+Config.PET_DAMAGE_SCALE = 2.5 -- множитель урона питомцев (сила -> урон за удар)
+Config.ENEMY_SPEED = 9
+Config.PLAYER_ATTACK_RANGE = 22
+Config.PLAYER_ATTACK_COOLDOWN = 0.35
+Config.KILL_COIN_BASE_CLICKS = 1 -- награда за убийство = Coins * PerClick зоны
+Config.TELEPORT_COOLDOWN = 3
+Config.BP_XP_PER_KILL = 3
+Config.BP_XP_PER_GATHER = 1
+Config.BP_XP_PER_CRAFT = 6
+Config.REBIRTH_TALENT_POINTS = 1 -- очков талантов за ребёрт (+1 за каждый 5-й)
 
 -- ============================================================================
 -- 7. АНТИ-ЭКСПЛОЙТ (базовый)

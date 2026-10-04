@@ -1,7 +1,7 @@
 --!strict
 --[[
 	PetFollower — отрисовка питомцев ВСЕХ игроков на клиенте.
-	Сервер лишь публикует атрибут игрока "EquippedPets" ("id:gold,id:gold"); модели строятся и анимируются
+	Сервер лишь публикует атрибут игрока "EquippedPets" ("id:Variant,id:Variant"); модели строятся и анимируются
 	локально из примитивов (PetModel). Это дёшево для сервера и не создаёт лишней физики/репликации.
 ]]
 local Players = game:GetService("Players")
@@ -47,9 +47,9 @@ local function rebuild(player: Player)
 	end
 	local pets: { PetEntry } = {}
 	for token in string.gmatch(key, "[^,]+") do
-		local id, gold = string.match(token, "^([%w_]+):([01])$")
+		local id, variant = string.match(token, "^([%w_]+):(%a+)$")
 		if id and #pets < MAX_PETS_PER_PLAYER then
-			local model = PetModel.build(id, gold == "1")
+			local model = PetModel.build(id, variant)
 			model.Name = player.Name .. "_" .. id
 			table.insert(pets, { Model = model, Index = #pets + 1, Current = nil })
 		end

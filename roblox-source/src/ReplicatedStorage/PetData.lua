@@ -29,6 +29,7 @@ export type EggDef = {
 	Color: Color3,
 	Pattern: Color3,
 	Pets: { EggPet },
+	Event: string?, -- яйцо продаётся только во время этого события (EventData)
 }
 
 local PetData = {}
@@ -314,6 +315,40 @@ PetData.Pets = {
 	),
 } :: { PetDef }
 
+-- Питомцы лунного события, сезонный питомец батл-пасса
+for _, def in ipairs({
+	pet(
+		"moonbun",
+		"Moon Bunny",
+		"Epic",
+		3000,
+		look(c3(205, 215, 255), c3(120, 130, 220), "Round", "Long", { "Tail", "Halo" })
+	),
+	pet(
+		"lunafox",
+		"Luna Fox",
+		"Legendary",
+		16000,
+		look(c3(170, 185, 255), c3(255, 240, 180), "Round", "Pointy", { "Tail", "Halo" })
+	),
+	pet(
+		"eclipsewolf",
+		"Eclipse Wolf",
+		"Mythic",
+		90000,
+		look(c3(60, 50, 90), c3(255, 200, 80), "Wide", "Pointy", { "Tail", "Flame", "Crown" })
+	),
+	pet(
+		"seasonowl",
+		"Season Owl",
+		"Legendary",
+		12000,
+		look(c3(255, 190, 90), c3(120, 80, 200), "Tall", "Pointy", { "Wings", "Beak", "Crown" })
+	),
+}) do
+	table.insert(PetData.Pets, def)
+end
+
 PetData.PetsById = {} :: { [string]: PetDef }
 for _, p in ipairs(PetData.Pets) do
 	PetData.PetsById[p.Id] = p
@@ -350,7 +385,7 @@ PetData.Eggs = {
 		{ Id = "sunfox", Weight = 3.5 },
 		{ Id = "dandy", Weight = 0.5 },
 	}),
-	egg("GemEgg", "Crystal Egg", "Meadow", "Gems", 75, c3(140, 230, 255), c3(255, 255, 255), {
+	egg("GemEgg", "Crystal Egg", "Hub", "Gems", 75, c3(140, 230, 255), c3(255, 255, 255), {
 		{ Id = "slime", Weight = 50 },
 		{ Id = "prismcat", Weight = 28 },
 		{ Id = "starbunny", Weight = 16.5 },
@@ -390,6 +425,18 @@ PetData.Eggs = {
 		{ Id = "infernodrake", Weight = 0.5 },
 	}),
 } :: { EggDef }
+
+-- Лунное яйцо: продаётся только во время события «Лунная ночь» (EventData / ShopService)
+table.insert(
+	PetData.Eggs,
+	egg("LunarEgg", "Lunar Egg", "Hub", "Gems", 120, c3(60, 70, 130), c3(230, 235, 255), {
+		{ Id = "moonbun", Weight = 60 },
+		{ Id = "lunafox", Weight = 32 },
+		{ Id = "eclipsewolf", Weight = 8 },
+	})
+)
+
+PetData.Eggs[#PetData.Eggs].Event = "LunarNight"
 
 PetData.EggsById = {} :: { [string]: EggDef }
 for _, e in ipairs(PetData.Eggs) do

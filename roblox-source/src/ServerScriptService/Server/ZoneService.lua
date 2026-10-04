@@ -24,7 +24,7 @@ function ZoneService.moveToZone(player: Player, zoneId: string)
 		return
 	end
 	local spawnCf = WorldBuilder.getZoneSpawn(zoneId)
-	local offset = Vector3.new(rng:NextNumber(-6, 6), 0, rng:NextNumber(-6, 6))
+	local offset = Vector3.new(rng:NextNumber(-6, 6), 0, rng:NextNumber(-4, 4))
 	AntiExploit.markTeleport(player)
 	character:PivotTo(spawnCf + offset)
 end
@@ -57,6 +57,11 @@ local function teleport(player: Player, zoneId: any): (boolean, string?)
 	local data = DataService.get(player)
 	if not data or type(zoneId) ~= "string" then
 		return false, "Bad request"
+	end
+	if zoneId == ZoneData.HUB then
+		ZoneService.moveToZone(player, ZoneData.HUB)
+		State.markCore(player)
+		return true, nil
 	end
 	local zone = ZoneData.ById[zoneId]
 	if not zone or not data.Zones[zoneId] then

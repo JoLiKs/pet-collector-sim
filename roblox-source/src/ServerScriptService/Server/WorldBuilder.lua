@@ -6,6 +6,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
 local PetData = require(Shared.PetData)
+local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
 local ZoneData = require(Shared.ZoneData)
 
@@ -14,6 +15,9 @@ local WorldBuilder = {}
 local zoneSpawns: { [string]: CFrame } = {}
 local eggPositions: { [string]: Vector3 } = {}
 local eggCallbacks: { (Player, string) -> () } = {}
+local npcCallbacks: { (Player, string) -> () } = {}
+local stationPositions: { [string]: Vector3 } = {}
+local hubSpawn = CFrame.new(0, 5, 24)
 local lastPrompt: { [Player]: number } = {}
 local boardRows: { TextLabel } = {}
 local boardStatus: TextLabel? = nil
@@ -366,6 +370,449 @@ local function buildBoard(parent: Instance, center: Vector3)
 end
 
 -- ---------------------------------------------------------------------------
+-- Хаб: площадь, NPC, станции
+-- ---------------------------------------------------------------------------
+local function addPrompt(target: BasePart, id: string, action: string, object: string, hold: number?)
+	local prompt = Instance.new("ProximityPrompt")
+	prompt.ActionText = action
+	prompt.ObjectText = object
+	prompt.HoldDuration = hold or 0
+	prompt.MaxActivationDistance = 12
+	prompt.RequiresLineOfSight = false
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
+	prompt.Parent = target
+	prompt.Triggered:Connect(function(player: Player)
+		local now = os.clock()
+		if now - (lastPrompt[player] or 0) < 0.4 then
+			return
+		end
+		lastPrompt[player] = now
+		for _, cb in ipairs(npcCallbacks) do
+			task.spawn(cb, player, id)
+		end
+	end)
+end
+
+local function sign(target: BasePart, text: string, subtext: string?, color: Color3, height: number)
+	local gui = billboard(target, Vector3.new(0, height, 0), 240, 76)
+	gui.MaxDistance = 110
+	makeLabel(gui, text, UDim2.fromScale(1, if subtext then 0.56 else 0.9), Color3.fromRGB(255, 255, 255))
+	if subtext then
+		local sub = makeLabel(gui, subtext, UDim2.fromScale(1, 0.38), color)
+		sub.Position = UDim2.fromScale(0, 0.6)
+	end
+end
+
+local function buildNpc(
+	parent: Instance,
+	id: string,
+	name: string,
+	title: string,
+	color: Color3,
+	pos: Vector3,
+	action: string
+)
+	local m = Instance.new("Model")
+	m.Name = "Npc_" .. id
+	local skin = Color3.fromRGB(245, 205, 165)
+	mk(
+		m,
+		"Legs",
+		Enum.PartType.Block,
+		Vector3.new(1.8, 2.4, 1.2),
+		CFrame.new(pos + Vector3.new(0, 1.2, 0)),
+		Color3.fromRGB(60, 62, 80),
+		nil,
+		true
+	)
+	local torso = mk(
+		m,
+		"Torso",
+		Enum.PartType.Block,
+		Vector3.new(2.6, 2.8, 1.5),
+		CFrame.new(pos + Vector3.new(0, 3.8, 0)),
+		color,
+		nil,
+		true
+	)
+	mk(
+		m,
+		"ArmL",
+		Enum.PartType.Block,
+		Vector3.new(0.9, 2.6, 0.9),
+		CFrame.new(pos + Vector3.new(-1.8, 3.8, 0)),
+		color,
+		nil,
+		false
+	)
+	mk(
+		m,
+		"ArmR",
+		Enum.PartType.Block,
+		Vector3.new(0.9, 2.6, 0.9),
+		CFrame.new(pos + Vector3.new(1.8, 3.8, 0)),
+		color,
+		nil,
+		false
+	)
+	mk(
+		m,
+		"Head",
+		Enum.PartType.Ball,
+		Vector3.new(2, 2, 2),
+		CFrame.new(pos + Vector3.new(0, 6, 0)),
+		skin,
+		nil,
+		false
+	)
+	mk(
+		m,
+		"Hat",
+		Enum.PartType.Block,
+		Vector3.new(2.3, 0.8, 2.3),
+		CFrame.new(pos + Vector3.new(0, 7.2, 0)),
+		color:Lerp(Color3.new(0, 0, 0), 0.25),
+		nil,
+		false
+	)
+	mk(
+		m,
+		"EyeL",
+		Enum.PartType.Ball,
+		Vector3.new(0.3, 0.3, 0.3),
+		CFrame.new(pos + Vector3.new(-0.4, 6.2, -0.9)),
+		Color3.fromRGB(30, 30, 40),
+		nil,
+		false
+	)
+	mk(
+		m,
+		"EyeR",
+		Enum.PartType.Ball,
+		Vector3.new(0.3, 0.3, 0.3),
+		CFrame.new(pos + Vector3.new(0.4, 6.2, -0.9)),
+		Color3.fromRGB(30, 30, 40),
+		nil,
+		false
+	)
+	m.PrimaryPart = torso
+	m:SetAttribute("NpcId", id)
+	sign(torso, name, title, color, 5.5)
+	addPrompt(torso, id, action, name, 0)
+	m.Parent = parent
+	stationPositions[id] = pos
+end
+
+local function buildHub(world: Folder)
+	local hub = Instance.new("Folder")
+	hub.Name = "Hub"
+	hub.Parent = world
+	local size = ZoneData.HUB_RADIUS * 2 + 16
+	local floorColor = Color3.fromRGB(196, 190, 176)
+	block(
+		hub,
+		"Floor",
+		Vector3.new(size, 2, size),
+		Vector3.new(0, -1, 0),
+		floorColor,
+		Enum.Material.Cobblestone
+	)
+	local plaza = mk(
+		hub,
+		"Plaza",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.3, 150, 150),
+		CFrame.new(0, 0.1, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(226, 218, 196),
+		Enum.Material.Marble,
+		false
+	)
+	plaza.Transparency = 0.1
+	local half = size / 2
+	for _, side in ipairs({ { 0, 1 }, { 0, -1 }, { 1, 0 }, { -1, 0 } }) do
+		local sx, sz = side[1], side[2]
+		local wallSize = if sx == 0 then Vector3.new(size, 40, 1) else Vector3.new(1, 40, size)
+		local wall =
+			block(hub, "Wall", wallSize, Vector3.new(sx * half, 20, sz * half), Color3.new(1, 1, 1), nil)
+		wall.Transparency = 1
+		block(
+			hub,
+			"Rim",
+			if sx == 0 then Vector3.new(size, 1.5, 1) else Vector3.new(1, 1.5, size),
+			Vector3.new(sx * half, 0.75, sz * half),
+			Color3.fromRGB(255, 214, 120),
+			Enum.Material.Neon
+		)
+	end
+
+	-- Фонтан в центре
+	mk(
+		hub,
+		"FountainBase",
+		Enum.PartType.Cylinder,
+		Vector3.new(2.4, 26, 26),
+		CFrame.new(0, 1.2, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(170, 170, 180),
+		Enum.Material.Marble,
+		true
+	)
+	local water = mk(
+		hub,
+		"FountainWater",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.5, 22, 22),
+		CFrame.new(0, 2.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(90, 190, 255),
+		Enum.Material.Neon,
+		false
+	)
+	water.Transparency = 0.35
+	mk(
+		hub,
+		"FountainSpire",
+		Enum.PartType.Cylinder,
+		Vector3.new(7, 3, 3),
+		CFrame.new(0, 5.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(190, 190, 205),
+		Enum.Material.Marble,
+		true
+	)
+	local orb = mk(
+		hub,
+		"FountainOrb",
+		Enum.PartType.Ball,
+		Vector3.new(3, 3, 3),
+		CFrame.new(0, 10, 0),
+		Color3.fromRGB(255, 220, 120),
+		Enum.Material.Neon,
+		false
+	)
+	sign(orb, "Pet Hub", "Heart of the world", Color3.fromRGB(255, 214, 90), 4)
+
+	-- Точка появления
+	local sp = Instance.new("SpawnLocation")
+	sp.Name = "SpawnLocation"
+	sp.Anchored = true
+	sp.Neutral = true
+	sp.Size = Vector3.new(14, 1, 14)
+	sp.Position = Vector3.new(0, 0.5, 26)
+	sp.Color = Color3.fromRGB(255, 214, 120)
+	sp.Material = Enum.Material.Neon
+	sp.Duration = 0
+	sp.Parent = hub
+	hubSpawn = CFrame.lookAt(Vector3.new(0, 3.5, 26), Vector3.new(0, 3.5, 0))
+
+	-- Деревья и фонари по кольцу
+	local rng = Random.new(77)
+	local decor = Instance.new("Folder")
+	decor.Name = "Decor"
+	decor.Parent = hub
+	for i = 1, 26 do
+		local angle = (i / 26) * math.pi * 2
+		local radius = rng:NextNumber(100, 106)
+		local pos = Vector3.new(math.cos(angle) * radius, 0, math.sin(angle) * radius)
+		if i % 2 == 0 then
+			decorTree(decor, pos, rng, Color3.fromRGB(90, 175, 80), Color3.fromRGB(120, 80, 50))
+		else
+			block(
+				decor,
+				"LampPost",
+				Vector3.new(0.8, 9, 0.8),
+				pos + Vector3.new(0, 4.5, 0),
+				Color3.fromRGB(60, 60, 70),
+				Enum.Material.Metal
+			)
+			mk(
+				decor,
+				"Lamp",
+				Enum.PartType.Ball,
+				Vector3.new(2, 2, 2),
+				CFrame.new(pos + Vector3.new(0, 9.5, 0)),
+				Color3.fromRGB(255, 235, 170),
+				Enum.Material.Neon,
+				false
+			)
+		end
+	end
+
+	-- NPC квестов
+	for _, npcId in ipairs(QuestData.NpcOrder) do
+		local npc = QuestData.Npcs[npcId]
+		buildNpc(hub, npc.Id, npc.Name, npc.Title, npc.Color, npc.Pos, "Talk")
+	end
+	-- Торговец Том
+	buildNpc(
+		hub,
+		"tom",
+		"Trader Tom",
+		"Pet Trader",
+		Color3.fromRGB(240, 170, 60),
+		Vector3.new(44, 0, -22),
+		"Trade"
+	)
+
+	-- Верстак
+	local benchPos = Vector3.new(-62, 0, 8)
+	local top = block(
+		hub,
+		"BenchTop",
+		Vector3.new(10, 1, 5),
+		benchPos + Vector3.new(0, 3.5, 0),
+		Color3.fromRGB(150, 105, 62),
+		Enum.Material.Wood
+	)
+	for _, dx in ipairs({ -4, 4 }) do
+		block(
+			hub,
+			"BenchLeg",
+			Vector3.new(1, 3.5, 4),
+			benchPos + Vector3.new(dx, 1.75, 0),
+			Color3.fromRGB(110, 78, 48),
+			Enum.Material.Wood
+		)
+	end
+	block(
+		hub,
+		"Anvil",
+		Vector3.new(2.5, 1.6, 1.4),
+		benchPos + Vector3.new(-2.5, 4.8, 0),
+		Color3.fromRGB(70, 72, 80),
+		Enum.Material.Metal
+	)
+	mk(
+		hub,
+		"Cauldron",
+		Enum.PartType.Ball,
+		Vector3.new(2.6, 2.2, 2.6),
+		CFrame.new(benchPos + Vector3.new(2.5, 5, 0)),
+		Color3.fromRGB(60, 60, 70),
+		Enum.Material.Metal,
+		false
+	)
+	sign(top, "Workbench", "Craft potions, tools & tickets", Color3.fromRGB(255, 200, 120), 6)
+	addPrompt(top, "craft", "Craft", "Workbench", 0)
+	stationPositions.craft = benchPos
+
+	-- Лавка с ротацией
+	local stallPos = Vector3.new(62, 0, 8)
+	local counter = block(
+		hub,
+		"StallCounter",
+		Vector3.new(11, 3, 4),
+		stallPos + Vector3.new(0, 1.5, 0),
+		Color3.fromRGB(190, 70, 80),
+		Enum.Material.Wood
+	)
+	for _, dx in ipairs({ -5, 5 }) do
+		block(
+			hub,
+			"StallPole",
+			Vector3.new(0.8, 9, 0.8),
+			stallPos + Vector3.new(dx, 4.5, 2),
+			Color3.fromRGB(240, 235, 225),
+			Enum.Material.Wood
+		)
+	end
+	block(
+		hub,
+		"StallRoof",
+		Vector3.new(12.5, 0.8, 6),
+		stallPos + Vector3.new(0, 9, 1),
+		Color3.fromRGB(240, 90, 90),
+		Enum.Material.Fabric
+	)
+	sign(counter, "Market", "Stock rotates every 10 minutes", Color3.fromRGB(255, 200, 120), 8)
+	addPrompt(counter, "market", "Browse", "Market", 0)
+	stationPositions.market = stallPos
+
+	-- Алтарь ребёрта и талантов
+	local altarPos = Vector3.new(-70, 0, -50)
+	mk(
+		hub,
+		"AltarStep1",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.2, 16, 16),
+		CFrame.new(altarPos + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(110, 90, 160),
+		Enum.Material.Marble,
+		true
+	)
+	mk(
+		hub,
+		"AltarStep2",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.2, 10, 10),
+		CFrame.new(altarPos + Vector3.new(0, 1.8, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(140, 110, 200),
+		Enum.Material.Marble,
+		true
+	)
+	local altarOrb = mk(
+		hub,
+		"AltarOrb",
+		Enum.PartType.Ball,
+		Vector3.new(4, 4, 4),
+		CFrame.new(altarPos + Vector3.new(0, 6, 0)),
+		Color3.fromRGB(190, 120, 255),
+		Enum.Material.Neon,
+		false
+	)
+	sign(altarOrb, "Rebirth Altar", "Rebirth & Talent tree", Color3.fromRGB(210, 160, 255), 4)
+	addPrompt(altarOrb, "altar", "Pray", "Rebirth Altar", 0)
+	stationPositions.altar = altarPos
+
+	-- Портал в миры
+	local portalPos = Vector3.new(0, 0, 80)
+	for _, dx in ipairs({ -8, 8 }) do
+		block(
+			hub,
+			"PortalPillar",
+			Vector3.new(2.4, 18, 2.4),
+			portalPos + Vector3.new(dx, 9, 0),
+			Color3.fromRGB(80, 80, 110),
+			Enum.Material.Marble
+		)
+	end
+	local ring = mk(
+		hub,
+		"PortalRing",
+		Enum.PartType.Cylinder,
+		Vector3.new(1, 18, 18),
+		CFrame.new(portalPos + Vector3.new(0, 10, 0)) * CFrame.Angles(0, math.rad(90), 0),
+		Color3.fromRGB(120, 200, 255),
+		Enum.Material.Neon,
+		false
+	)
+	ring.Transparency = 0.25
+	sign(ring, "World Portal", "Travel to the biomes", Color3.fromRGB(150, 220, 255), 11)
+	local portalPad = mk(
+		hub,
+		"PortalPad",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.6, 10, 10),
+		CFrame.new(portalPos + Vector3.new(0, 0.3, -4)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(120, 200, 255),
+		Enum.Material.Neon,
+		false
+	)
+	addPrompt(portalPad, "portal", "Travel", "World Portal", 0)
+	stationPositions.portal = portalPos
+
+	-- Яйца хаба и табло
+	local hubEggs = {}
+	for _, egg in ipairs(PetData.Eggs) do
+		if egg.Zone == ZoneData.HUB then
+			table.insert(hubEggs, egg)
+		end
+	end
+	for k, egg in ipairs(hubEggs) do
+		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
+	end
+	buildBoard(hub, Vector3.new(0, 0, -98))
+	stationPositions.board = Vector3.new(0, 0, -98)
+end
+
+-- ---------------------------------------------------------------------------
 -- Публичный API
 -- ---------------------------------------------------------------------------
 function WorldBuilder.build()
@@ -476,30 +923,17 @@ function WorldBuilder.build()
 		local spawnPos = center + Vector3.new(0, 0, 38)
 		zoneSpawns[zone.Id] =
 			CFrame.lookAt(spawnPos + Vector3.new(0, 3.5, 0), center + Vector3.new(0, 3.5, 0))
-		if zone.Id == ZoneData.DEFAULT then
-			local sp = Instance.new("SpawnLocation")
-			sp.Name = "SpawnLocation"
-			sp.Anchored = true
-			sp.Neutral = true
-			sp.Size = Vector3.new(14, 1, 14)
-			sp.Position = spawnPos + Vector3.new(0, 0.5, 0)
-			sp.Color = zone.Accent
-			sp.Material = Enum.Material.Neon
-			sp.Duration = 0
-			sp.Parent = folder
-		else
-			local pad = mk(
-				folder,
-				"SpawnPad",
-				Enum.PartType.Cylinder,
-				Vector3.new(0.6, 14, 14),
-				CFrame.new(spawnPos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
-				zone.Accent,
-				Enum.Material.Neon,
-				false
-			)
-			pad.Name = "SpawnPad"
-		end
+		local pad = mk(
+			folder,
+			"SpawnPad",
+			Enum.PartType.Cylinder,
+			Vector3.new(0.6, 14, 14),
+			CFrame.new(spawnPos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+			zone.Accent,
+			Enum.Material.Neon,
+			false
+		)
+		addPrompt(pad, "hubReturn", "Return", "to the Hub", 0)
 
 		-- вывеска
 		local signPost = block(
@@ -532,19 +966,28 @@ function WorldBuilder.build()
 			local x = (k - (#eggsHere + 1) / 2) * 32
 			buildEgg(folder, egg, center + Vector3.new(x, 0, -14))
 		end
-
-		if zone.Id == ZoneData.DEFAULT then
-			buildBoard(folder, center + Vector3.new(0, 0, -62))
-		end
 	end
+	buildHub(world)
 end
 
 function WorldBuilder.getZoneSpawn(zoneId: string): CFrame
+	if zoneId == ZoneData.HUB then
+		return hubSpawn
+	end
 	return zoneSpawns[zoneId] or zoneSpawns[ZoneData.DEFAULT] or CFrame.new(0, 5, 0)
 end
 
 function WorldBuilder.getEggPosition(eggId: string): Vector3?
 	return eggPositions[eggId]
+end
+
+-- Колбэк на ProximityPrompt NPC и станций: (player, id). id: mira|bruno|pip|tom|craft|market|altar|portal|hubReturn
+function WorldBuilder.onNpcPrompt(cb: (Player, string) -> ())
+	table.insert(npcCallbacks, cb)
+end
+
+function WorldBuilder.getStationPosition(id: string): Vector3?
+	return stationPositions[id]
 end
 
 function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())

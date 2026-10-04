@@ -72,6 +72,7 @@ local function claim(player: Player): (boolean, string?)
 		text ..= (", x2 luck for %d min"):format(reward.Luck2Minutes * mult)
 		data.Boosts.Luck2 += reward.Luck2Minutes * 60 * (mult - 1)
 	end
+	Economy.addBpXp(player, 40 + 10 * math.min(streak, 7))
 	Notify.send(player, text .. "!", "reward")
 	return true, nil
 end
