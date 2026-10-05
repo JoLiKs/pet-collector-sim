@@ -4,6 +4,8 @@
 	Лежит внутри ScreenGui "PetCollectorGui" (ResetOnSpawn = false), поэтому не дублируется при респавне.
 ]]
 local gui = script.Parent :: ScreenGui
+gui.DisplayOrder = 50 -- поверх BillboardGui мира (HP врагов, таблички)
+gui.IgnoreGuiInset = false
 local Modules = script.Parent:WaitForChild("Modules")
 
 local ClientState = require(Modules:WaitForChild("ClientState"))

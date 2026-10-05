@@ -217,6 +217,25 @@ check(
 	("kills %s hp %s"):format(tostring(data.Stats.Kills), tostring(hpBefore))
 )
 check("kill coins", data.Coins > coinsBefore2)
+-- Луты с убийства: ресурсы и/или фрагменты/гемы (монеты уже проверены)
+local resLoot = false
+for _, r in ipairs({ "Wood", "Stone", "Ore", "Herb", "Crystal", "Essence", "Fragment" }) do
+	if (data.Resources[r] or 0) > 0 then
+		resLoot = true
+		break
+	end
+end
+check("kill loot resources/fragments", resLoot or data.Gems > 0)
+-- Атака в воздух: в хабе без врагов рядом — ok, без тоста «No enemy in range»
+moveTo(Vector3.new(0, 3, 0))
+task.wait(1.2) -- восстановить token bucket Attack
+local air = call("Attack")
+check("air swing ok", air.ok == true, tostring(air and air.msg))
+check(
+	"air swing no range toast",
+	air.msg ~= "No enemy in range" and air.msg ~= "Too far",
+	tostring(air and air.msg)
+)
 local xpGained = false
 for _, p in pairs(data.Pets) do
 	if (p.Xp or 0) > 0 or (p.Level or 1) > 1 then
@@ -276,10 +295,12 @@ for _ = 1, 3 do
 end
 local fuseUids = {}
 for uid, p in pairs(data.Pets) do
-	if p.Id == "bunbun" and #fuseUids < 3 then
+	-- Только Normal: среди вылупленных могут быть Golden/Rainbow — canFuse требует один вариант.
+	if p.Id == "bunbun" and PetMeta.variantOf(p) == "Normal" and not p.Fav and #fuseUids < 3 then
 		table.insert(fuseUids, uid)
 	end
 end
+check("enough normal bunbun for fuse", #fuseUids == 3, #fuseUids)
 local petsBefore = count(data.Pets)
 res = call("Fuse", { fuseUids[1], fuseUids[2] })
 check("fuse needs 3", res.ok == false)

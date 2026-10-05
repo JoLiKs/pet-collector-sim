@@ -62,7 +62,7 @@ function handlers.tpenemy()
 	local root = player.Character.HumanoidRootPart
 	local best, bd = nil, 1e9
 	for _, m in ipairs(folder and folder:GetChildren() or {}) do
-		if not m:GetAttribute("IsBoss") then
+		if m:IsA("Model") and not m:GetAttribute("IsBoss") then
 			local d = (m:GetPivot().Position - root.Position).Magnitude
 			if d < bd then
 				best, bd = m, d
@@ -92,6 +92,9 @@ while true do
 		local name, arg = string.match(cmd, "^([%w_]+):?(.*)$")
 		local ok, err = pcall(handlers[name] or function() end, arg)
 		print(ok and ("UIDRIVER ok " .. cmd) or ("UIDRIVER FAIL " .. cmd .. " " .. tostring(err)))
+		-- Сбрасываем, чтобы повторная та же команда (tpenemy/tpenemy) снова сработала.
+		Workspace:SetAttribute("UiCmd", "")
+		last = ""
 	end
 	task.wait(0.1)
 end

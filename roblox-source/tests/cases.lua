@@ -1369,3 +1369,43 @@ if failed > 0 or (TEST_ERRORS or 0) > 0 then
 	end
 	error("tests failed")
 end
+
+test("Враги: расширенный пул, лут и фрагменты", function()
+	local S = boot("E")
+	local ED, Z, R = S.EnemyData, S.ZoneData, S.ResourceData
+	check(R.Resources.Fragment ~= nil, "ресурс Fragment")
+	check(ED.MAX_ALIVE_PER_ZONE >= 8, "больше врагов на зону")
+	local normals = 0
+	for _, d in ipairs(ED.List) do
+		if not d.Boss then
+			normals += 1
+		end
+		check(d.SpeedMult ~= nil and d.SpeedMult > 0, d.Id .. " SpeedMult")
+		check(type(d.Drops) == "table", d.Id .. " Drops")
+		for _, drop in ipairs(d.Drops) do
+			check(drop.Chance >= 0 and drop.Chance <= 1, d.Id .. " chance")
+			check(drop.Min <= drop.Max, d.Id .. " min/max")
+			if drop.Res then
+				check(R.Resources[drop.Res] ~= nil, d.Id .. " res " .. tostring(drop.Res))
+			end
+			if drop.Item then
+				check(S.RecipeData.Items[drop.Item] ~= nil, d.Id .. " item")
+			end
+		end
+	end
+	check(normals >= 15, "не меньше 15 рядовых типов, есть=" .. tostring(normals))
+	for _, zone in ipairs(Z.List) do
+		check(#zone.Enemies >= 3, zone.Id .. " ≥3 типов врагов")
+	end
+end)
+
+test("События: до Offset событие неактивно (старт сессии)", function()
+	local S = boot("Ev")
+	local E = S.EventData
+	for _, e in ipairs(E.List) do
+		local on, left = E.status(e.Id, 0)
+		check(not on and left == e.Offset, e.Id .. " ждёт Offset с нуля сессии")
+		on = select(1, E.status(e.Id, e.Offset - 1))
+		check(not on, e.Id .. " ещё не началось")
+	end
+end)

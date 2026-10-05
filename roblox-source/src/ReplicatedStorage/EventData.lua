@@ -1,7 +1,8 @@
 --!strict
 --[[
-	События по расписанию. Расписание вычисляется из os.time() — на всех серверах одинаково, без хранилища.
-	Событие активно, если now ∈ [slotStart, slotStart + Duration), где slotStart = Offset + k * Period.
+	События по расписанию.
+	EventState передаёт «возраст сервера» (секунды с init) — Offset = задержка до первого запуска после старта сессии.
+	Событие активно, если t ∈ [slotStart, slotStart + Duration), где slotStart = Offset + k * Period.
 ]]
 local EventData = {}
 
@@ -21,7 +22,7 @@ EventData.List = {
 		Name = "Golden Rain",
 		Period = 480,
 		Duration = 60,
-		Offset = 100,
+		Offset = 180, -- первое появление ~3 мин после старта сервера
 		Color = Color3.fromRGB(255, 208, 70),
 		Desc = "Golden coins fall over the hub — grab them! Coins x2 everywhere.",
 	},
@@ -30,7 +31,7 @@ EventData.List = {
 		Name = "Lunar Night",
 		Period = 900,
 		Duration = 150,
-		Offset = 420,
+		Offset = 420, -- ~7 мин
 		Color = Color3.fromRGB(150, 160, 255),
 		Desc = "The moon rises. Rare Moonlings roam the worlds and the Lunar Egg is on sale.",
 	},
@@ -39,7 +40,7 @@ EventData.List = {
 		Name = "Stone Colossus",
 		Period = 600,
 		Duration = 180,
-		Offset = 260,
+		Offset = 300, -- ~5 мин
 		Color = Color3.fromRGB(235, 100, 80),
 		Desc = "A giant awakens in the hub! Defeat it together before time runs out.",
 	},

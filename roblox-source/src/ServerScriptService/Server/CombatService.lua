@@ -151,7 +151,7 @@ local function buildModel(
 	gui.StudsOffset = Vector3.new(0, size.Y * 0.5 + 2.2, 0)
 	gui.MaxDistance = if def.Boss then 160 else 80
 	gui.LightInfluence = 0
-	gui.AlwaysOnTop = true
+	gui.AlwaysOnTop = false -- ScreenGui поверх; не перекрываем HUD
 	gui.Parent = body
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "NameLabel"
@@ -262,6 +262,38 @@ end
 -- Урон, смерть, награды
 -- ---------------------------------------------------------------------------
 
+local ZONE_TICKET = {
+	Meadow = "ticket_MeadowEgg",
+	Forest = "ticket_ForestEgg",
+	Frost = "ticket_FrostEgg",
+}
+
+-- Косметические сферы лута (награда уже выдана на сервере — без дюпа).
+local function spawnLootOrbs(pos: Vector3, count: number)
+	local f = folder
+	if not f then
+		return
+	end
+	for i = 1, count do
+		local p = Instance.new("Part")
+		p.Name = "LootOrb"
+		p.Shape = Enum.PartType.Ball
+		p.Size = Vector3.new(1.1, 1.1, 1.1)
+		p.Color = Color3.fromRGB(255, 220, 90)
+		p.Material = Enum.Material.Neon
+		p.Anchored = true
+		p.CanCollide = false
+		local ang = (i / count) * math.pi * 2
+		p.Position = pos + Vector3.new(math.cos(ang) * 2.5, 1.5, math.sin(ang) * 2.5)
+		p.Parent = f
+		task.delay(1.6 + i * 0.05, function()
+			if p.Parent then
+				p:Destroy()
+			end
+		end)
+	end
+end
+
 local function reward(player: Player, e: Enemy)
 	local data = DataService.get(player)
 	if not data then
@@ -272,9 +304,25 @@ local function reward(player: Player, e: Enemy)
 	local coins = Formulas.killCoins(Economy.getPerClick(player, data), def.Coins)
 	Economy.addCoins(player, coins)
 	PetService.grantXp(player, def.Xp * 8 * 1.5 ^ (idx - 1))
+	local lootBits = { ("+%d coins"):format(coins) }
+	local orbCount = 1
 	for _, drop in ipairs(def.Drops) do
 		if rng:NextNumber() < drop.Chance then
-			Economy.addResource(player, drop.Res, rng:NextInteger(drop.Min, drop.Max))
+			local n = rng:NextInteger(drop.Min, drop.Max)
+			if drop.Res then
+				Economy.addResource(player, drop.Res, n)
+				table.insert(lootBits, ("%s x%d"):format(drop.Res, n))
+				orbCount += 1
+			elseif drop.Item then
+				Economy.addItem(player, drop.Item, n)
+				table.insert(lootBits, drop.Item)
+				orbCount += 1
+			elseif drop.Gems then
+				local g = rng:NextInteger(drop.Min or drop.Gems, drop.Max or drop.Gems)
+				Economy.addGems(player, g)
+				table.insert(lootBits, ("+%d gems"):format(g))
+				orbCount += 1
+			end
 		end
 	end
 	local essenceChance = def.Essence * (1 + Economy.talent(data, "Essence"))
@@ -284,9 +332,34 @@ local function reward(player: Player, e: Enemy)
 	end
 	if essence > 0 then
 		Economy.addResource(player, "Essence", essence)
+		table.insert(lootBits, ("Essence x%d"):format(essence))
+		orbCount += 1
+	end
+	-- Шанс гема (у боссов GemChance обычно 1 → гарантированно)
+	local gemChance = def.GemChance or (if def.Boss then 1 else 0.04)
+	if e.Special ~= "raid" and rng:NextNumber() < gemChance then
+		local g = if def.Boss then (5 + 3 * idx) else 1
+		Economy.addGems(player, g)
+		table.insert(lootBits, ("+%d gems"):format(g))
+		orbCount += 1
+	end
+	-- Шанс билета на яйцо зоны (если есть) или Fragment
+	local ticket = ZONE_TICKET[e.Zone]
+	local ticketChance = def.TicketChance or (if def.Boss then 0.35 else 0.015)
+	if ticket and rng:NextNumber() < ticketChance then
+		Economy.addItem(player, ticket, 1)
+		table.insert(lootBits, "Egg Ticket")
+		orbCount += 1
+	elseif def.Boss and rng:NextNumber() < 0.6 then
+		Economy.addResource(player, "Fragment", rng:NextInteger(1, 2 + idx // 2))
+		table.insert(lootBits, "Fragment")
+		orbCount += 1
+	elseif not def.Boss and rng:NextNumber() < 0.03 then
+		Economy.addResource(player, "Fragment", 1)
+		table.insert(lootBits, "Fragment")
+		orbCount += 1
 	end
 	if def.Boss and e.Special ~= "raid" then
-		Economy.addGems(player, 5 + 3 * idx)
 		Economy.addBpXp(player, 20)
 	end
 	if e.Special ~= "raid" then
@@ -299,9 +372,10 @@ local function reward(player: Player, e: Enemy)
 		player,
 		"Kill",
 		e.Pos + Vector3.new(0, 3, 0),
-		"+" .. Economy.describe({ Coins = coins }),
+		table.concat(lootBits, ", "),
 		if def.Boss then "boss" else "kill"
 	)
+	spawnLootOrbs(e.Pos, math.clamp(orbCount, 1, 5))
 	State.markPets(player)
 end
 
@@ -520,7 +594,7 @@ local function enemyTick(e: Enemy, dt: number, now: number)
 		return
 	end
 
-	local speed = Config.ENEMY_SPEED * (if e.Def.Boss then 0.7 else 1)
+	local speed = Config.ENEMY_SPEED * (e.Def.SpeedMult or 1)
 	local goal: Vector3
 	if target and targetPos then
 		goal = Vector3.new(targetPos.X, e.Half, targetPos.Z)
@@ -647,26 +721,28 @@ local function attack(player: Player, enemyId: any): (boolean, string?)
 	local root = rootOf(player)
 	local hum = humanoidOf(player)
 	if not data or not root or not hum or hum.Health <= 0 then
-		return false, "Not now"
+		return false, nil -- без тоста: персонаж ещё не готов
 	end
 	local now = os.clock()
 	if now - (lastAttack[player] or 0) < Config.PLAYER_ATTACK_COOLDOWN * 0.8 then
-		return false, "Too fast"
+		return false, nil -- кулдаун без тоста
 	end
+	lastAttack[player] = now
+	-- Всегда проигрываем замах (в т.ч. «в воздух»), даже если рядом никого нет.
+	fx(player, "Swing", root.Position + Vector3.new(0, 2.2, 0), "", nil)
 	local target: Enemy? = nil
 	if type(enemyId) == "string" then
 		target = enemies[enemyId]
 	end
-	if not target then
+	if not target or target.Dead then
 		target = nearbyEnemies(root.Position, Config.PLAYER_ATTACK_RANGE)[1]
 	end
 	if not target or target.Dead then
-		return false, "No enemy in range"
+		return true, nil
 	end
 	if (target.Pos - root.Position).Magnitude > Config.PLAYER_ATTACK_RANGE + target.Half then
-		return false, "Too far"
+		return true, nil -- замах ушёл в воздух — без ошибки
 	end
-	lastAttack[player] = now
 	local blade = if Economy.hasItem(data, "blade") then 0.5 else 0
 	local dmg = Formulas.playerAttack(
 		Economy.getPetPower(data) * Config.PET_DAMAGE_SCALE,

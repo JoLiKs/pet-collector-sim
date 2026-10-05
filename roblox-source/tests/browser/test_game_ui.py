@@ -25,6 +25,12 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.wait(lambda: g.vis('[data-n="Menu"]'))
     page.wait_for_timeout(1500)
     g.shot('01_hub')
+    # Атака в воздух (хаб) — без тоста No enemy in range
+    g.click('[data-n="Attack"]'); g.vwait(0.6)
+    toast_txt = g.p.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
+    bad = ('No enemy' in toast_txt) or ('Too far' in toast_txt) or ('нет враг' in toast_txt.lower())
+    check('атака в воздух без тоста', not bad, toast_txt)
+    g.shot('01b_air_swing')
     for n in ['Pets', 'Quests', 'Craft', 'Market', 'Zones', 'Talents', 'Trade', 'Boards', 'Daily', 'Upgrades', 'Rebirth', 'Shop']:
         check('меню: кнопка ' + n, g.vis('[data-n="Menu"] [data-n="%s"]' % n))
     check('виден 3D-мир (меши)', page.evaluate('R2W.ENV.world3d.meshes.size') > 100)
@@ -168,6 +174,25 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
             break
     g.shot('13_combat')
     check('удар игрока/питомцев наносит урон врагам', hurt > 0, 'hurt=%s' % hurt)
+    # Добьём врага: Kill Fx с текстом лута и/или LootOrb в мире
+    hud0 = g.text('[data-n="Stat1"] [data-n="Value"]')
+    killed = False
+    for _ in range(30):
+        g.cmd('tpenemy'); g.click('[data-n="Attack"]'); g.vwait(0.35)
+        if g.p.locator('[data-n^="Fx_Kill"]').count() > 0:
+            killed = True
+            break
+        # враг исчез
+        alive = g.p.evaluate("(R2W.ENV.workspace.findChild('Enemies')||{children:[]}).children.filter(m=>m.attrs&&m.attrs.get('Hp')===0).length")
+        if alive:
+            killed = True
+            break
+    g.vwait(1.2)
+    orbs = g.p.evaluate("(()=>{const f=R2W.ENV.workspace.findChild('Enemies'); if(!f) return 0; return f.children.filter(c=>c.props&&c.props.Name==='LootOrb').length})()")
+    kill_fx = g.p.locator('[data-n^="Fx_Kill"]').count()
+    hud1 = g.text('[data-n="Stat1"] [data-n="Value"]')
+    check('убийство даёт лут (fx/orbs/монеты)', kill_fx > 0 or orbs > 0 or hud1 != hud0, 'fx=%s orbs=%s hud %s→%s' % (kill_fx, orbs, hud0, hud1))
+    g.shot('13b_loot')
     g.cmd('event:BossRaid')
     g.wait(lambda: g.vis('[data-n="BossBar"]'), timeout=60, what='boss bar')
     g.vwait(3); g.shot('14_raid')

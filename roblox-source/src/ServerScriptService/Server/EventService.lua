@@ -197,6 +197,8 @@ function EventService.isActive(id: string): boolean
 end
 
 function EventService.init()
+	-- Новая сессия: события стартуют «с нуля» (Offset = секунды до первого запуска).
+	EventState.setEpoch(os.time())
 	local f = Instance.new("Folder")
 	f.Name = "Rain"
 	f.Parent = Workspace

@@ -8,15 +8,15 @@
 | темп заработка монет | `UpgradeData.CLICK_PER_LEVEL`, `ZoneData.List[].Multiplier`, `Config.REBIRTH_MULT_PER` |
 | цены ребёрта | `Config.REBIRTH_BASE_COST`, `REBIRTH_COST_GROWTH` (по умолчанию 50 000 × 4ⁿ) |
 | силу питомцев | `PetData.Pets[].Power` (базовая), `PetMeta.Variants[].Mult`, `LEVEL_POWER_STEP`, `EVO_POWER` |
-| урон и сложность боя | `Config.PET_DAMAGE_SCALE`, `COMBAT_TICK`, `ZoneData[].Hp`, `EnemyData` (`HpMult/DamageMult/Coins/Xp`), `Config.ENEMY_SPEED` |
-| награды за убийство | `Config.KILL_COIN_BASE_CLICKS`, `EnemyData[].Coins/Xp/Drops` |
+| урон и сложность боя | `Config.PET_DAMAGE_SCALE`, `COMBAT_TICK`, `ZoneData[].Hp`, `EnemyData` (`HpMult/DamageMult/SpeedMult/Coins/Xp`), `Config.ENEMY_SPEED`, `MAX_ALIVE_PER_ZONE` |
+| награды за убийство | `Config.KILL_COIN_BASE_CLICKS`, `EnemyData[].Coins/Xp/Drops/GemChance/TicketChance`, ресурс `Fragment` |
 | ресурсы и крафт | `ResourceData` (`Yield/Respawn/Hold`), `RecipeData.Recipes[].Cost/Coins` |
 | шансы яиц | `PetData.Eggs[].Weights` (сумма = 100, проверяется тестом), `Config.GOLD_CHANCE`, `RAINBOW_CHANCE`, удача — `UpgradeData.LUCK_PER_LEVEL` |
 | слияние | `PetMeta.FUSE_CHANCE`, `FUSE_SHINY_BONUS`, `CATALYST_BONUS` |
 | эволюцию и уровни | `PetMeta.EVO_COST`, `xpForNext`, `maxLevel` |
-| события | `EventData.List[]` (`Period/Duration/Offset`), `RAID_REWARD`, `RAIN_COIN_*`, `LUNAR_ENEMIES_PER_ZONE` |
+| события | `EventData.List[]` (`Period/Duration/Offset` — Offset от **старта сервера**), `RAID_REWARD`, `RAIN_COIN_*`, `LUNAR_ENEMIES_PER_ZONE` |
 | квесты / достижения | `QuestData.Chains/DailyPool`, `AchievementData.List` |
-| таланты | `TalentData.List` (`Max/PerLevel/Requires`), `Config.REBIRTH_TALENT_POINTS`, `RESPEC_GEMS` |
+| таланты | `TalentData.List` (`Max/PerLevel/Requires`), `Config.REBIRTH_TALENT_POINTS`, `TalentData.RESPEC_GEMS` |
 | магазин | `ShopData.Pool` (`Price/Stock/Weight/MinRebirth`), `ROTATION_SECONDS`, `SLOTS` |
 | батл-пасс | `BattlePassData` (`xpForLevel`, `FREE/PREMIUM`), `Config.BP_XP_*` |
 | оффлайн и друзья | `Config.OFFLINE_*`, `FRIEND_BONUS_*`, `OfflineService.ASSUMED_CLICKS_PER_SECOND` |
@@ -38,3 +38,7 @@
 
 ## 4. Антиинфляционные ограничители
 `Config.MAX_COINS = 1e15`, `MAX_GEMS = 1e9`, потолок слотов команды 8, потолок оффлайна 8 ч, потолок друзей-бонуса +25%, `MAX_WALKSPEED = 56`, минимальная доля получаемого урона 25%, лимиты ресурсов на узел, лимиты запасов магазина.
+
+
+## 5. Лут с врагов (v2.1)
+Рядовые: ресурсы по `Drops`, шанс гема/`Fragment`/билета на яйцо зоны. Боссы: больше ресурсов, гарантированные гемы, высокий шанс Fragment и билета. Награда выдаётся сервером при смерти (без дюпа); сферы `LootOrb` — только визуал.

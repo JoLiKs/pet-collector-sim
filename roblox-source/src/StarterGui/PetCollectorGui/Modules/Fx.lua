@@ -21,6 +21,7 @@ local Fx = {}
 
 local COLORS = {
 	Hit = Color3.fromRGB(255, 255, 255),
+	Swing = Color3.fromRGB(255, 240, 180),
 	Kill = Theme.Gold,
 	Hurt = Color3.fromRGB(255, 80, 80),
 	Ability = Theme.Gem,
@@ -45,6 +46,10 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		if typeof(pos) ~= "Vector3" or active > 40 then
 			return
 		end
+		-- Локальный замах уже показан по клику; серверный Swing с пустым текстом пропускаем.
+		if kind == "Swing" and (text == nil or text == "") then
+			return
+		end
 		local cam = Workspace.CurrentCamera or camera
 		if not cam then
 			return
@@ -58,7 +63,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		local big = kind == "Kill" or kind == "Ability" or extra == "boss"
 		local l = Widgets.label({
 			Name = "Fx_" .. tostring(kind),
-			Text = tostring(text),
+			Text = if text == nil or text == "" then "•" else tostring(text),
 			Size = UDim2.fromOffset(150, if big then 30 else 22),
 			Position = UDim2.fromOffset(v.X - base.X - 75, v.Y - base.Y),
 			TextColor3 = COLORS[kind] or Theme.Text,
@@ -199,11 +204,51 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 
 	-- ---------- кнопка Attack ----------
 	local lastAttack = 0
+	local function playSwingLocal()
+		local character = game:GetService("Players").LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
+		if not root then
+			return
+		end
+		local cam = Workspace.CurrentCamera or camera
+		if not cam then
+			return
+		end
+		local v, onScreen = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 2.2, 0))
+		if not onScreen then
+			return
+		end
+		active += 1
+		local base = layer.AbsolutePosition
+		local slash = Widgets.label({
+			Name = "Fx_Swing",
+			Text = "⚔",
+			Size = UDim2.fromOffset(64, 48),
+			Position = UDim2.fromOffset(v.X - base.X - 32, v.Y - base.Y - 20),
+			TextColor3 = COLORS.Swing,
+			TextStrokeTransparency = 0.2,
+			Font = Theme.Font,
+			ZIndex = 37,
+			Parent = layer,
+		})
+		Widgets.New("UITextSizeConstraint", { MaxTextSize = 36, Parent = slash })
+		local tw = Widgets.tween(slash, 0.35, {
+			Position = UDim2.fromOffset(v.X - base.X + 30, v.Y - base.Y - 50),
+			TextTransparency = 1,
+			TextStrokeTransparency = 1,
+			Rotation = 40,
+		})
+		tw.Completed:Once(function()
+			active -= 1
+			slash:Destroy()
+		end)
+	end
 	local function attack()
 		if os.clock() - lastAttack < 0.35 then
 			return
 		end
 		lastAttack = os.clock()
+		playSwingLocal() -- сразу, даже если врагов нет (без тоста)
 		Actions.call("Attack")
 	end
 	Widgets.button({
@@ -329,11 +374,21 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		acc = 0
 		local folder = Workspace:FindFirstChild("Enemies")
+		local character = game:GetService("Players").LocalPlayer.Character
+		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local boss = nil
+		local bestDist = 140 -- не показываем полосу босса другой зоны
 		if folder then
 			for _, m in ipairs(folder:GetChildren()) do
-				if m:GetAttribute("IsBoss") then
-					if not boss or m:GetAttribute("IsRaid") then
+				if m:IsA("Model") and m:GetAttribute("IsBoss") then
+					if m:GetAttribute("IsRaid") then
+						boss = m
+						break
+					end
+					local pos = m:GetPivot().Position
+					local d = if root then (pos - root.Position).Magnitude else 1e9
+					if d < bestDist then
+						bestDist = d
 						boss = m
 					end
 				end

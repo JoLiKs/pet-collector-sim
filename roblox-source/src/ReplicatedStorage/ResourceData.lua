@@ -10,8 +10,9 @@ ResourceData.Resources = {
 	Herb = { Name = "Herb", Color = c3(100, 210, 110), Order = 4 },
 	Crystal = { Name = "Crystal", Color = c3(130, 230, 255), Order = 5 },
 	Essence = { Name = "Essence", Color = c3(220, 150, 255), Order = 6 },
+	Fragment = { Name = "Boss Fragment", Color = c3(255, 180, 90), Order = 7 },
 } :: { [string]: { Name: string, Color: Color3, Order: number } }
-ResourceData.Order = { "Wood", "Stone", "Ore", "Herb", "Crystal", "Essence" }
+ResourceData.Order = { "Wood", "Stone", "Ore", "Herb", "Crystal", "Essence", "Fragment" }
 
 -- Узлы. Yield — разброс количества; HoldTime — удержание ProximityPrompt; Respawn — секунд до возрождения.
 ResourceData.Nodes = {

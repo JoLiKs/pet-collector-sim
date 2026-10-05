@@ -104,6 +104,7 @@ RecipeData.Recipes = {
 		Cost = { Wood = 8, Stone = 5, Crystal = 1 },
 		Coins = 1500,
 	},
+	{ Id = "r_shard_catalyst", Item = "catalyst", Count = 1, Cost = { Fragment = 3, Essence = 1 } },
 	{
 		Id = "r_t_frost",
 		Item = "ticket_FrostEgg",

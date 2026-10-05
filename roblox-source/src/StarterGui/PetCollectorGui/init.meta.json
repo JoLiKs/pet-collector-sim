@@ -2,6 +2,7 @@
   "className": "ScreenGui",
   "properties": {
     "ResetOnSpawn": false,
-    "ZIndexBehavior": "Sibling"
+    "ZIndexBehavior": "Sibling",
+    "DisplayOrder": 50
   }
 }

@@ -2,6 +2,15 @@
 -- Враги и боссы. Здоровье = ZoneData.Hp * HpMult (боссы — большой множитель). Награды масштабируются зоной.
 local ZoneData = require(script.Parent.ZoneData)
 
+export type Drop = {
+	Res: string?,
+	Item: string?,
+	Gems: number?,
+	Chance: number,
+	Min: number,
+	Max: number,
+}
+
 export type EnemyDef = {
 	Id: string,
 	Name: string,
@@ -13,10 +22,13 @@ export type EnemyDef = {
 	Color: Color3,
 	Eye: Color3,
 	Shape: string, -- "Ball" | "Block" | "Tall"
+	SpeedMult: number, -- множитель скорости относительно Config.ENEMY_SPEED
 	Coins: number, -- множитель к «клику» зоны
 	Xp: number, -- множитель опыта питомцам
 	Essence: number, -- шанс/кол-во эссенции
-	Drops: { { Res: string, Chance: number, Min: number, Max: number } },
+	GemChance: number?,
+	TicketChance: number?,
+	Drops: { Drop },
 }
 
 local EnemyData = {}
@@ -33,10 +45,13 @@ local function e(
 	color,
 	eye,
 	shape,
+	speed,
 	coins,
 	xp,
 	essence,
-	drops
+	drops,
+	gemChance: number?,
+	ticketChance: number?
 ): EnemyDef
 	return {
 		Id = id,
@@ -49,14 +64,18 @@ local function e(
 		Color = color,
 		Eye = eye,
 		Shape = shape,
+		SpeedMult = speed or 1,
 		Coins = coins,
 		Xp = xp,
 		Essence = essence,
+		GemChance = gemChance,
+		TicketChance = ticketChance,
 		Drops = drops,
 	}
 end
 
 EnemyData.List = {
+	-- Meadow
 	e(
 		"slimeling",
 		"Slimeling",
@@ -68,10 +87,16 @@ EnemyData.List = {
 		c3(120, 220, 120),
 		c3(20, 40, 20),
 		"Ball",
+		1,
 		8,
 		1,
 		0.05,
-		{ { Res = "Herb", Chance = 0.5, Min = 1, Max = 2 } }
+		{
+			{ Res = "Herb", Chance = 0.55, Min = 1, Max = 2 },
+			{ Res = "Wood", Chance = 0.25, Min = 1, Max = 1 },
+		},
+		0.04,
+		0.02
 	),
 	e(
 		"boarlet",
@@ -84,10 +109,37 @@ EnemyData.List = {
 		c3(170, 110, 80),
 		c3(250, 240, 220),
 		"Block",
+		1.1,
 		12,
 		1.4,
 		0.08,
-		{ { Res = "Wood", Chance = 0.5, Min = 1, Max = 2 } }
+		{
+			{ Res = "Wood", Chance = 0.55, Min = 1, Max = 2 },
+			{ Res = "Stone", Chance = 0.2, Min = 1, Max = 1 },
+		},
+		0.05,
+		0.02
+	),
+	e(
+		"buzzfly",
+		"Buzzfly",
+		"Meadow",
+		false,
+		0.7,
+		0.45,
+		2.4,
+		c3(255, 230, 80),
+		c3(30, 30, 30),
+		"Ball",
+		1.35,
+		6,
+		0.8,
+		0.03,
+		{
+			{ Res = "Herb", Chance = 0.7, Min = 1, Max = 3 },
+		},
+		0.03,
+		0.015
 	),
 	e(
 		"meadow_king",
@@ -100,11 +152,20 @@ EnemyData.List = {
 		c3(255, 214, 90),
 		c3(60, 30, 0),
 		"Tall",
+		0.85,
 		120,
 		12,
 		1,
-		{ { Res = "Crystal", Chance = 1, Min = 1, Max = 2 } }
+		{
+			{ Res = "Crystal", Chance = 1, Min = 1, Max = 2 },
+			{ Res = "Herb", Chance = 1, Min = 3, Max = 6 },
+			{ Res = "Fragment", Chance = 0.7, Min = 1, Max = 2 },
+			{ Gems = 1, Chance = 0.5, Min = 1, Max = 2 },
+		},
+		1,
+		0.4
 	),
+	-- Forest
 	e(
 		"wisp",
 		"Forest Wisp",
@@ -116,10 +177,15 @@ EnemyData.List = {
 		c3(190, 255, 220),
 		c3(20, 90, 60),
 		"Ball",
+		1.2,
 		8,
 		1,
 		0.06,
-		{ { Res = "Herb", Chance = 0.6, Min = 1, Max = 3 } }
+		{
+			{ Res = "Herb", Chance = 0.65, Min = 1, Max = 3 },
+		},
+		0.05,
+		0.02
 	),
 	e(
 		"mossgolem",
@@ -132,13 +198,38 @@ EnemyData.List = {
 		c3(80, 130, 70),
 		c3(255, 255, 140),
 		"Block",
+		0.75,
 		14,
 		1.6,
 		0.1,
 		{
-			{ Res = "Stone", Chance = 0.5, Min = 1, Max = 2 },
-			{ Res = "Wood", Chance = 0.4, Min = 1, Max = 2 },
-		}
+			{ Res = "Stone", Chance = 0.55, Min = 1, Max = 2 },
+			{ Res = "Wood", Chance = 0.45, Min = 1, Max = 2 },
+		},
+		0.06,
+		0.02
+	),
+	e(
+		"thornback",
+		"Thornback",
+		"Forest",
+		false,
+		1.5,
+		1.05,
+		3.2,
+		c3(60, 100, 55),
+		c3(200, 40, 40),
+		"Block",
+		1.0,
+		11,
+		1.3,
+		0.08,
+		{
+			{ Res = "Wood", Chance = 0.5, Min = 1, Max = 3 },
+			{ Res = "Herb", Chance = 0.4, Min = 1, Max = 2 },
+		},
+		0.05,
+		0.02
 	),
 	e(
 		"elder_treant",
@@ -151,11 +242,19 @@ EnemyData.List = {
 		c3(110, 80, 50),
 		c3(120, 255, 120),
 		"Tall",
+		0.7,
 		140,
 		14,
 		1.2,
-		{ { Res = "Crystal", Chance = 1, Min = 2, Max = 3 } }
+		{
+			{ Res = "Crystal", Chance = 1, Min = 2, Max = 3 },
+			{ Res = "Wood", Chance = 1, Min = 4, Max = 8 },
+			{ Res = "Fragment", Chance = 0.8, Min = 1, Max = 3 },
+		},
+		1,
+		0.4
 	),
+	-- Desert
 	e(
 		"scorpling",
 		"Scorpling",
@@ -167,10 +266,15 @@ EnemyData.List = {
 		c3(220, 170, 90),
 		c3(80, 20, 0),
 		"Block",
+		1.15,
 		9,
 		1,
 		0.06,
-		{ { Res = "Ore", Chance = 0.45, Min = 1, Max = 2 } }
+		{
+			{ Res = "Ore", Chance = 0.5, Min = 1, Max = 2 },
+		},
+		0.05,
+		0
 	),
 	e(
 		"sandwraith",
@@ -183,10 +287,38 @@ EnemyData.List = {
 		c3(240, 210, 150),
 		c3(120, 40, 160),
 		"Tall",
+		1.05,
 		14,
 		1.5,
 		0.1,
-		{ { Res = "Herb", Chance = 0.5, Min = 1, Max = 2 } }
+		{
+			{ Res = "Herb", Chance = 0.5, Min = 1, Max = 2 },
+			{ Res = "Stone", Chance = 0.35, Min = 1, Max = 2 },
+		},
+		0.06,
+		0
+	),
+	e(
+		"dunebeetle",
+		"Dune Beetle",
+		"Desert",
+		false,
+		1.4,
+		0.95,
+		2.8,
+		c3(90, 70, 50),
+		c3(255, 180, 40),
+		"Ball",
+		0.9,
+		10,
+		1.2,
+		0.07,
+		{
+			{ Res = "Ore", Chance = 0.55, Min = 1, Max = 2 },
+			{ Res = "Stone", Chance = 0.4, Min = 1, Max = 2 },
+		},
+		0.05,
+		0
 	),
 	e(
 		"sand_titan",
@@ -199,11 +331,19 @@ EnemyData.List = {
 		c3(210, 160, 80),
 		c3(255, 80, 40),
 		"Tall",
+		0.75,
 		160,
 		15,
 		1.4,
-		{ { Res = "Crystal", Chance = 1, Min = 2, Max = 4 } }
+		{
+			{ Res = "Crystal", Chance = 1, Min = 2, Max = 4 },
+			{ Res = "Ore", Chance = 1, Min = 3, Max = 6 },
+			{ Res = "Fragment", Chance = 0.85, Min = 2, Max = 3 },
+		},
+		1,
+		0
 	),
+	-- Frost
 	e(
 		"frostimp",
 		"Frost Imp",
@@ -215,10 +355,15 @@ EnemyData.List = {
 		c3(160, 220, 255),
 		c3(10, 40, 100),
 		"Ball",
+		1.2,
 		9,
 		1,
 		0.07,
-		{ { Res = "Crystal", Chance = 0.3, Min = 1, Max = 1 } }
+		{
+			{ Res = "Crystal", Chance = 0.35, Min = 1, Max = 1 },
+		},
+		0.06,
+		0.02
 	),
 	e(
 		"icewolf",
@@ -231,10 +376,38 @@ EnemyData.List = {
 		c3(225, 240, 255),
 		c3(60, 120, 255),
 		"Block",
+		1.25,
 		15,
 		1.6,
 		0.12,
-		{ { Res = "Ore", Chance = 0.5, Min = 1, Max = 2 } }
+		{
+			{ Res = "Ore", Chance = 0.55, Min = 1, Max = 2 },
+			{ Res = "Crystal", Chance = 0.25, Min = 1, Max = 1 },
+		},
+		0.07,
+		0.02
+	),
+	e(
+		"snowmite",
+		"Snow Mite",
+		"Frost",
+		false,
+		0.8,
+		0.55,
+		2.2,
+		c3(240, 250, 255),
+		c3(100, 160, 220),
+		"Ball",
+		1.4,
+		7,
+		0.9,
+		0.05,
+		{
+			{ Res = "Crystal", Chance = 0.4, Min = 1, Max = 1 },
+			{ Res = "Herb", Chance = 0.3, Min = 1, Max = 2 },
+		},
+		0.04,
+		0.015
 	),
 	e(
 		"glacier_lord",
@@ -247,11 +420,18 @@ EnemyData.List = {
 		c3(120, 190, 250),
 		c3(255, 255, 255),
 		"Tall",
+		0.7,
 		180,
 		16,
 		1.6,
-		{ { Res = "Crystal", Chance = 1, Min = 3, Max = 5 } }
+		{
+			{ Res = "Crystal", Chance = 1, Min = 3, Max = 5 },
+			{ Res = "Fragment", Chance = 0.9, Min = 2, Max = 4 },
+		},
+		1,
+		0.45
 	),
+	-- Volcano
 	e(
 		"ashbat",
 		"Ash Bat",
@@ -263,10 +443,15 @@ EnemyData.List = {
 		c3(80, 70, 75),
 		c3(255, 120, 40),
 		"Ball",
+		1.3,
 		10,
 		1,
 		0.08,
-		{ { Res = "Stone", Chance = 0.5, Min = 1, Max = 3 } }
+		{
+			{ Res = "Stone", Chance = 0.55, Min = 1, Max = 3 },
+		},
+		0.06,
+		0
 	),
 	e(
 		"magmacrab",
@@ -279,10 +464,38 @@ EnemyData.List = {
 		c3(200, 70, 40),
 		c3(255, 230, 90),
 		"Block",
+		0.85,
 		16,
 		1.7,
 		0.14,
-		{ { Res = "Ore", Chance = 0.55, Min = 1, Max = 3 } }
+		{
+			{ Res = "Ore", Chance = 0.6, Min = 1, Max = 3 },
+			{ Res = "Stone", Chance = 0.35, Min = 1, Max = 2 },
+		},
+		0.08,
+		0
+	),
+	e(
+		"cinderling",
+		"Cinderling",
+		"Volcano",
+		false,
+		1.3,
+		1.0,
+		2.9,
+		c3(255, 140, 50),
+		c3(40, 10, 0),
+		"Ball",
+		1.15,
+		12,
+		1.3,
+		0.1,
+		{
+			{ Res = "Ore", Chance = 0.5, Min = 1, Max = 2 },
+			{ Res = "Crystal", Chance = 0.25, Min = 1, Max = 1 },
+		},
+		0.07,
+		0
 	),
 	e(
 		"inferno_tyrant",
@@ -295,10 +508,17 @@ EnemyData.List = {
 		c3(150, 40, 30),
 		c3(255, 220, 60),
 		"Tall",
+		0.8,
 		220,
 		18,
 		2,
-		{ { Res = "Crystal", Chance = 1, Min = 4, Max = 6 } }
+		{
+			{ Res = "Crystal", Chance = 1, Min = 4, Max = 6 },
+			{ Res = "Ore", Chance = 1, Min = 4, Max = 8 },
+			{ Res = "Fragment", Chance = 1, Min = 3, Max = 5 },
+		},
+		1,
+		0
 	),
 }
 
@@ -319,10 +539,13 @@ EnemyData.RAID_BOSS = e(
 	c3(150, 150, 165),
 	c3(255, 90, 60),
 	"Tall",
+	0.55,
 	0,
 	0,
 	0,
-	{}
+	{},
+	0,
+	0
 )
 EnemyData.RAID_BASE_HP = 12000
 EnemyData.RAID_HP_PER_PLAYER = 0.6 -- +60% здоровья за каждого дополнительного игрока
@@ -338,10 +561,16 @@ EnemyData.MOONLING = e(
 	c3(210, 220, 255),
 	c3(90, 60, 200),
 	"Ball",
+	1.1,
 	30,
 	3,
 	0.4,
-	{}
+	{
+		{ Res = "Crystal", Chance = 0.8, Min = 1, Max = 2 },
+		{ Res = "Fragment", Chance = 0.35, Min = 1, Max = 1 },
+	},
+	0.25,
+	0.05
 )
 
 -- Урон врагов по игроку за удар: BASE * 1.6^(индекс зоны-1) * DamageMult
@@ -349,8 +578,8 @@ EnemyData.PLAYER_DAMAGE_BASE = 6
 EnemyData.ATTACK_INTERVAL = 1.6
 EnemyData.AGGRO_RANGE = 28
 EnemyData.ATTACK_RANGE = 7
-EnemyData.MAX_ALIVE_PER_ZONE = 6
-EnemyData.RESPAWN_SECONDS = 12
+EnemyData.MAX_ALIVE_PER_ZONE = 9
+EnemyData.RESPAWN_SECONDS = 10
 EnemyData.BOSS_RESPAWN_SECONDS = 180
 
 function EnemyData.maxHp(def: EnemyDef, zoneId: string?): number
