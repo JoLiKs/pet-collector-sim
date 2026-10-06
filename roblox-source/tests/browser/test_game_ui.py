@@ -19,7 +19,7 @@ def check(name, cond, info=''):
 
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1')
+    page.goto(url + 'index.html?persist=0&seed=1&country=US')
     g.wait(lambda: g.vis('[data-n="Collect"]'))
     check('HUD загружен, ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0)
     g.wait(lambda: g.vis('[data-n="Menu"]'))

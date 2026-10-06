@@ -1361,6 +1361,317 @@ test("Миграции данных v1 → v2 и защита от мусора"
 	check(S.Migrations.run(d) == false, "повторный запуск ничего не меняет")
 end)
 
+-- ============================================================================
+-- Локализация RU/EN
+-- ============================================================================
+test(
+	"Локализация: выбор языка (страна, LocaleId, ручной выбор, Украина)",
+	function()
+		local S = boot("Loc1")
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		for _, c in ipairs({ "RU", "BY", "KZ", "KG", "AM", "AZ", "MD", "TJ", "UZ", "TM" }) do
+			check(L.detect(c, "en-us", nil) == "ru", c .. " -> ru")
+		end
+		check(L.detect("ru", "en-us", nil) == "ru", "код страны в нижнем регистре")
+		check(L.detect("US", "ru-ru", nil) == "en", "US + ru LocaleId -> en (страна главнее)")
+		check(L.detect("DE", "de-de", nil) == "en", "DE -> en")
+		check(L.detect("UA", "uk-ua", nil) == "en", "UA + uk -> en")
+		check(L.detect("UA", "ru-ru", nil) == "ru", "UA + ru LocaleId -> ru")
+		check(L.detect("UA", nil, nil) == "en", "UA без LocaleId -> en")
+		check(L.detect(nil, "ru-RU", nil) == "ru", "страна недоступна, LocaleId ru-RU -> ru")
+		check(L.detect(nil, "ru", nil) == "ru", "LocaleId ru -> ru")
+		check(L.detect("", "en-gb", nil) == "en", "пустая страна, en-gb -> en")
+		check(L.detect(nil, nil, nil) == "en", "ничего не известно -> en")
+		check(L.detect("RU", "ru-ru", "en") == "en", "ручной en главнее страны RU")
+		check(L.detect("US", "en-us", "ru") == "ru", "ручной ru главнее страны US")
+		check(
+			L.detect("US", "ru-ru", "auto") == "en",
+			"auto не считается ручным выбором"
+		)
+		check(
+			L.detect("US", "en-us", "de") == "en",
+			"неизвестный язык игнорируется"
+		)
+	end
+)
+
+test("Локализация: плюрализация 1 / 2–4 / 5+", function()
+	local S = boot("Loc2")
+	local L = S.U.require("ReplicatedStorage/Shared/Locale")
+	local cases = {
+		{ 1, 1 },
+		{ 2, 2 },
+		{ 3, 2 },
+		{ 4, 2 },
+		{ 5, 3 },
+		{ 0, 3 },
+		{ 11, 3 },
+		{ 12, 3 },
+		{ 14, 3 },
+		{ 21, 1 },
+		{ 22, 2 },
+		{ 25, 3 },
+		{ 101, 1 },
+		{ 111, 3 },
+		{ 112, 3 },
+		{ 1001, 1 },
+		{ 1.5, 2 },
+		{ -1, 1 },
+	}
+	for _, c in ipairs(cases) do
+		check(L.pluralIndex("ru", c[1]) == c[2], ("ru %s -> форма %d"):format(tostring(c[1]), c[2]))
+	end
+	check(
+		L.pluralIndex("en", 1) == 1 and L.pluralIndex("en", 0) == 2 and L.pluralIndex("en", 5) == 2,
+		"en 1/иначе"
+	)
+	local forms = "{n} {n|монета|монеты|монет}"
+	check(L.format("ru", forms, { n = 1 }) == "1 монета", "1 монета")
+	check(L.format("ru", forms, { n = 3 }) == "3 монеты", "3 монеты")
+	check(L.format("ru", forms, { n = 7 }) == "7 монет", "7 монет")
+	check(L.format("ru", forms, { n = 21 }) == "21 монета", "21 монета")
+	check(
+		L.format("ru", forms, { n = "1.5K" }) == "1.5K монет",
+		"нечисловая строка -> последняя форма"
+	)
+	check(L.format("ru", forms, { n = "12" }) == "12 монет", "числовая строка")
+	check(L.format("en", "{n} {n|coin|coins}", { n = 1 }) == "1 coin", "en 1 coin")
+	check(L.format("en", "{n} {n|coin|coins}", { n = 2 }) == "2 coins", "en 2 coins")
+	check(
+		L.format("ru", "{missing}", {}) == "{missing}",
+		"неизвестный плейсхолдер остаётся"
+	)
+end)
+
+local function placeholders(s)
+	local set = {}
+	for name in string.gmatch(s, "{([%w_]+)}") do
+		set[name] = true
+	end
+	for name in string.gmatch(s, "{([%w_]+)|") do
+		set[name] = true
+	end
+	local list = {}
+	for k in pairs(set) do
+		table.insert(list, k)
+	end
+	table.sort(list)
+	return table.concat(list, ",")
+end
+
+test(
+	"Локализация: паритет ключей и плейсхолдеров всех языков с en, формы плюрализации",
+	function()
+		local S = boot("Loc3")
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		local en = L.strings.en
+		local nEn = 0
+		for _ in pairs(en) do
+			nEn += 1
+		end
+		check(nEn > 400, "ключей en > 400 (есть " .. nEn .. ")")
+		local FORMS = { en = 2, ru = 3 } -- число форм плюрализации в языке (новый язык — добавить сюда)
+		for _, lang in ipairs(L.LANGS) do
+			local tr = L.strings[lang]
+			check(
+				type(tr) == "table" and FORMS[lang] ~= nil,
+				lang .. ": таблица строк и число форм заданы"
+			)
+			local missing, extra, badPh, badForms = {}, {}, {}, {}
+			for k, v in pairs(en) do
+				local r = tr[k]
+				if type(r) ~= "string" or (r == "" and v ~= "") then
+					table.insert(missing, k)
+				elseif placeholders(v) ~= placeholders(r) then
+					table.insert(badPh, k)
+				else
+					for forms in string.gmatch(r, "{[%w_]+|([^}]*)}") do
+						if #string.split(forms, "|") ~= FORMS[lang] then
+							table.insert(badForms, k)
+						end
+					end
+				end
+			end
+			for k in pairs(tr) do
+				if en[k] == nil then
+					table.insert(extra, k)
+				end
+			end
+			check(#missing == 0, lang .. ": нет перевода: " .. table.concat(missing, ", "))
+			check(#extra == 0, lang .. ": лишние ключи: " .. table.concat(extra, ", "))
+			check(
+				#badPh == 0,
+				lang
+					.. ": плейсхолдеры не совпадают с en: "
+					.. table.concat(badPh, ", ")
+			)
+			check(
+				#badForms == 0,
+				lang
+					.. ": неверное число форм плюрализации: "
+					.. table.concat(badForms, ", ")
+			)
+		end
+		check(
+			L.get("ru", "no.such.key") == "no.such.key",
+			"отсутствующий ключ виден как ключ"
+		)
+		check(L.get("ru", "trade.ui.ready") == "Готов", "простая строка ru")
+		check(L.get("en", "trade.ui.ready") == "Ready", "простая строка en")
+	end
+)
+
+test(
+	"Локализация: все тексты данных имеют русский перевод",
+	function()
+		local S = boot("Loc4")
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		local names = L.names.ru
+		local FIELDS = {
+			Name = true,
+			Desc = true,
+			Title = true,
+			Done = true,
+			Description = true,
+			Label = true,
+			Greeting = true,
+			Branch = true,
+			Progress = true,
+			Rarity = true,
+		}
+		local missing, count, seen = {}, 0, {}
+		local function need(path, v)
+			if type(v) == "string" and string.find(v, "%a%a") and not seen[v] then
+				seen[v] = true
+				count += 1
+				if names[v] == nil then
+					table.insert(missing, path .. "=" .. v)
+				end
+			end
+		end
+		local function walk(t, path, depth, visited)
+			if depth > 8 or visited[t] then
+				return
+			end
+			visited[t] = true
+			for k, v in pairs(t) do
+				local p = path .. "." .. tostring(k)
+				if type(v) == "table" then
+					if k == "Offer" or k == "ElementOrder" or k == "RoleOrder" or k == "VariantOrder" then
+						for i, line in ipairs(v) do
+							need(p .. "." .. i, line)
+						end
+					end
+					walk(v, p, depth + 1, visited)
+				elseif FIELDS[k] then
+					need(p, v)
+				end
+			end
+		end
+		for _, m in ipairs({
+			"PetData",
+			"PetMeta",
+			"Abilities",
+			"AchievementData",
+			"BattlePassData",
+			"EnemyData",
+			"EventData",
+			"QuestData",
+			"RecipeData",
+			"ResourceData",
+			"ShopData",
+			"TalentData",
+			"UpgradeData",
+			"ZoneData",
+		}) do
+			walk(S.U.require("ReplicatedStorage/Shared/" .. m), m, 0, {})
+		end
+		need("Config.DEMO_BOT_NAME", S.Config.DEMO_BOT_NAME)
+		need("Config.GAME_NAME", S.Config.GAME_NAME)
+		check(count > 300, "собрано текстов данных: " .. count)
+		check(#missing == 0, "нет перевода: " .. table.concat(missing, " | "))
+		-- имена питомцев с вариантом и эволюцией
+		local PM = S.PetMeta
+		check(
+			PM.displayName({ Id = "bunbun", Variant = "Golden", Level = 1, Xp = 0, Evo = 1 }, "en")
+				== "Awakened Golden Bunbun",
+			"en: вариант + эволюция"
+		)
+		check(
+			PM.displayName({ Id = "bunbun", Variant = "Golden", Level = 1, Xp = 0, Evo = 1 }, "ru")
+				== "Банбан (золото, пробуждение)",
+			"ru: вариант + эволюция"
+		)
+		check(
+			PM.displayName({ Id = "bunbun", Variant = "Normal", Level = 1, Xp = 0, Evo = 0 }, "ru")
+				== "Банбан",
+			"ru: обычный"
+		)
+	end
+)
+
+test(
+	"Локализация: LanguageService и сообщения сервера на языке игрока",
+	function()
+		local S = boot("Loc5")
+		local LS = S.U.require("ServerScriptService/Server/LanguageService")
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		LS.init()
+		local data, _, p = S.join(31, "Ru")
+		check(data.Settings and data.Settings.Lang == "auto", "по умолчанию Settings.Lang = auto")
+		-- LocalizationService в харнессе недоступен -> pcall -> фолбэк на LocaleId
+		p.LocaleId = "ru-ru"
+		check(LS.apply(p) == "ru", "страна недоступна + LocaleId ru-ru -> ru")
+		check(
+			p:GetAttribute("Lang") == "ru" and p:GetAttribute("Country") == "",
+			"атрибуты Lang/Country"
+		)
+		local origCountry = LS.country
+		LS.country = function()
+			return "US"
+		end
+		check(LS.apply(p) == "en", "US -> en даже при ru LocaleId")
+		LS.country = function()
+			return "BY"
+		end
+		p.LocaleId = "en-us"
+		check(LS.apply(p) == "ru", "BY -> ru")
+		check(p:GetAttribute("LangAuto") == "ru", "LangAuto")
+		-- ручной выбор главнее и сохраняется в данных
+		local r = S.invoke(p, "SetLanguage", "en")
+		check(
+			r.ok and data.Settings.Lang == "en" and p:GetAttribute("Lang") == "en",
+			"ручной en при стране BY"
+		)
+		check(p:GetAttribute("LangAuto") == "ru", "автоопределение всё ещё ru")
+		check(S.invoke(p, "SetLanguage", "xx").ok == false, "мусорный выбор отклонён")
+		r = S.invoke(p, "SetLanguage", "ru")
+		check(r.ok and p:GetAttribute("Lang") == "ru", "ручной ru")
+		-- сообщения сервера рендерятся на языке игрока
+		data.Coins = 0
+		local h = S.invoke(p, "Hatch", "MeadowEgg", 1)
+		check(
+			h.ok == false and type(h.msg) == "string" and string.find(h.msg, "[\208\209]") ~= nil,
+			"ошибка на русском: " .. tostring(h.msg)
+		)
+		S.invoke(p, "SetLanguage", "en")
+		local h2 = S.invoke(p, "Hatch", "MeadowEgg", 1)
+		check(
+			h2.ok == false and type(h2.msg) == "string" and not string.find(h2.msg, "[\208\209]"),
+			"та же ошибка на английском: " .. tostring(h2.msg)
+		)
+		check(
+			L.render(p, L.m("pets.info", { n = 1, bag = 2, team = 3, slots = 4 })) == "Pets 1/2   Team 3/4",
+			"render по языку игрока"
+		)
+		-- миграция чинит мусор в Settings.Lang
+		local d2 = { Settings = { Lang = 42 } }
+		S.Migrations.run(d2)
+		check(d2.Settings.Lang == "auto", "миграция: мусор -> auto")
+		LS.country = origCountry
+	end
+)
+
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
 if failed > 0 or (TEST_ERRORS or 0) > 0 then
 	print("FAILED:")

@@ -1,14 +1,15 @@
-# Pet Collector Simulator v2.0 — 3D-симулятор питомцев для Roblox (Luau)
+# Pet Collector Simulator v2.2 — 3D-симулятор питомцев для Roblox (Luau)
 
 Игра в жанре **pet simulator + мини-RPG**: хаб с NPC и станциями, пять биомов-миров, добыча ресурсов, враги и боссы, автоатака питомцев, события по расписанию,
 питомцы с **редкостями, стихиями, ролями, уровнями, эволюцией, слиянием 3→1 (Golden/Rainbow/Shiny)**, команда, крафт, квесты с диалогами, достижения, ребёрт с **деревом талантов**,
 **торговля** (в демо — с ботом), **ротация магазина**, **батл-пасс** (free/premium), оффлайн-доход, лидерборды и полноценная монетизация.
 Всё — код на **Luau**, ни одного внешнего ассета: мир, интерфейс и питомцы строятся скриптами из примитивов.
+**Два языка — русский и английский**: язык выбирается автоматически по стране игрока (и языку клиента), переключается в настройках и сохраняется в данных игрока (см. [§ Языки](#языки)).
 
 ▶ **Веб-демо (реальный Luau-код → JS через [roblox2web](https://github.com/JoLiKs/roblox2web)):** <https://joliks.github.io/pet-collector-sim/>
 Сам конвертор: <https://joliks.github.io/roblox2web/>
 
-> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1095 проверок), интеграционным сценарием (100 проверок) и браузерным UI-тестом **в эмуляторе Roblox**,
+> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1189 проверок), интеграционным сценарием (104 проверки) и браузерными UI-тестами (81 проверка) **в эмуляторе Roblox**,
 > но **не запускался в настоящей Roblox Studio** (в среде сборки её нет). Список проверенного и непроверенного — [`docs/TESTING.md`](docs/TESTING.md);
 > честная оценка рисков и урезанного — [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md). **Никакого дохода проект не гарантирует.**
 
@@ -25,8 +26,10 @@
 | ![Таланты](docs/screens/10_talents.png) Таланты | ![Торговля](docs/screens/11_trade.png) Торговля с ботом |
 | ![Зоны](docs/screens/12_worlds.png) Зоны-биомы | ![Бой](docs/screens/13_combat.png) Враги и сбор ресурсов |
 | ![Рейд](docs/screens/14_raid.png) Событие: рейд-босс | ![Конвертор](docs/screens/20_converter.png) Онлайн-конвертор roblox2web |
+| ![Удар](docs/screens/21_swing.png) Удар мечом: замах, дуга, рывок | ![Русский HUD](docs/screens/22_ru_hud.png) Русский интерфейс (страна RU) |
+| ![Питомцы RU](docs/screens/22b_ru_pets.png) Питомцы на русском | ![Таланты RU](docs/screens/22g_ru_talents.png) Таланты на русском |
 
-Скриншоты создаёт `tests/browser/test_game_ui.py` (см. `docs/TESTING.md`). Эмулятор рисует меши боксами, а табло — заглушками, в Studio картинка будет богаче.
+Скриншоты создают `tests/browser/test_game_ui.py`, `test_swing.py` и `test_locale.py` (см. `docs/TESTING.md`). Эмулятор рисует меши боксами, а табло — заглушками, в Studio картинка будет богаче.
 
 ## 1. Геймплей (кратко; подробно — [`docs/MECHANICS.md`](docs/MECHANICS.md))
 
@@ -45,6 +48,7 @@
 | **Торговля** | Окно обмена: питомцы + монеты, обе стороны жмут Ready и Confirm после отсчёта; серверная валидация. В демо партнёр — бот Trader Tom. |
 | **Магазин и батл-пасс** | Лавка с ротацией каждые 10 мин (6 из 14 предложений, лимит запасов); батл-пасс 30 уровней, free/premium треки. |
 | **Ретеншн** | Ежедневная серия, оффлайн-доход (до 8 ч), друзья на сервере (+5% монет за друга), лидерборды (сервер + глобальный). |
+| **Языки** | Русский / английский: весь интерфейс, сообщения, данные, NPC, таблички в мире. Авто по стране (`LocalizationService`), ручной выбор в НАСТРОЙКАХ. |
 
 ## 2. Монетизация (всё настраивается в одном файле)
 
@@ -83,16 +87,17 @@ roblox-game/
 ├── src/
 │   ├── ReplicatedStorage/           ← общие данные и чистая логика: Config, PetData, PetMeta, Abilities, ZoneData, EnemyData, ResourceData,
 │   │                                   RecipeData, QuestData, AchievementData, TalentData, BattlePassData, ShopData, EventData,
-│   │                                   TradeLogic, Formulas, UpgradeData, PetModel, Remotes, Util
+│   │                                   TradeLogic, Formulas, UpgradeData, PetModel, AttackFx, Remotes, Util,
+│   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных)
 │   ├── ServerScriptService/Server/  ← сервисы: Data, Economy, State, Router, AntiExploit, Pet, Click, Upgrade, Zone, Rebirth, Daily, Monetization,
 │   │                                   Leaderboard, Player, WorldBuilder, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
-│   │                                   Offline, Progress, Dailies, Migrations …
-│   ├── StarterPlayer/StarterPlayerScripts/PetFollower.client.lua   ← питомцы за игроками (клиентская отрисовка)
+│   │                                   Offline, Progress, Dailies, Migrations, LanguageService …
+│   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), CombatFx (эффекты удара), WorldLocalizer (перевод текстов мира)
 │   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Fx, панели Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
-├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, publish_web.sh
-├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium UI-тест)
+├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, check_strings.py (линтер строк), publish_web.sh
+├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium: UI, удар, локализация)
 ├── docs/                            ← документация и screens/ (скриншоты)
-├── dist/PetCollectorSimulator_v2.0.zip, PetCollectorSimulator_v2.0.zip
+├── dist/PetCollectorSimulator_v2.2.zip, PetCollectorSimulator_v2.2.zip
 └── stylua.toml, selene.toml, rokit.toml
 ```
 
@@ -168,6 +173,14 @@ bash tools/check_all.sh            # формат + линт + типы + тес
 - **Добавить питомца** — запись в `PetData.Pets` + строка в `Weight` нужного яйца (сумма весов яйца = 100; тест это проверяет).
 - **Добавить яйцо** — `PetData.Eggs` (поле `Zone` определяет, где оно стоит). **Добавить мир** — `ZoneData.List` (мир и яйца появятся сами).
 - Баланс (скорость прогрессии, цены) **не обкатан на реальных игроках** — запланируйте итерации по аналитике.
+- **Тексты** — `LocaleEn.lua` / `LocaleRu.lua` (ключ → шаблон); имена и описания из данных переводятся в `LocaleRu.Names` по английскому тексту. Добавили питомца/предмет — добавьте его русское имя в `Names` (тест подскажет, чего не хватает).
+
+## Языки
+
+* **Автоматически:** страна игрока из `LocalizationService:GetCountryRegionForPlayerAsync` — RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM → русский; **Украина — русский, только если язык клиента русский** (сознательное решение: не навязывать язык по стране); остальные страны — английский. Если сервис недоступен — по `Player.LocaleId` (`ru*` → русский).
+* **Вручную:** кнопка **НАСТРОЙКИ / SETTINGS** под валютами → Авто / English / Русский. Выбор главнее автоопределения, хранится в данных игрока и переключает интерфейс сразу, без перезахода.
+* **Как устроено и как добавить язык** — [`docs/MECHANICS.md` §13](docs/MECHANICS.md#13-языки-русский-и-английский-locale-languageservice-worldlocalizer).
+* **В веб-демо** страна определяется по IP (бесплатные CORS-сервисы, см. [roblox2web](https://github.com/JoLiKs/roblox2web)); принудительно: `?country=RU`, `?country=US`, `?lang=en`.
 
 ## 7. Документы
 

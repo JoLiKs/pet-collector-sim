@@ -1,4 +1,4 @@
-# Архитектура (v2.0)
+# Архитектура (v2.2)
 
 ## 1. Слои
 ```
@@ -50,6 +50,9 @@ Router.register("Craft", 4, 4, function(player, recipeId) ... return ok, msg end
 
 ## 4. Клиент
 `UiKit` — общие виджеты (кнопки, панели, тексты с автоподгонкой); `UIController` открывает панели (`openPanel`); `Hud` — кнопки меню и красные точки; панели: Pets (инвентарь + слияние), Egg + HatchPopup, Craft, Quests (Daily/Story/Achievements), Dialog (NPC), Talents, Trade, Market (Shop / Battle Pass / Robux Store), Boards (Leaderboards), Zones, Upgrades; `Fx` — всплывающие числа, баннеры событий, полоса босса, трекер заданий, кнопка атаки, окно оффлайн-награды.
+
+## 4a. Локализация
+Сервер не отправляет клиенту готовый английский текст: обработчики `Router` возвращают ключ (`"err.not_enough_coins"`) или `Locale.m(key, args)`, а `Router`/`Notify` рендерят его на языке игрока (атрибут `Lang`, его ставит `LanguageService`). Клиент берёт строки через `Locale.t`, подписи интерфейса создаются маркерами `L.k(...)` и перерисовываются при смене языка (`Locale.onChanged`). Тексты мира (таблички, билборды, `ProximityPrompt`) сервер ставит через `Locale.setWorld` (английский текст + атрибут `Loc_<Свойство>`), а клиентский `WorldLocalizer` переводит их локально — на одном сервере у каждого игрока свой язык. Подробно и «как добавить язык» — `MECHANICS.md` §13.
 
 ## 5. Веб-версия и эмулятор
 Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.

@@ -69,7 +69,7 @@ function LanguageService.apply(player: Player): string
 end
 
 function LanguageService.init()
-	Router.register("SetLanguage", 2, 3, function(player: Player, choice: any)
+	Router.register("SetLanguage", 2, 6, function(player: Player, choice: any)
 		local data = DataService.get(player)
 		if not data or type(choice) ~= "string" or not LanguageService.CHOICES[choice] then
 			return false, "err.bad_request"

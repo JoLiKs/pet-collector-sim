@@ -169,8 +169,8 @@ function PetsPanel.init(gui: ScreenGui)
 		footer,
 		"",
 		UDim2.fromOffset(12, 52),
-		UDim2.new(0.55, 0, 0, 32),
-		{ TextColor3 = Theme.Gem, MaxSize = 14 }
+		UDim2.new(0.53, 0, 0, 34),
+		{ TextColor3 = Theme.Gem, MaxSize = 14, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top }
 	)
 	local xpBar = UiKit.bar(footer, UDim2.fromOffset(12, 90), UDim2.new(0.5, 0, 0, 20), Theme.Green)
 

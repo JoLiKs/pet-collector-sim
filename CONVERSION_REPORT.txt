@@ -1,4 +1,4 @@
-roblox2web 2.0.0 — отчёт о конвертации
+roblox2web 2.1.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
 Скрипты: 87/87 транспилированы в JS, 17881 строк Luau
 

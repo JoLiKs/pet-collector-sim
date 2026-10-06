@@ -159,7 +159,7 @@ function DataService.load(player: Player): (Data?, string?)
 	local lastError = "unknown"
 	for attempt = 1, Config.LOAD_ATTEMPTS do
 		if not player.Parent then
-			return nil, "player left"
+			return nil, "player left" -- l10n-ok: технический код ошибки загрузки
 		end
 		local wasLocked = false
 		local ok, result = pcall(function()
@@ -198,7 +198,7 @@ function DataService.load(player: Player): (Data?, string?)
 					IsNew = isNew,
 				}
 				task.spawn(DataService.release, player)
-				return nil, "player left"
+				return nil, "player left" -- l10n-ok: технический код ошибки загрузки
 			end
 			profiles[player] = {
 				Player = player,
@@ -212,7 +212,7 @@ function DataService.load(player: Player): (Data?, string?)
 			}
 			return data, nil
 		elseif ok and wasLocked then
-			lastError = "session locked by another server"
+			lastError = "session locked by another server" -- l10n-ok: технический код (в логах и в скобках сообщения кика)
 			task.wait(Config.LOAD_LOCK_RETRY_DELAY)
 		else
 			lastError = tostring(result)

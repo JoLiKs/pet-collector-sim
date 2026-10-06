@@ -31,7 +31,7 @@ def catch(g, page, need):
     return page.evaluate(FXQ)
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1')
+    page.goto(url + 'index.html?persist=0&seed=1&country=US')
     g.wait(lambda: g.vis('[data-n="Collect"]')); page.wait_for_timeout(2000)
     g.cmd('seed'); g.cmd('tp:615,-70'); g.vwait(1.0)   # край луга, рядом никого
     got = None

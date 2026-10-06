@@ -13,6 +13,7 @@ run() { "$@" || { echo "!! FAILED: $*"; fail=1; }; }
 
 step "1/7 StyLua (формат)";            run "$STYLUA" --check src tests
 step "2/7 Selene (линт)";              run "$SELENE" src
+step "2b/7 Локализация: захардкоженные строки интерфейса"; run python3 tools/check_strings.py
 step "3/7 Rojo sourcemap";             run "$ROJO" sourcemap default.project.json -o sourcemap.json
 step "4/7 luau-lsp analyze (типы + синтаксис всех файлов)"
 if [ -f "$T/globalTypes.d.luau" ]; then DEFS="$T/globalTypes.d.luau"; else DEFS="globalTypes.d.luau"; fi
