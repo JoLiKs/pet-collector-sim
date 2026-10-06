@@ -44,6 +44,11 @@ type Trade = {
 local trades: { [Player]: Trade } = {}
 local invites: { [Player]: { From: Player, Time: number } } = {} -- ключ — приглашённый
 
+-- Игрок сейчас в обмене (окно торговли открыто) — такие не участвуют в событии «Суперсила»
+function TradeService.isTrading(player: Player): boolean
+	return trades[player] ~= nil
+end
+
 -- Предложение бота: детерминированно по 10-минутному слоту, не дороже Epic
 function TradeService.botOffer(slot: number): { [string]: PetMeta.PetState }
 	local rng = Random.new(slot * 31 + 7)

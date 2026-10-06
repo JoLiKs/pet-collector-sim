@@ -40,7 +40,7 @@ local function statPill(parent: Instance, order: number, icon: string, color: Co
 		Size = UDim2.fromOffset(190, 38),
 		Position = UDim2.fromOffset(12, 12 + (order - 1) * 44),
 		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
 		Parent = parent,
 	})
 	Widgets.corner(pill, 19)
@@ -103,7 +103,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		Position = UDim2.new(0.5, 0, 0, 10),
 		Size = UDim2.fromOffset(300, 54),
 		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
 		Parent = gui,
 	})
 	Widgets.corner(zoneBox, 14)

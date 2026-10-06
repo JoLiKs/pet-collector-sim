@@ -118,10 +118,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function onStart(id: string, left: number)
-	local def = EventData.ById[id]
-	for _, player in ipairs(Players:GetPlayers()) do
-		Notify.send(player, Locale.m("event.begun", { name = def.Name, desc = def.Desc }), "reward")
-	end
+	-- баннер «событие началось» рисует клиент (Fx) по EventState — в общем стеке с баннерами охоты
 	if id == "LunarNight" then
 		Lighting.ClockTime = 0
 		Lighting.Brightness = 1.2

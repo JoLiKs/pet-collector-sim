@@ -1,4 +1,4 @@
-# Архитектура (v2.2)
+# Архитектура (v2.3)
 
 ## 1. Слои
 ```
@@ -8,6 +8,7 @@ src/
     PetData, PetMeta, Abilities, PetModel
     ZoneData, EnemyData, ResourceData, RecipeData
     QuestData, AchievementData, TalentData, ShopData, BattlePassData, EventData, UpgradeData, TradeLogic
+    SuperpowerLogic (чистая логика «Суперсилы»), AttackFx / SuperFx (клиентские эффекты), Locale + LocaleEn/LocaleRu
   ServerScriptService/
     Main.server.lua          порядок инициализации сервисов
     Server/*                 сервисы (см. ниже)
@@ -23,7 +24,7 @@ src/
 | Экономика | `Economy` (монеты/гемы/пределы/множители), `ClickService`, `UpgradeService`, `RebirthService`, `OfflineService`, `DailyService` |
 | Питомцы | `PetService` (яйца, команда, продажа, слияние, эволюция, Treat, избранное) |
 | Мир | `WorldBuilder` (хаб, биомы, NPC, станции, декор), `Stations` (проверка «игрок в хабе»), `StationService`, `ZoneService` (открытие и телепорт) |
-| Геймплей | `ResourceService`, `CombatService` (ИИ врагов, автоатака питомцев, боссы), `CraftService`, `EventService` + `EventState`, `ShopService` + `ShopLogic`, `BattlePassService`, `QuestService`, `Dailies`, `Progress` (единая точка учёта прогресса), `TradeService` |
+| Геймплей | `ResourceService`, `CombatService` (ИИ врагов, автоатака питомцев, боссы), `CraftService`, `EventService` + `EventState`, `ShopService` + `ShopLogic`, `BattlePassService`, `QuestService`, `Dailies`, `Progress` (единая точка учёта прогресса), `TradeService`, `SuperpowerService` (событие «Суперсила / Охота») + `SuperBots` (боты-игроки для демо, `Config.DEMO_BOTS`) |
 | Деньги | `Monetization` (геймпассы, `ProcessReceipt`, PolicyService), `LeaderboardService` |
 
 ### Router / Action
@@ -45,17 +46,20 @@ Router.register("Craft", 4, 4, function(player, recipeId) ... return ok, msg end
 Сохранение: DataService (автосейв + при выходе + BindToClose; блокировка сессии против дюпа)
 Покупки: MarketplaceService.ProcessReceipt → Monetization (идемпотентно, по PurchaseId)
 События: EventData (расписание от os.time) → EventService → атрибуты Workspace/Lighting → клиентские баннеры
+Суперсила: SuperpowerService.step (Heartbeat, 0.2 с) → выбор / таймер / исход → Remote "Superpower" (персонально: цель, HP, таймер, свой урон)
+  удары: Action "Attack" → CombatService.attack → SuperpowerService.tryPlayerHit / superSlam; питомцы → CombatService.teamTick → petTick
+  эффекты: Remote "CombatFx" (SuperStart / Shockwave / Stun / SuperEnd) → StarterPlayerScripts/CombatFx → SuperFx
 ```
 Данные игрока — таблица версии 2; `Migrations` поднимает старые профили (v1) без потери питомцев/монет.
 
 ## 4. Клиент
-`UiKit` — общие виджеты (кнопки, панели, тексты с автоподгонкой); `UIController` открывает панели (`openPanel`); `Hud` — кнопки меню и красные точки; панели: Pets (инвентарь + слияние), Egg + HatchPopup, Craft, Quests (Daily/Story/Achievements), Dialog (NPC), Talents, Trade, Market (Shop / Battle Pass / Robux Store), Boards (Leaderboards), Zones, Upgrades; `Fx` — всплывающие числа, баннеры событий, полоса босса, трекер заданий, кнопка атаки, окно оффлайн-награды.
+`UiKit` — общие виджеты (кнопки, панели, тексты с автоподгонкой); `UIController` открывает панели (`openPanel`); `Hud` — кнопки меню и красные точки; панели: Pets (инвентарь + слияние), Egg + HatchPopup, Craft, Quests (Daily/Story/Achievements), Dialog (NPC), Talents, Trade, Market (Shop / Battle Pass / Robux Store), Boards (Leaderboards), Zones, Upgrades; `Fx` — всплывающие числа, баннеры событий, полоса босса, трекер заданий, кнопка атаки, окно оффлайн-награды; `HuntHud` — карточка охоты, стрелка-указатель и стрелка-компас; `Toasts` — общий стек уведомлений и баннеров (`Toasts.banner`).
 
 ## 4a. Локализация
 Сервер не отправляет клиенту готовый английский текст: обработчики `Router` возвращают ключ (`"err.not_enough_coins"`) или `Locale.m(key, args)`, а `Router`/`Notify` рендерят его на языке игрока (атрибут `Lang`, его ставит `LanguageService`). Клиент берёт строки через `Locale.t`, подписи интерфейса создаются маркерами `L.k(...)` и перерисовываются при смене языка (`Locale.onChanged`). Тексты мира (таблички, билборды, `ProximityPrompt`) сервер ставит через `Locale.setWorld` (английский текст + атрибут `Loc_<Свойство>`), а клиентский `WorldLocalizer` переводит их локально — на одном сервере у каждого игрока свой язык. Подробно и «как добавить язык» — `MECHANICS.md` §13.
 
 ## 5. Веб-версия и эмулятор
-Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.
+Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов и `DEMO_BOTS = true` regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.
 
 ## 6. Инструменты
 `tools/build_rbxlx.py` (сборка `.rbxlx` без Rojo), `tools/validate_rbxlx.py` (проверка + сверка с `rojo build`), `tools/check_all.sh` (все проверки), `tools/publish_web.sh` (веб-сборка для Pages). Стиль: stylua, selene, luau-lsp (strict-типы).

@@ -42,6 +42,10 @@ local function check(name, cond, msg)
 	end
 end
 
+-- «Суперсилу» включаем только в своём разделе (§ 14): случайные раунды не должны мешать остальным проверкам.
+-- (run.js применяет патчи roblox2web.config.json, поэтому DEMO_BOTS здесь = true, как в веб-демо.)
+Workspace:SetAttribute("SuperpowerPaused", true)
+
 local player = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
 local t0 = os.clock()
 while
@@ -565,6 +569,138 @@ res = call("NoSuchAction")
 check("exploit: unknown action", res.ok == false)
 res = call("TradeOffer", { "p1" }, -5)
 check("exploit: trade without session", res.ok == false)
+
+-- ===== 14. Суперсила / Охота (боты-охотники как в демо) ====================
+print(("INFO super section at t=%.1f"):format(os.clock()))
+local SuperpowerService = require(Server.SuperpowerService)
+local SuperBots = require(Server.SuperBots)
+local SC = Config.SUPERPOWER
+Workspace:SetAttribute("SuperpowerPaused", true)
+call("Teleport", "Hub")
+check("super: paused — no automatic round", not SuperpowerService.isActive())
+SuperBots.spawn()
+task.wait(1)
+local bots = SuperBots.list()
+check(
+	"super: bots spawned as R6 rigs",
+	#bots == SC.BOT_COUNT and bots[1].Model:FindFirstChild("Left Arm") ~= nil and bots[1].Humanoid ~= nil
+)
+local b1 = bots[1]
+local bp0 = b1.Root.Position
+task.wait(4)
+check(
+	"super: bots wander (Humanoid:MoveTo)",
+	(b1.Root.Position - bp0).Magnitude > 2,
+	(b1.Root.Position - bp0).Magnitude
+)
+-- вне охоты удар по боту ничего не делает
+moveTo(b1.Root.Position + Vector3.new(3, 0, 0))
+local airRes = call("Attack")
+check("super: no PvP outside the hunt", airRes.ok and b1.Model:GetAttribute("SuperHp") == nil)
+
+-- раунд 1: суперсила у бота, игрок охотится
+Workspace:SetAttribute("SuperpowerForce", "bot")
+task.wait(0.6)
+local r = SuperpowerService.current()
+check("super: forced bot round", r ~= nil and r.TargetIsBot, r and r.TargetKey)
+task.wait(1)
+local troot = SuperpowerService.targetRoot()
+local tm = troot and troot.Parent
+check("super: target grew (ScaleTo)", tm and math.abs(tm:GetScale() - SC.SCALE) < 0.01, tm and tm:GetScale())
+check(
+	"super: tag and HP attributes",
+	tm and tm:FindFirstChild("SuperTag", true) ~= nil and tm:GetAttribute("SuperMaxHp") == r.MaxHp
+)
+check(
+	"super: maxHp scales with hunters (bot = half)",
+	r.MaxHp == math.floor(SC.HP_BASE + SC.HP_PER_HUNTER * (1 + 0.5 * (SC.BOT_COUNT - 1))),
+	r.MaxHp
+)
+local gemsH, essH = data.Gems, data.Resources.Essence or 0
+local hits, stunned = 0, 0
+local actionFn = Remotes.getFunction("Action")
+for i = 1, 200 do
+	if not SuperpowerService.isActive() then
+		break
+	end
+	local tp = SuperpowerService.targetRoot()
+	if tp and (i % 2 == 1 or (tp.Position - player.Character.HumanoidRootPart.Position).Magnitude > 9) then
+		AntiExploit.markTeleport(player)
+		player.Character:PivotTo(CFrame.new(tp.Position + Vector3.new(4, 1, 0)))
+	end
+	if SuperpowerService.isStunned(player) then
+		stunned += 1
+	end
+	local hp = r.Hp
+	local before = r.Damage[SuperpowerService.keyOf(player)] or 0
+	actionFn.OnServerInvoke(player, "Attack") -- как кнопка УДАР с максимальной частотой
+	task.wait(0.33)
+	if (r.Damage[SuperpowerService.keyOf(player)] or 0) > before and r.Hp < hp then
+		hits += 1
+	end
+end
+print(("INFO super hunt: hits=%d stunned=%d hp=%d/%d"):format(hits, stunned, r.Hp, r.MaxHp))
+check("super: player hits lower HP", hits >= 2, hits)
+check("super: bots dealt damage too", (r.Damage.bot2 or 0) + (r.Damage.bot3 or 0) > 0)
+check("super: target stopped", not SuperpowerService.isActive() and r.Done and r.Hp <= 0, r.Hp)
+check(
+	"super: hunter rewarded by contribution",
+	data.Gems > gemsH and (data.Resources.Essence or 0) > essH and (data.Stats.SuperStops or 0) >= 1
+)
+check(
+	"super: bot back to normal",
+	tm:GetScale() == 1 and tm:GetAttribute("Super") == nil and not tm:FindFirstChild("SuperTag", true)
+)
+
+-- раунд 2: суперсила у игрока, боты охотятся, игрок отбивается ударной волной
+task.wait(1)
+local ws0 = player.Character.Humanoid.WalkSpeed
+local coins2 = data.Coins
+Workspace:SetAttribute("SuperpowerForce", "me")
+task.wait(1.2)
+local r2 = SuperpowerService.current()
+check("super: forced player round", r2 ~= nil and not r2.TargetIsBot and SuperpowerService.isSuper(player))
+check(
+	"super: player grew",
+	math.abs(player.Character:GetScale() - SC.SCALE) < 0.01,
+	player.Character:GetScale()
+)
+check(
+	"super: faster + higher jump",
+	player.Character.Humanoid.WalkSpeed > ws0 and player.Character.Humanoid.JumpPower > Config.JUMP_POWER
+)
+check("super: coin multiplier", Session.get(player).SuperCoin == SC.COIN_MULT)
+task.wait(4) -- боты подбегают и бьют
+check("super: bots hunt the player", r2.Hp < r2.MaxHp, r2.Hp)
+-- удар игрока = ударная волна: отталкивает и оглушает ботов рядом
+local near
+for _, b in ipairs(bots) do
+	if (b.Root.Position - player.Character.HumanoidRootPart.Position).Magnitude < SC.SLAM_RANGE then
+		near = b
+	end
+end
+if not near then
+	moveTo(bots[2].Root.Position + Vector3.new(4, 0, 0))
+	near = bots[2]
+end
+local before = near.Root.Position
+local hpBefore = r2.Hp
+call("Attack")
+check("super: shockwave stuns a hunter", near.Unit.StunnedUntil > os.clock() - 0.4, near.Key)
+check(
+	"super: knockback",
+	(near.Root.Position - before).Magnitude > 5,
+	(near.Root.Position - before).Magnitude
+)
+check("super: slam does not heal or steal progress", r2.Hp <= hpBefore and (r2.Damage[near.Key] or 0) >= 0)
+-- держимся до конца (сокращаем таймер для теста) — крупная награда
+local gemsS = data.Gems
+r2.Ends = os.clock() + 0.3
+task.wait(1)
+check("super: survived", not SuperpowerService.isActive() and r2.Done)
+check("super: survive reward", data.Gems >= gemsS + SC.SURVIVE_REWARD.Gems and data.Coins > coins2)
+check("super: player normal again", player.Character:GetScale() == 1 and Session.get(player).SuperCoin == 1)
+check("super: walk speed restored", math.abs(player.Character.Humanoid.WalkSpeed - ws0) < 0.01)
 
 print(fails == 0 and "ALL GAME CHECKS PASSED" or ("GAME CHECKS FAILED: " .. fails))
 print("DONE")

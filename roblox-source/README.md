@@ -1,15 +1,15 @@
-# Pet Collector Simulator v2.2 — 3D-симулятор питомцев для Roblox (Luau)
+# Pet Collector Simulator v2.3 — 3D-симулятор питомцев для Roblox (Luau)
 
 Игра в жанре **pet simulator + мини-RPG**: хаб с NPC и станциями, пять биомов-миров, добыча ресурсов, враги и боссы, автоатака питомцев, события по расписанию,
 питомцы с **редкостями, стихиями, ролями, уровнями, эволюцией, слиянием 3→1 (Golden/Rainbow/Shiny)**, команда, крафт, квесты с диалогами, достижения, ребёрт с **деревом талантов**,
-**торговля** (в демо — с ботом), **ротация магазина**, **батл-пасс** (free/premium), оффлайн-доход, лидерборды и полноценная монетизация.
+**торговля** (в демо — с ботом), событие **«Суперсила / Охота»** (раз в минуту случайный игрок становится суперигроком, остальные его ловят), **ротация магазина**, **батл-пасс** (free/premium), оффлайн-доход, лидерборды и полноценная монетизация.
 Всё — код на **Luau**, ни одного внешнего ассета: мир, интерфейс и питомцы строятся скриптами из примитивов.
 **Два языка — русский и английский**: язык выбирается автоматически по стране игрока (и языку клиента), переключается в настройках и сохраняется в данных игрока (см. [§ Языки](#языки)).
 
 ▶ **Веб-демо (реальный Luau-код → JS через [roblox2web](https://github.com/JoLiKs/roblox2web)):** <https://joliks.github.io/pet-collector-sim/>
 Сам конвертор: <https://joliks.github.io/roblox2web/>
 
-> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1189 проверок), интеграционным сценарием (104 проверки) и браузерными UI-тестами (81 проверка) **в эмуляторе Roblox**,
+> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1457 проверок), интеграционным сценарием (129 проверок) и браузерными UI-тестами (109 проверок) **в эмуляторе Roblox**,
 > но **не запускался в настоящей Roblox Studio** (в среде сборки её нет). Список проверенного и непроверенного — [`docs/TESTING.md`](docs/TESTING.md);
 > честная оценка рисков и урезанного — [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md). **Никакого дохода проект не гарантирует.**
 
@@ -28,8 +28,10 @@
 | ![Рейд](docs/screens/14_raid.png) Событие: рейд-босс | ![Конвертор](docs/screens/20_converter.png) Онлайн-конвертор roblox2web |
 | ![Удар](docs/screens/21_swing.png) Удар мечом: замах, дуга, рывок | ![Русский HUD](docs/screens/22_ru_hud.png) Русский интерфейс (страна RU) |
 | ![Питомцы RU](docs/screens/22b_ru_pets.png) Питомцы на русском | ![Таланты RU](docs/screens/22g_ru_talents.png) Таланты на русском |
+| ![Суперсила](docs/screens/23_super_me.png) Суперсила у игрока: рост, аура, ударная волна | ![Охота](docs/screens/24_super_hunt.png) Охота: задание, стрелка-указатель и компас |
+| ![Остановка](docs/screens/25_super_stop.png) Суперигрок остановлен: взрыв частиц, награда | |
 
-Скриншоты создают `tests/browser/test_game_ui.py`, `test_swing.py` и `test_locale.py` (см. `docs/TESTING.md`). Эмулятор рисует меши боксами, а табло — заглушками, в Studio картинка будет богаче.
+Скриншоты создают `tests/browser/test_game_ui.py`, `test_swing.py`, `test_locale.py` и `test_super.py` (см. `docs/TESTING.md`). Эмулятор рисует меши боксами, а табло — заглушками, в Studio картинка будет богаче.
 
 ## 1. Геймплей (кратко; подробно — [`docs/MECHANICS.md`](docs/MECHANICS.md))
 
@@ -39,11 +41,12 @@
 | **Ресурсы** | Дерево, камень, руда, трава, кристаллы (+эссенция с врагов). Узлы и сундуки собираются удержанием `E`, респавнятся. |
 | **Бой** | Враги бродят по биомам и атакуют игрока; питомцы бьют сами раз в секунду (урон = сила × роль × стихия), игрок помогает ударом `ATTACK`/`Q`. Боссы зон с полосой здоровья и наградой. |
 | **События** | По расписанию (`EventData`): **Golden Rain** (золотые монеты на хабе, x2 монеты), **Lunar Night** (редкие «лунные» питомцы + Lunar Egg), **Stone Colossus** (рейд-босс с таймером и общей наградой по доле урона). |
+| **Суперсила / Охота** | Раз в минуту случайный игрок получает суперсилу на 35 с (рост, аура, скорость, x2.5 урон, x2 монеты, ударная волна), остальные — задание «Останови его!» со стрелкой; награда по вкладу, бонус за последний удар, крупная награда, если продержался. Нужно ≥ 2 игроков; в демо — боты. |
 | **Питомцы** | 39 видов; 6 редкостей; стихии Fire/Water/Earth/Air (круг слабостей); роли Fighter/Collector/Support; активные и пассивные способности; уровни/опыт; 3 эволюции; варианты Normal/Golden/Rainbow/Shiny. |
 | **Слияние** | 3 одинаковых (вид+вариант) → 1, шанс повысить вариант (+катализатор), шанс сразу Shiny. |
 | **Команда и инвентарь** | До 3+ слотов (апгрейд, VIP, талант; потолок 8), «Equip Best», избранное, фильтры по стихии/роли/редкости, сортировка. |
 | **Крафт** | Верстак в хабе: билеты на яйца, зелья, катализатор, инструменты и оружие. |
-| **Квесты** | 3 NPC × цепочки по 3 шага с диалогами, 3 ежедневных задания (меняются каждый UTC-день), 22 достижения. |
+| **Квесты** | 3 NPC × цепочки по 3 шага с диалогами, 3 ежедневных задания (меняются каждый UTC-день), 25 достижений. |
 | **Ребёрт и таланты** | Сброс монет/Click Power → множитель монет, гемы, очки талантов; дерево из 3 веток (Economy/Combat/Nature). |
 | **Торговля** | Окно обмена: питомцы + монеты, обе стороны жмут Ready и Confirm после отсчёта; серверная валидация. В демо партнёр — бот Trader Tom. |
 | **Магазин и батл-пасс** | Лавка с ротацией каждые 10 мин (6 из 14 предложений, лимит запасов); батл-пасс 30 уровней, free/premium треки. |
@@ -87,17 +90,17 @@ roblox-game/
 ├── src/
 │   ├── ReplicatedStorage/           ← общие данные и чистая логика: Config, PetData, PetMeta, Abilities, ZoneData, EnemyData, ResourceData,
 │   │                                   RecipeData, QuestData, AchievementData, TalentData, BattlePassData, ShopData, EventData,
-│   │                                   TradeLogic, Formulas, UpgradeData, PetModel, AttackFx, Remotes, Util,
+│   │                                   TradeLogic, Formulas, UpgradeData, PetModel, AttackFx, SuperFx, SuperpowerLogic, Remotes, Util,
 │   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных)
 │   ├── ServerScriptService/Server/  ← сервисы: Data, Economy, State, Router, AntiExploit, Pet, Click, Upgrade, Zone, Rebirth, Daily, Monetization,
 │   │                                   Leaderboard, Player, WorldBuilder, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
-│   │                                   Offline, Progress, Dailies, Migrations, LanguageService …
-│   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), CombatFx (эффекты удара), WorldLocalizer (перевод текстов мира)
-│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Fx, панели Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
+│   │                                   Offline, Progress, Dailies, Migrations, LanguageService, Superpower, SuperBots …
+│   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), CombatFx (эффекты удара и «Суперсилы»), WorldLocalizer (перевод текстов мира)
+│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Fx, HuntHud, Toasts, панели Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
 ├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, check_strings.py (линтер строк), publish_web.sh
-├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium: UI, удар, локализация)
+├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium: UI, удар, локализация, Суперсила)
 ├── docs/                            ← документация и screens/ (скриншоты)
-├── dist/PetCollectorSimulator_v2.2.zip, PetCollectorSimulator_v2.2.zip
+├── dist/PetCollectorSimulator_v2.3.zip, PetCollectorSimulator_v2.3.zip
 └── stylua.toml, selene.toml, rokit.toml
 ```
 

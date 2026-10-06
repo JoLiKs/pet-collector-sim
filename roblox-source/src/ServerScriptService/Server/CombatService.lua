@@ -31,6 +31,7 @@ local ResourceService = require(script.Parent.ResourceService)
 local Router = require(script.Parent.Router)
 local Session = require(script.Parent.Session)
 local State = require(script.Parent.State)
+local SuperpowerService = require(script.Parent.SuperpowerService)
 
 local CombatService = {}
 
@@ -484,9 +485,13 @@ local function teamTick(player: Player, now: number)
 		cds = {}
 		petCd[player] = cds
 	end
+	-- Охота «Суперсила»: питомцы охотника атакуют суперигрока, если он рядом
+	if SuperpowerService.petTick(player, data, root.Position) then
+		return
+	end
 	local near = nearbyEnemies(root.Position, Config.COMBAT_RANGE)
 	local target = near[1]
-	local dmgMult = Economy.getDamageMultiplier(data)
+	local dmgMult = Economy.getDamageMultiplier(data) * SuperpowerService.damageMult(player)
 	if (frenzyUntil[player] or 0) > now then
 		dmgMult *= 1.5
 	end
@@ -744,6 +749,9 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 	if now - (lastAttack[player] or 0) < Config.PLAYER_ATTACK_COOLDOWN * 0.8 then
 		return false, nil -- кулдаун без тоста
 	end
+	if SuperpowerService.isStunned(player) then
+		return false, nil -- оглушён ударной волной суперигрока
+	end
 	lastAttack[player] = now
 	-- Замах (в т.ч. «в воздух») видят другие игроки рядом; сам атакующий рисует его сразу по нажатию.
 	for _, other in ipairs(Players:GetPlayers()) do
@@ -751,6 +759,20 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 		if other ~= player and r and (r.Position - root.Position).Magnitude <= FX_RADIUS then
 			Remotes.getEvent("CombatFx"):FireClient(other, "Swing", player)
 		end
+	end
+	-- Событие «Суперсила»: суперигрок бьёт по площади (ударная волна), охотник — по суперигроку в радиусе
+	local isSuper = SuperpowerService.isSuper(player)
+	if isSuper and SuperpowerService.superSlam(SuperpowerService.keyOf(player)) then
+		local slamDmg = Formulas.playerAttack(
+			Economy.getPetPower(data) * Config.PET_DAMAGE_SCALE,
+			Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
+			0
+		) * Config.SUPERPOWER.DAMAGE_MULT * 0.6
+		for _, e in ipairs(nearbyEnemies(root.Position, Config.SUPERPOWER.SLAM_RANGE)) do
+			damageEnemy(e, slamDmg, player, "player")
+		end
+	elseif not isSuper and SuperpowerService.tryPlayerHit(player) then
+		return true, nil
 	end
 	local target: Enemy? = nil
 	if type(enemyId) == "string" then
@@ -770,7 +792,7 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 		Economy.getPetPower(data) * Config.PET_DAMAGE_SCALE,
 		Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
 		blade
-	)
+	) * SuperpowerService.damageMult(player)
 	local dir = Vector3.new(target.Pos.X - root.Position.X, 0, target.Pos.Z - root.Position.Z)
 	dir = if dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
 	local hitPos = target.Pos + Vector3.new(0, target.Half * 0.6, 0) - dir * math.min(target.Half, 2)

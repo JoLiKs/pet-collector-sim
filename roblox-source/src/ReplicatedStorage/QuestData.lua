@@ -1,7 +1,7 @@
 --!strict
 --[[
 	QuestData — NPC, цепочки квестов с диалогами и ежедневные задания.
-	Цель (Obj): { Kind, Key?, Count }.  Kind: gather | kill | boss | hatch | craft | fuse | evolve | collect | level | raid | trade | rain
+	Цель (Obj): { Kind, Key?, Count }.  Kind: gather | kill | boss | hatch | craft | fuse | evolve | collect | level | raid | trade | rain | superstop
 	Key для gather = id ресурса; для kill/boss = id врага ИЛИ id зоны; для level = минимальный уровень питомца; иначе nil.
 ]]
 local QuestData = {}
@@ -237,6 +237,12 @@ QuestData.DailyPool = {
 		Name = "Fusion Practice",
 		Obj = { Kind = "fuse", Count = 1 },
 		Reward = { Gems = 15, BpXp = 50 },
+	},
+	{
+		Id = "d_superstop",
+		Name = "Superhero Hunter",
+		Obj = { Kind = "superstop", Count = 1 },
+		Reward = { Gems = 12, BpXp = 50 },
 	},
 } :: { { Id: string, Name: string, Obj: Obj, Reward: Reward } }
 QuestData.DAILY_COUNT = 3

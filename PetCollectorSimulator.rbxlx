@@ -141,6 +141,9 @@ AchievementData.List = {
 	a("rebirth_2", "Phoenix", "Rebirth 5 times.", "Rebirths", 5, 150),
 	a("rain_1", "Golden Touch", "Collect 50 golden coins in a Golden Rain.", "RainCoins", 50, 25),
 	a("level_1", "Trainer", "Raise a pet to level 20.", "MaxPetLevel", 20, 35),
+	a("super_1", "Hunter", "Stop a superplayer.", "SuperStops", 1, 15),
+	a("super_2", "Hero Hunter", "Stop superplayers 10 times.", "SuperStops", 10, 60),
+	a("survive_1", "Unstoppable", "Hold out with the superpower until the end.", "SuperSurvived", 1, 30),
 }
 
 AchievementData.ById = {} :: { [string]: Ach }
@@ -172,7 +175,7 @@ local Workspace = game:GetService("Workspace")
 local AttackFx = {}
 
 AttackFx.SWING_TIME = 0.38
-AttackFx.lastSwing = {} :: { [Player]: { T: number, Dir: Vector3 } }
+AttackFx.lastSwing = {} :: { [any]: { T: number, Dir: Vector3 } } -- ключ: Player или модель бота
 
 local WINDUP = 0.07
 local SLASH = 0.11
@@ -388,9 +391,12 @@ local function nearestEnemyPos(from: Vector3, range: number): Vector3?
 	return best
 end
 
--- Удар персонажа игрока. isLocal = свой персонаж (поворот к цели и рывок делаем только для него).
-function AttackFx.swing(player: Player, isLocal: boolean)
-	local character = player.Character
+-- Удар персонажа игрока (или модели бота). isLocal = свой персонаж (поворот к цели и рывок делаем только для него).
+function AttackFx.swing(who: Player | Model, isLocal: boolean)
+	local character: Model? = if typeof(who) == "Instance" and who:IsA("Player")
+		then (who :: Player).Character
+		else who :: Model
+	local player = who
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not character or not root or not root:IsA("BasePart") then
 		return
@@ -751,7 +757,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.0.0"
+Config.VERSION = "2.3.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -813,6 +819,60 @@ Config.BP_XP_PER_KILL = 3
 Config.BP_XP_PER_GATHER = 1
 Config.BP_XP_PER_CRAFT = 6
 Config.REBIRTH_TALENT_POINTS = 1 -- очков талантов за ребёрт (+1 за каждый 5-й)
+
+-- ============================================================================
+-- 6c. СОБЫТИЕ «СУПЕРСИЛА / ОХОТА» (SuperpowerService, баланс — docs/BALANCE.md §9)
+--     Раз в INTERVAL секунд случайный подходящий игрок получает суперсилу на DURATION секунд,
+--     остальные получают задание «Останови его!». Урон и награды считает только сервер.
+-- ============================================================================
+-- Серверные боты-игроки для событий (охотники/суперигроки), когда на сервере мало людей.
+-- В настоящей игре — false; в веб-демо (один игрок) включается патчем roblox2web.config.json.
+Config.DEMO_BOTS = false
+Config.SUPERPOWER = {
+	ENABLED = true,
+	INTERVAL = 60, -- секунд между выборами суперигрока
+	DURATION = 35, -- длительность суперсилы (обрезается до INTERVAL - GAP)
+	GAP = 5, -- минимальная пауза между концом суперсилы и следующим выбором
+	FIRST_DELAY = 25, -- первый выбор после старта сервера
+	MIN_PLAYERS = 2, -- минимум участников (игроки + боты); один живой игрок без ботов событие не запускает
+	-- суперигрок
+	SCALE = 1.6, -- Model:ScaleTo
+	SPEED_MULT = 1.45,
+	JUMP_MULT = 1.35,
+	DAMAGE_MULT = 2.5, -- урон по врагам (удар и питомцы)
+	COIN_MULT = 2, -- множитель монет
+	HP_BASE = 700, -- «PvP-HP» охоты (не Humanoid.Health): база + за каждого охотника
+	HP_PER_HUNTER = 450,
+	SLAM_RANGE = 16, -- удар по площади: радиус ударной волны
+	SLAM_COOLDOWN = 2.2,
+	SLAM_KNOCKBACK = 18, -- студов отталкивания охотников
+	STUN_SECONDS = 1.2, -- оглушение охотника (без потери прогресса)
+	STUN_IMMUNE = 2.5, -- после оглушения охотника нельзя оглушить снова N секунд
+	-- охотники
+	HIT_RANGE = 12, -- дистанция удара по суперигроку (+ радиус увеличенного тела)
+	HIT_COOLDOWN = 0.3, -- серверный лимит ударов по цели на охотника
+	HIT_BASE = 30, -- урон удара охотника (растёт логарифмически от силы команды)
+	HIT_POWER_K = 0.12,
+	MAX_HIT_SHARE = 0.08, -- один удар не больше 8% PvP-HP (никаких ваншотов)
+	PET_HIT = 6, -- урон одного питомца за тик боя по суперигроку
+	PET_MAX_PER_TICK = 0.03, -- все питомцы охотника за тик — не больше 3% HP
+	MIN_DAMAGE_SHARE = 0.04, -- анти-AFK: награда только если нанесено ≥ 4% PvP-HP
+	-- награды (Coins — в «кликах» текущей силы, как ежедневная награда)
+	STOP_REWARD = { Clicks = 300, Gems = 10, Essence = 3, RareChance = 0.12, RareItem = "luck_potion" },
+	STOP_K_MIN = 0.3, -- множитель вклада: доля урона × число охотников, в пределах [MIN, MAX]
+	STOP_K_MAX = 2.5,
+	SPEED_BONUS = 0.5, -- до +50% за быструю остановку (по оставшемуся времени)
+	LAST_HIT_BONUS = { Clicks = 150, Gems = 5, Essence = 2 },
+	SURVIVE_REWARD = { Clicks = 800, Gems = 25, Essence = 6, BpXp = 60 },
+	CONSOLATION = { Clicks = 60, Gems = 2 },
+	-- боты (только при DEMO_BOTS)
+	BOT_COUNT = 3,
+	BOT_NAMES = { "Max", "Lina", "Rex" },
+	BOT_DAMAGE = 26, -- урон удара бота по суперигроку
+	BOT_ATTACK_INTERVAL = 1.0,
+	BOT_SPEED = 15,
+	BOT_PLAYER_SUPER_CHANCE = 0.5, -- в демо: шанс, что суперсилу получит живой игрок, а не бот
+}
 
 -- ============================================================================
 -- 7. АНТИ-ЭКСПЛОЙТ (базовый)
@@ -2207,7 +2267,6 @@ LocaleEn.Strings = {
 	["shop.thanks_res"] = "+{n} {res}! Thank you!",
 	["shop.thanks_bp"] = "Battle Pass: +{n} {n|level|levels}!",
 	["shop.thanks_pass"] = "{name} unlocked! Thank you!",
-	["event.begun"] = "{name} has begun! {desc}",
 	["event.raid_escaped"] = "The Stone Colossus escaped... Better luck next time!",
 	["event.raid_won"] = "{name} defeated! You dealt {dmg} damage: {reward}",
 	["event.raid_low"] = "The Colossus fell, but you did too little damage for a reward.",
@@ -2563,6 +2622,43 @@ LocaleEn.Strings = {
 	["panel.Pets"] = "Pets",
 	["panel.Rebirth"] = "Rebirth",
 	["panel.Settings"] = "Settings",
+	-- событие «Суперсила / Охота»
+	["super.tag"] = "SUPERPOWER",
+	["bot.tag"] = "Bot {player}",
+	["super.reward_stop"] = "You helped stop {player}! Reward: {reward}",
+	["super.reward_last"] = "Final blow on {player}! Reward: {reward}",
+	["super.too_little"] = "{player} lost the superpower, but you dealt too little damage for a reward.",
+	["super.you_stopped"] = "You were stopped! The superpower is gone, but you keep all your items.",
+	["super.reward_survive"] = "The superpower lasted to the end! Reward: {reward}",
+	["super.reward_consolation"] = "Nobody stopped {player} in time. Consolation reward: {reward}",
+	["super.escaped"] = "Nobody stopped {player} in time.",
+	["super.cancelled"] = "The hunt for {player} was cancelled.",
+	["hunt.event_name"] = "Superpower",
+	["hunt.card_title"] = "HUNT: {player}",
+	["hunt.objective"] = "Stop {player}!",
+	["hunt.you_title"] = "YOU HAVE THE SUPERPOWER!",
+	["hunt.you_objective"] = "Hold out until the timer ends. [Q] — shockwave",
+	["hunt.damage"] = "Your damage: {n} (reward from {min})",
+	["hunt.damage_ok"] = "Your damage: {n} — reward earned",
+	["hunt.distance"] = "{n} m",
+	["hunt.stunned"] = "STUNNED!",
+	["hunt.next"] = "Superpower in {time}",
+	["hunt.next_desc"] = "A random player gets it — be ready!",
+	["hunt.banner_start"] = "SUPERPOWER!",
+	["hunt.banner_start_sub"] = "{player} has the superpower — stop them!",
+	["hunt.banner_you"] = "THE SUPERPOWER IS YOURS!",
+	["hunt.banner_you_sub"] = "Hold out for {time}! The hunters are coming",
+	["hunt.banner_stopped"] = "HUNT SUCCESS!",
+	["hunt.banner_stopped_sub"] = "{player} lost the superpower",
+	["hunt.banner_survived"] = "NOT STOPPED!",
+	["hunt.banner_survived_sub"] = "{player} kept the superpower to the end",
+	["hunt.banner_you_stopped"] = "YOU WERE STOPPED",
+	["hunt.banner_you_stopped_sub"] = "Nothing lost — your items are safe",
+	["hunt.banner_you_survived"] = "VICTORY!",
+	["hunt.banner_you_survived_sub"] = "You kept the superpower to the end",
+	["event.started"] = "{name}!",
+	["obj.superstop"] = "Stop the superplayer",
+	["obj.supersurvive"] = "Hold out with the superpower",
 }
 
 return LocaleEn
@@ -2677,7 +2773,6 @@ LocaleRu.Strings = {
 	["shop.thanks_res"] = "{res} +{n}! Спасибо!",
 	["shop.thanks_bp"] = "Боевой пропуск: +{n} {n|уровень|уровня|уровней}!",
 	["shop.thanks_pass"] = "«{name}» открыто! Спасибо!",
-	["event.begun"] = "Началось событие «{name}»! {desc}",
 	["event.raid_escaped"] = "Каменный колосс ушёл… В следующий раз повезёт!",
 	["event.raid_won"] = "{name} повержен! Ваш урон: {dmg}. Награда: {reward}",
 	["event.raid_low"] = "Колосс пал, но вашего урона не хватило для награды.",
@@ -3033,6 +3128,43 @@ LocaleRu.Strings = {
 	["panel.Pets"] = "Питомцы",
 	["panel.Rebirth"] = "Перерождение",
 	["panel.Settings"] = "Настройки",
+	-- событие «Суперсила / Охота»
+	["super.tag"] = "СУПЕРСИЛА",
+	["bot.tag"] = "Бот {player}",
+	["super.reward_stop"] = "Ты помог остановить {player}! Награда: {reward}",
+	["super.reward_last"] = "Последний удар по {player} — твой! Награда: {reward}",
+	["super.too_little"] = "Суперсилу у {player} отобрали, но твоего урона мало для награды.",
+	["super.you_stopped"] = "Тебя остановили! Суперсила пропала, но все вещи при тебе.",
+	["super.reward_survive"] = "Суперсила продержалась до конца! Награда: {reward}",
+	["super.reward_consolation"] = "Остановить {player} не успели. Утешительная награда: {reward}",
+	["super.escaped"] = "Остановить {player} не успели.",
+	["super.cancelled"] = "Охота на {player} отменена.",
+	["hunt.event_name"] = "Суперсила",
+	["hunt.card_title"] = "ОХОТА: {player}",
+	["hunt.objective"] = "Останови {player}!",
+	["hunt.you_title"] = "У ТЕБЯ СУПЕРСИЛА!",
+	["hunt.you_objective"] = "Продержись до конца таймера. [Q] — ударная волна",
+	["hunt.damage"] = "Твой урон: {n} (награда от {min})",
+	["hunt.damage_ok"] = "Твой урон: {n} — награда положена",
+	["hunt.distance"] = "{n} м",
+	["hunt.stunned"] = "ОГЛУШЕНИЕ!",
+	["hunt.next"] = "Суперсила через {time}",
+	["hunt.next_desc"] = "Её получит случайный игрок — готовься!",
+	["hunt.banner_start"] = "СУПЕРСИЛА!",
+	["hunt.banner_start_sub"] = "Суперсила у {player} — останови!",
+	["hunt.banner_you"] = "СУПЕРСИЛА ТВОЯ!",
+	["hunt.banner_you_sub"] = "Продержись {time}! Охотники уже идут",
+	["hunt.banner_stopped"] = "ОХОТА УДАЛАСЬ!",
+	["hunt.banner_stopped_sub"] = "{player} лишается суперсилы",
+	["hunt.banner_survived"] = "НЕ ОСТАНОВИЛИ!",
+	["hunt.banner_survived_sub"] = "Суперсила {player} продержалась до конца",
+	["hunt.banner_you_stopped"] = "ТЕБЯ ОСТАНОВИЛИ",
+	["hunt.banner_you_stopped_sub"] = "Ничего не потеряно — вещи при тебе",
+	["hunt.banner_you_survived"] = "ПОБЕДА!",
+	["hunt.banner_you_survived_sub"] = "Суперсила твоя до самого конца",
+	["event.started"] = "{name}!",
+	["obj.superstop"] = "Останови суперигрока",
+	["obj.supersurvive"] = "Продержись с суперсилой",
 }
 
 -- Перевод «данных» по исходному английскому тексту (имена питомцев, врагов, зон, ресурсов, предметов,
@@ -3240,7 +3372,10 @@ LocaleRu.Names = {
 	["Herb Bush"] = "Куст трав",
 	["Herbalist"] = "Травник",
 	["Herbs grow in bushes. Ore veins are in the Forest and Desert."] = "Травы растут в кустах. Рудные жилы — в Лесу и Пустыне.",
+	["Hero Hunter"] = "Гроза суперигроков",
 	["Hero of the Realm"] = "Герой королевства",
+	["Hold out with the superpower until the end."] = "Продержись с суперсилой до конца.",
+	["Hunter"] = "Охотник",
 	["Hunter's Blade"] = "Клинок охотника",
 	["I need fresh specimens to study!"] = "Мне нужны свежие образцы для изучения!",
 	["Ice Wolf"] = "Ледяной волк",
@@ -3356,11 +3491,14 @@ LocaleRu.Names = {
 	["Start each rebirth with +2,000 coins per level."] = "+2 000 монет на старте перерождения за уровень.",
 	["Stone"] = "Камень",
 	["Stone Colossus"] = "Каменный колосс",
+	["Stop a superplayer."] = "Останови суперигрока.",
+	["Stop superplayers 10 times."] = "Останови суперигроков 10 раз.",
 	["Sturdy Hide"] = "Прочная шкура",
 	["Sun Serpent"] = "Солнечный змей",
 	["Sunny Fox"] = "Солнечный лис",
 	["Sunny Meadow"] = "Солнечный луг",
 	["Super Clover x5 (10m)"] = "Суперклевер x5 (10 мин)",
+	["Superhero Hunter"] = "Охота на супергероя",
 	["Supplies"] = "Припасы",
 	["Support"] = "Поддержка",
 	["Swift Paws"] = "Быстрые лапки",
@@ -3390,6 +3528,7 @@ LocaleRu.Names = {
 	["Two free Frost eggs"] = "Два бесплатных Морозных яйца",
 	["Uncommon"] = "Необычный",
 	["Unlock every premium reward on the season track, including an exclusive pet."] = "Открывает все премиум-награды сезона, включая эксклюзивного питомца.",
+	["Unstoppable"] = "Неудержимый",
 	["VIP"] = "VIP",
 	["Warden's Trials"] = "Испытания стража",
 	["Warrior's Spirit"] = "Дух воина",
@@ -4552,7 +4691,7 @@ return PetModel
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
 	QuestData — NPC, цепочки квестов с диалогами и ежедневные задания.
-	Цель (Obj): { Kind, Key?, Count }.  Kind: gather | kill | boss | hatch | craft | fuse | evolve | collect | level | raid | trade | rain
+	Цель (Obj): { Kind, Key?, Count }.  Kind: gather | kill | boss | hatch | craft | fuse | evolve | collect | level | raid | trade | rain | superstop
 	Key для gather = id ресурса; для kill/boss = id врага ИЛИ id зоны; для level = минимальный уровень питомца; иначе nil.
 ]]
 local QuestData = {}
@@ -4789,6 +4928,12 @@ QuestData.DailyPool = {
 		Obj = { Kind = "fuse", Count = 1 },
 		Reward = { Gems = 15, BpXp = 50 },
 	},
+	{
+		Id = "d_superstop",
+		Name = "Superhero Hunter",
+		Obj = { Kind = "superstop", Count = 1 },
+		Reward = { Gems = 12, BpXp = 50 },
+	},
 } :: { { Id: string, Name: string, Obj: Obj, Reward: Reward } }
 QuestData.DAILY_COUNT = 3
 QuestData.DailyById = {} :: { [string]: any }
@@ -4991,7 +5136,8 @@ local FOLDER_NAME = "Remotes"
 
 Remotes.Events = {
 	"Fx", -- S->C: боевые эффекты (kind, ...)
-	"CombatFx", -- S->C (игрокам рядом): ("Swing", attacker) | ("Impact", pos, dir)
+	"CombatFx", -- S->C (игрокам рядом): ("Swing", attacker|model) | ("Impact", pos, dir) | Super*: см. SuperFx
+	"Superpower", -- S->C: состояние события «Суперсила / Охота» (персонально: цель, HP, таймер, свой урон)
 	"EventState", -- S->C: активные события и таймеры
 	"Dialog", -- S->C: диалог NPC
 	"OpenUi", -- S->C: открыть панель (станция в мире)
@@ -5327,6 +5473,528 @@ return ShopData
 			</Item>
 			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
+					<string name="Name">SuperFx</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SuperFx — визуал события «Суперсила» на КЛИЕНТЕ (урон и награды считает только сервер).
+	  * aura(model)      — неоновая оболочка, PointLight и вращающееся кольцо из сегментов вокруг суперигрока;
+	  * transform(pos)   — превращение: вспышка, столб света, расходящееся кольцо (рост делает сервер через ScaleTo);
+	  * shockwave(pos,r) — ударная волна: плоский диск и кольцо осколков до радиуса r;
+	  * burst(pos)       — остановка: взрыв неоновых частиц;
+	  * stun(model, s)   — оглушение: звёздочки над головой.
+	Только Part/Neon/PointLight/TweenService — одинаково в Roblox и в эмуляторе roblox2web.
+]]
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local SuperFx = {}
+
+local GOLD = Color3.fromRGB(255, 205, 60)
+local ORANGE = Color3.fromRGB(255, 120, 40)
+local RING_SEGMENTS = 12
+
+local function folder(): Folder
+	local f = Workspace:FindFirstChild("ClientFx")
+	if f and f:IsA("Folder") then
+		return f
+	end
+	local nf = Instance.new("Folder")
+	nf.Name = "ClientFx"
+	nf.Parent = Workspace
+	return nf
+end
+
+local function part(
+	name: string,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	transparency: number,
+	shape: Enum.PartType?
+): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.Neon
+	p.Color = color
+	p.Size = size
+	p.CFrame = cf
+	p.Transparency = transparency
+	if shape then
+		p.Shape = shape
+	end
+	p.Parent = folder()
+	return p
+end
+
+local function fade(p: BasePart, delay: number, duration: number, goal: { [string]: any }?)
+	task.delay(delay, function()
+		if not p.Parent then
+			return
+		end
+		local g: { [string]: any } = goal or {}
+		g.Transparency = 1
+		TweenService:Create(p, TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), g)
+			:Play()
+		task.delay(duration + 0.05, function()
+			p:Destroy()
+		end)
+	end)
+end
+
+local function rootOf(model: Model?): BasePart?
+	local r = model and model:FindFirstChild("HumanoidRootPart")
+	return if r and r:IsA("BasePart") then r else nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Аура
+-- ---------------------------------------------------------------------------
+local aura: { Model: Model, Parts: { Part }, Shell: Part, Conn: RBXScriptConnection }? = nil
+
+function SuperFx.clearAura()
+	local a = aura
+	if not a then
+		return
+	end
+	aura = nil
+	a.Conn:Disconnect()
+	for _, p in ipairs(a.Parts) do
+		p:Destroy()
+	end
+end
+
+function SuperFx.auraModel(): Model?
+	return if aura then aura.Model else nil
+end
+
+function SuperFx.aura(model: Model)
+	if aura and aura.Model == model then
+		return
+	end
+	SuperFx.clearAura()
+	local root = rootOf(model)
+	if not root then
+		return
+	end
+	local parts: { Part } = {}
+	local shell = part("SuperAura", Vector3.new(8, 10, 8), root.CFrame, GOLD, 0.82, Enum.PartType.Ball)
+	table.insert(parts, shell)
+	local light = Instance.new("PointLight")
+	light.Name = "SuperLight"
+	light.Color = GOLD
+	light.Brightness = 3
+	light.Range = 18
+	light.Parent = shell
+	for i = 1, RING_SEGMENTS do
+		table.insert(
+			parts,
+			part(
+				"SuperRing",
+				Vector3.new(0.35, 0.35, 2.1),
+				root.CFrame,
+				if i % 2 == 0 then ORANGE else GOLD,
+				0.1
+			)
+		)
+	end
+	local t0 = os.clock()
+	local conn = RunService.RenderStepped:Connect(function()
+		local r = rootOf(model)
+		if not r or not model.Parent then
+			SuperFx.clearAura()
+			return
+		end
+		local t = os.clock() - t0
+		local scale = 1
+		pcall(function()
+			scale = model:GetScale()
+		end)
+		local center = r.Position + Vector3.new(0, 0.4 * scale, 0)
+		local pulse = 1 + 0.06 * math.sin(t * 6)
+		shell.Size = Vector3.new(4.6, 6.4, 4.6) * scale * pulse
+		shell.CFrame = CFrame.new(center)
+		local radius = 3.3 * scale
+		local ringY = center.Y - 1.2 * scale + 0.5 * math.sin(t * 2)
+		for i = 1, RING_SEGMENTS do
+			local a = t * 2.4 + (i / RING_SEGMENTS) * math.pi * 2
+			local pos = Vector3.new(center.X + math.cos(a) * radius, ringY, center.Z + math.sin(a) * radius)
+			local tangent = Vector3.new(-math.sin(a), 0, math.cos(a))
+			parts[i + 1].CFrame = CFrame.lookAt(pos, pos + tangent)
+		end
+	end)
+	aura = { Model = model, Parts = parts, Shell = shell, Conn = conn }
+end
+
+-- ---------------------------------------------------------------------------
+-- Разовые эффекты
+-- ---------------------------------------------------------------------------
+function SuperFx.transform(pos: Vector3)
+	local flash = part(
+		"SuperFlash",
+		Vector3.new(2, 2, 2),
+		CFrame.new(pos),
+		Color3.fromRGB(255, 250, 200),
+		0.05,
+		Enum.PartType.Ball
+	)
+	fade(flash, 0, 0.5, { Size = Vector3.new(16, 16, 16) })
+	local pillar =
+		part("SuperPillar", Vector3.new(3, 40, 3), CFrame.new(pos + Vector3.new(0, 18, 0)), GOLD, 0.3)
+	fade(pillar, 0.15, 0.8, { Size = Vector3.new(0.4, 60, 0.4) })
+	SuperFx.shockwave(pos - Vector3.new(0, 2.5, 0), 14)
+end
+
+function SuperFx.shockwave(pos: Vector3, radius: number)
+	local ground = pos - Vector3.new(0, 2.6, 0)
+	local disc = part(
+		"Shockwave",
+		Vector3.new(0.3, 2, 2),
+		CFrame.new(ground) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(255, 230, 150),
+		0.35,
+		Enum.PartType.Cylinder
+	)
+	fade(disc, 0, 0.45, { Size = Vector3.new(0.3, radius * 2, radius * 2) })
+	local n = 18
+	for i = 1, n do
+		local a = (i / n) * math.pi * 2
+		local dir = Vector3.new(math.cos(a), 0, math.sin(a))
+		local start = ground + dir * 1.5 + Vector3.new(0, 0.6, 0)
+		local shard =
+			part("ShockShard", Vector3.new(0.5, 0.5, 1.6), CFrame.lookAt(start, start + dir), ORANGE, 0.05)
+		fade(shard, 0, 0.45, { CFrame = CFrame.lookAt(start + dir * radius, start + dir * (radius + 1)) })
+	end
+end
+
+function SuperFx.burst(pos: Vector3)
+	local rng = Random.new()
+	local flash = part(
+		"StopFlash",
+		Vector3.new(3, 3, 3),
+		CFrame.new(pos),
+		Color3.fromRGB(255, 255, 255),
+		0,
+		Enum.PartType.Ball
+	)
+	fade(flash, 0, 0.4, { Size = Vector3.new(14, 14, 14) })
+	for _ = 1, 28 do
+		local v = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.1, 1.2), rng:NextNumber(-1, 1))
+		if v.Magnitude < 0.05 then
+			v = Vector3.new(0, 1, 0)
+		end
+		v = v.Unit
+		local color = if rng:NextNumber() < 0.5 then GOLD else Color3.fromRGB(255, 90, 60)
+		local s = rng:NextNumber(0.5, 1.1)
+		local p = part("StopParticle", Vector3.new(s, s, s), CFrame.new(pos), color, 0)
+		fade(p, 0.05, rng:NextNumber(0.6, 1.0), {
+			CFrame = CFrame.new(pos + v * rng:NextNumber(7, 14))
+				* CFrame.Angles(rng:NextNumber(0, 6), rng:NextNumber(0, 6), 0),
+			Size = Vector3.new(0.2, 0.2, 0.2),
+		})
+	end
+	SuperFx.shockwave(pos, 10)
+end
+
+function SuperFx.stun(model: Model, seconds: number)
+	local head = model:FindFirstChild("Head")
+	if not head or not head:IsA("BasePart") then
+		return
+	end
+	local stars: { Part } = {}
+	for i = 1, 3 do
+		table.insert(
+			stars,
+			part(
+				"StunStar",
+				Vector3.new(0.6, 0.6, 0.6),
+				head.CFrame,
+				Color3.fromRGB(255, 240, 90),
+				0,
+				Enum.PartType.Ball
+			)
+		)
+		local _ = i
+	end
+	local t0 = os.clock()
+	local conn: RBXScriptConnection? = nil
+	conn = RunService.RenderStepped:Connect(function()
+		local t = os.clock() - t0
+		if t > seconds or not head.Parent then
+			if conn then
+				conn:Disconnect()
+			end
+			for _, s in ipairs(stars) do
+				s:Destroy()
+			end
+			return
+		end
+		for i, s in ipairs(stars) do
+			local a = t * 6 + i * (math.pi * 2 / 3)
+			s.CFrame = CFrame.new(head.Position + Vector3.new(math.cos(a) * 1.3, 1.3, math.sin(a) * 1.3))
+		end
+	end)
+end
+
+return SuperFx
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+				<Properties>
+					<string name="Name">SuperpowerLogic</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SuperpowerLogic — чистая логика события «Суперсила / Охота» (без инстансов, тестируется в luau).
+	Сервис (Server/SuperpowerService) вызывает эти функции; баланс — Config.SUPERPOWER.
+	  * timing      — интервал/длительность/первый запуск с ускорением для тестов (Workspace.SuperpowerTimeScale);
+	  * pick        — выбор суперигрока: только подходящие, не тот же, что в прошлый раз (если есть выбор);
+	  * maxHp, hunterHit, petHit — PvP-HP цели и урон охотников (с потолком доли HP за удар);
+	  * canHit      — проверки удара (охота идёт, не по себе, дистанция, кулдаун);
+	  * stopRewards / surviveRewards — распределение наград по вкладу (анти-AFK: минимум урона).
+]]
+local SuperpowerLogic = {}
+
+export type Candidate = { Key: string, Eligible: boolean, IsBot: boolean? }
+export type Reward = {
+	Clicks: number,
+	Gems: number,
+	Essence: number,
+	BpXp: number?,
+	RareChance: number,
+	Share: number,
+	K: number,
+	LastHit: boolean,
+}
+
+-- Тайминги с ускорением (scale ≥ 1): длительность никогда не доходит до следующего выбора
+function SuperpowerLogic.timing(cfg: any, scale: number?): (number, number, number)
+	local s = math.clamp(tonumber(scale) or 1, 1, 60)
+	local interval = cfg.INTERVAL / s
+	local duration = math.min(cfg.DURATION, cfg.INTERVAL - cfg.GAP) / s
+	local first = cfg.FIRST_DELAY / s
+	return interval, duration, first
+end
+
+-- Хватает ли участников (живые игроки + боты) для запуска
+function SuperpowerLogic.enoughPlayers(cfg: any, participants: number): boolean
+	return participants >= math.max(2, cfg.MIN_PLAYERS)
+end
+
+-- rngInt(n) -> целое 1..n
+function SuperpowerLogic.pick(
+	candidates: { Candidate },
+	lastKey: string?,
+	rngInt: (number) -> number
+): string?
+	local pool: { string } = {}
+	for _, c in ipairs(candidates) do
+		if c.Eligible then
+			table.insert(pool, c.Key)
+		end
+	end
+	if #pool > 1 and lastKey then
+		for i, k in ipairs(pool) do
+			if k == lastKey then
+				table.remove(pool, i)
+				break
+			end
+		end
+	end
+	if #pool == 0 then
+		return nil
+	end
+	return pool[math.clamp(rngInt(#pool), 1, #pool)]
+end
+
+-- Демо с ботами: с шансом humanChance выбираем живого игрока, иначе бота (повтор прошлого — только без выбора)
+function SuperpowerLogic.pickWithBots(
+	candidates: { Candidate },
+	lastKey: string?,
+	rngNumber: () -> number,
+	rngInt: (number) -> number,
+	humanChance: number
+): string?
+	local humans, bots = {}, {}
+	for _, c in ipairs(candidates) do
+		if c.Eligible then
+			table.insert(if c.IsBot then bots else humans, c)
+		end
+	end
+	if #humans == 0 or #bots == 0 then
+		return SuperpowerLogic.pick(candidates, lastKey, rngInt)
+	end
+	local group = if rngNumber() < humanChance then humans else bots
+	-- если в выбранной группе единственный кандидат — прошлый суперигрок, берём другую группу
+	if #group == 1 and group[1].Key == lastKey then
+		group = if group == humans then bots else humans
+	end
+	return SuperpowerLogic.pick(group, lastKey, rngInt)
+end
+
+function SuperpowerLogic.maxHp(cfg: any, hunters: number): number
+	return math.floor(cfg.HP_BASE + cfg.HP_PER_HUNTER * math.max(1, hunters))
+end
+
+local function powerFactor(cfg: any, power: number): number
+	return 1 + cfg.HIT_POWER_K * math.log(1 + math.max(0, power))
+end
+
+-- Урон удара охотника: растёт с силой команды медленно (логарифм), не больше MAX_HIT_SHARE от PvP-HP
+function SuperpowerLogic.hunterHit(cfg: any, power: number, maxHp: number): number
+	local dmg = cfg.HIT_BASE * powerFactor(cfg, power)
+	return math.max(1, math.floor(math.min(dmg, cfg.MAX_HIT_SHARE * maxHp)))
+end
+
+-- Урон питомцев охотника за один тик боя
+function SuperpowerLogic.petHit(cfg: any, pets: number, power: number, maxHp: number): number
+	if pets <= 0 then
+		return 0
+	end
+	local dmg = cfg.PET_HIT * pets * powerFactor(cfg, power)
+	return math.max(1, math.floor(math.min(dmg, cfg.PET_MAX_PER_TICK * maxHp)))
+end
+
+export type RoundView = { Active: boolean, TargetKey: string, Done: boolean? }
+
+-- Можно ли ударить суперигрока: (ok, причина)
+function SuperpowerLogic.canHit(
+	cfg: any,
+	round: RoundView?,
+	attackerKey: string,
+	now: number,
+	dist: number,
+	reach: number?,
+	lastHitAt: number?
+): (boolean, string?)
+	if not round or not round.Active or round.Done then
+		return false, "inactive" -- никакого PvP вне охоты
+	end
+	if attackerKey == round.TargetKey then
+		return false, "self"
+	end
+	if dist ~= dist or dist > cfg.HIT_RANGE + (reach or 0) then
+		return false, "far"
+	end
+	if lastHitAt and now - lastHitAt < cfg.HIT_COOLDOWN then
+		return false, "cooldown"
+	end
+	return true, nil
+end
+
+function SuperpowerLogic.minDamage(cfg: any, maxHp: number): number
+	return math.ceil(cfg.MIN_DAMAGE_SHARE * maxHp)
+end
+
+local function total(damage: { [string]: number }): (number, number)
+	local sum, n = 0, 0
+	for _, d in pairs(damage) do
+		if d > 0 then
+			sum += d
+			n += 1
+		end
+	end
+	return sum, n
+end
+
+--[[ Цель остановлена. damage — урон всех участников (игроки и боты), humans — ключи живых игроков (награды только им).
+	Возвращает (награды по ключу, AFK-ключи без награды). Вклад k = доля урона × число нанёсших урон, в [K_MIN, K_MAX];
+	быстрая остановка (timeLeftFrac — доля оставшегося времени) даёт до +SPEED_BONUS. ]]
+function SuperpowerLogic.stopRewards(
+	cfg: any,
+	damage: { [string]: number },
+	maxHp: number,
+	lastHitKey: string?,
+	timeLeftFrac: number,
+	humans: { [string]: boolean }
+): ({ [string]: Reward }, { [string]: boolean })
+	local sum, hunters = total(damage)
+	local out: { [string]: Reward } = {}
+	local afk: { [string]: boolean } = {}
+	local minDmg = SuperpowerLogic.minDamage(cfg, maxHp)
+	local speed = 1 + cfg.SPEED_BONUS * math.clamp(timeLeftFrac, 0, 1)
+	local base = cfg.STOP_REWARD
+	for key in pairs(humans) do
+		local d = damage[key] or 0
+		if d < minDmg or sum <= 0 then
+			afk[key] = true
+		else
+			local share = d / sum
+			local k = math.clamp(share * hunters, cfg.STOP_K_MIN, cfg.STOP_K_MAX)
+			local r: Reward = {
+				Clicks = math.floor(base.Clicks * k * speed),
+				Gems = math.max(1, math.floor(base.Gems * k * speed + 0.5)),
+				Essence = math.max(1, math.floor(base.Essence * k + 0.5)),
+				RareChance = math.min(0.5, base.RareChance * k),
+				Share = share,
+				K = k,
+				LastHit = key == lastHitKey,
+			}
+			if r.LastHit then
+				local b = cfg.LAST_HIT_BONUS
+				r.Clicks += b.Clicks
+				r.Gems += b.Gems
+				r.Essence += b.Essence
+			end
+			out[key] = r
+		end
+	end
+	return out, afk
+end
+
+-- Суперигрок продержался: крупная награда ему, утешительная — охотникам, нанёсшим минимум урона
+function SuperpowerLogic.surviveRewards(
+	cfg: any,
+	superKey: string,
+	damage: { [string]: number },
+	maxHp: number,
+	humans: { [string]: boolean }
+): ({ [string]: Reward }, { [string]: boolean })
+	local out: { [string]: Reward } = {}
+	local afk: { [string]: boolean } = {}
+	local minDmg = SuperpowerLogic.minDamage(cfg, maxHp)
+	for key in pairs(humans) do
+		if key == superKey then
+			local s = cfg.SURVIVE_REWARD
+			out[key] = {
+				Clicks = s.Clicks,
+				Gems = s.Gems,
+				Essence = s.Essence,
+				BpXp = s.BpXp,
+				RareChance = 0,
+				Share = 0,
+				K = 1,
+				LastHit = false,
+			}
+		elseif (damage[key] or 0) >= minDmg then
+			local c = cfg.CONSOLATION
+			out[key] = {
+				Clicks = c.Clicks,
+				Gems = c.Gems,
+				Essence = 0,
+				RareChance = 0,
+				Share = 0,
+				K = 0,
+				LastHit = false,
+			}
+		else
+			afk[key] = true
+		end
+	end
+	return out, afk
+end
+
+return SuperpowerLogic
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
@@ -5538,7 +6206,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5692,7 +6360,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5773,7 +6441,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5858,7 +6526,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5999,11 +6667,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000001E">
+	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000020">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX0000000000000000000000000000001F">
+		<Item class="Script" referent="RBX00000000000000000000000000000021">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -6043,6 +6711,8 @@ require(Server.StationService).init()
 require(Server.ShopService).init()
 require(Server.BattlePassService).init()
 require(Server.TradeService).init()
+require(Server.SuperpowerService).init()
+require(Server.SuperBots).init()
 require(Server.OfflineService).init()
 require(Server.EventService).init()
 require(Server.Monetization).init()
@@ -6054,11 +6724,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX00000000000000000000000000000020">
+		<Item class="Folder" referent="RBX00000000000000000000000000000022">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6142,8 +6812,9 @@ local function check(player: Player): boolean
 	if math.abs(humanoid.WalkSpeed - expected) > 0.01 then
 		humanoid.WalkSpeed = expected
 	end
-	if humanoid.UseJumpPower and math.abs(humanoid.JumpPower - Config.JUMP_POWER) > 0.01 then
-		humanoid.JumpPower = Config.JUMP_POWER
+	local jump = Economy.getJumpPower(player)
+	if humanoid.UseJumpPower and math.abs(humanoid.JumpPower - jump) > 0.01 then
+		humanoid.JumpPower = jump
 	end
 
 	-- 2) Проверка горизонтальной скорости
@@ -6183,7 +6854,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6290,7 +6961,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6371,7 +7042,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6407,6 +7078,7 @@ local ResourceService = require(script.Parent.ResourceService)
 local Router = require(script.Parent.Router)
 local Session = require(script.Parent.Session)
 local State = require(script.Parent.State)
+local SuperpowerService = require(script.Parent.SuperpowerService)
 
 local CombatService = {}
 
@@ -6860,9 +7532,13 @@ local function teamTick(player: Player, now: number)
 		cds = {}
 		petCd[player] = cds
 	end
+	-- Охота «Суперсила»: питомцы охотника атакуют суперигрока, если он рядом
+	if SuperpowerService.petTick(player, data, root.Position) then
+		return
+	end
 	local near = nearbyEnemies(root.Position, Config.COMBAT_RANGE)
 	local target = near[1]
-	local dmgMult = Economy.getDamageMultiplier(data)
+	local dmgMult = Economy.getDamageMultiplier(data) * SuperpowerService.damageMult(player)
 	if (frenzyUntil[player] or 0) > now then
 		dmgMult *= 1.5
 	end
@@ -7120,6 +7796,9 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 	if now - (lastAttack[player] or 0) < Config.PLAYER_ATTACK_COOLDOWN * 0.8 then
 		return false, nil -- кулдаун без тоста
 	end
+	if SuperpowerService.isStunned(player) then
+		return false, nil -- оглушён ударной волной суперигрока
+	end
 	lastAttack[player] = now
 	-- Замах (в т.ч. «в воздух») видят другие игроки рядом; сам атакующий рисует его сразу по нажатию.
 	for _, other in ipairs(Players:GetPlayers()) do
@@ -7127,6 +7806,20 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 		if other ~= player and r and (r.Position - root.Position).Magnitude <= FX_RADIUS then
 			Remotes.getEvent("CombatFx"):FireClient(other, "Swing", player)
 		end
+	end
+	-- Событие «Суперсила»: суперигрок бьёт по площади (ударная волна), охотник — по суперигроку в радиусе
+	local isSuper = SuperpowerService.isSuper(player)
+	if isSuper and SuperpowerService.superSlam(SuperpowerService.keyOf(player)) then
+		local slamDmg = Formulas.playerAttack(
+			Economy.getPetPower(data) * Config.PET_DAMAGE_SCALE,
+			Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
+			0
+		) * Config.SUPERPOWER.DAMAGE_MULT * 0.6
+		for _, e in ipairs(nearbyEnemies(root.Position, Config.SUPERPOWER.SLAM_RANGE)) do
+			damageEnemy(e, slamDmg, player, "player")
+		end
+	elseif not isSuper and SuperpowerService.tryPlayerHit(player) then
+		return true, nil
 	end
 	local target: Enemy? = nil
 	if type(enemyId) == "string" then
@@ -7146,7 +7839,7 @@ local function attack(player: Player, enemyId: any): (boolean, any)
 		Economy.getPetPower(data) * Config.PET_DAMAGE_SCALE,
 		Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
 		blade
-	)
+	) * SuperpowerService.damageMult(player)
 	local dir = Vector3.new(target.Pos.X - root.Position.X, 0, target.Pos.Z - root.Position.Z)
 	dir = if dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
 	local hitPos = target.Pos + Vector3.new(0, target.Half * 0.6, 0) - dir * math.min(target.Half, 2)
@@ -7223,7 +7916,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7323,7 +8016,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7356,7 +8049,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7447,7 +8140,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7878,7 +8571,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8019,7 +8712,9 @@ function Economy.getCoinMultiplier(player: Player, data: DataService.Data): numb
 		+ Economy.talent(data, "Coins")
 		+ Economy.passive(data, "Coins")
 		+ Economy.getFriendBonus(player)
-	return Economy.getBonusMultiplier(player) * bonus * Economy.getCoinBoost(data)
+	local s = Session.get(player)
+	local super = if s then s.SuperCoin else 1 -- суперсила (SuperpowerService)
+	return Economy.getBonusMultiplier(player) * bonus * Economy.getCoinBoost(data) * super
 end
 
 -- Монет за один клик в текущей зоне
@@ -8065,7 +8760,21 @@ end
 function Economy.getWalkSpeed(player: Player, data: DataService.Data): number
 	local speed = Formulas.walkSpeed(data.Upgrades.Speed, Session.hasPass(player, "DOUBLE_SPEED"))
 	speed *= 1 + Economy.talent(data, "Speed") + Economy.passive(data, "Speed")
-	return math.min(speed, Config.MAX_WALKSPEED)
+	speed = math.min(speed, Config.MAX_WALKSPEED)
+	local s = Session.get(player)
+	if s then
+		if s.StunnedUntil > os.clock() then
+			return 0 -- оглушён ударной волной суперигрока
+		end
+		speed *= s.SuperSpeed
+	end
+	return speed
+end
+
+-- Сила прыжка (суперсила увеличивает)
+function Economy.getJumpPower(player: Player): number
+	local s = Session.get(player)
+	return Config.JUMP_POWER * (if s then s.SuperJump else 1)
 end
 
 function Economy.getXpMultiplier(data: DataService.Data): number
@@ -8287,7 +8996,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8410,10 +9119,7 @@ end
 -- ---------------------------------------------------------------------------
 
 local function onStart(id: string, left: number)
-	local def = EventData.ById[id]
-	for _, player in ipairs(Players:GetPlayers()) do
-		Notify.send(player, Locale.m("event.begun", { name = def.Name, desc = def.Desc }), "reward")
-	end
+	-- баннер «событие началось» рисует клиент (Fx) по EventState — в общем стеке с баннерами охоты
 	if id == "LunarNight" then
 		Lighting.ClockTime = 0
 		Lighting.Brightness = 1.2
@@ -8544,7 +9250,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8593,7 +9299,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8686,7 +9392,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8842,7 +9548,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8896,7 +9602,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9118,7 +9824,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9142,7 +9848,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9217,7 +9923,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9624,7 +10330,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9772,7 +10478,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		return
 	end
 	humanoid.UseJumpPower = true
-	humanoid.JumpPower = Config.JUMP_POWER
+	humanoid.JumpPower = Economy.getJumpPower(player)
 	humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 
@@ -9895,7 +10601,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9932,6 +10638,8 @@ local STAT_OF_KIND = {
 	trade = "Trades",
 	raid = "Raids",
 	rain = "RainCoins",
+	superstop = "SuperStops", -- остановил суперигрока (событие «Суперсила»)
+	supersurvive = "SuperSurvived", -- продержался суперсилой до конца
 }
 
 local BP_XP_OF_KIND = {
@@ -9939,6 +10647,8 @@ local BP_XP_OF_KIND = {
 	boss = Config.BP_XP_PER_KILL * 10,
 	gather = Config.BP_XP_PER_GATHER,
 	craft = Config.BP_XP_PER_CRAFT,
+	superstop = 30,
+	supersurvive = 40,
 }
 
 local function checkAchievements(player: Player, data: DataService.Data, stat: string)
@@ -10026,7 +10736,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10215,7 +10925,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10317,7 +11027,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10685,7 +11395,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10764,7 +11474,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10786,6 +11496,11 @@ export type PlayerSession = {
 	LastPosition: Vector3?,
 	LastPositionTime: number,
 	Ready: boolean, -- данные загружены, можно играть
+	-- событие «Суперсила» (SuperpowerService): множители суперигрока и оглушение охотника
+	SuperSpeed: number,
+	SuperJump: number,
+	SuperCoin: number,
+	StunnedUntil: number,
 }
 
 local Session = {}
@@ -10812,6 +11527,10 @@ function Session.create(player: Player): PlayerSession
 		LastPosition = nil,
 		LastPositionTime = 0,
 		Ready = false,
+		SuperSpeed = 1,
+		SuperJump = 1,
+		SuperCoin = 1,
+		StunnedUntil = 0,
 	}
 	sessions[player] = s
 	return s
@@ -10834,7 +11553,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10878,7 +11597,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10939,7 +11658,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11168,7 +11887,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11211,7 +11930,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11240,7 +11959,1089 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+				<Properties>
+					<string name="Name">SuperBots</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SuperBots — серверные боты-игроки для события «Суперсила» (только при Config.DEMO_BOTS).
+	Нужны, когда игрок на сервере один (веб-демо): 2–3 бота бегают по хабу, охотятся на суперигрока
+	(подбегают и бьют — урон считает SuperpowerService) и сами иногда становятся суперигроками,
+	которых должен останавливать живой игрок. Риг — стандартный R6 (Motor6D, Humanoid:MoveTo), как у игроков.
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local Locale = require(Shared.Locale)
+local Remotes = require(Shared.Remotes)
+local ZoneData = require(Shared.ZoneData)
+
+local SuperpowerService = require(script.Parent.SuperpowerService)
+
+local C = Config.SUPERPOWER
+
+local SuperBots = {}
+
+export type Bot = {
+	Key: string,
+	Name: string,
+	Index: number,
+	Model: Model,
+	Root: BasePart,
+	Humanoid: Humanoid,
+	Unit: SuperpowerService.Unit,
+	NextWander: number,
+	Home: Vector3,
+}
+
+local bots: { Bot } = {}
+local rng = Random.new()
+
+local SHIRTS = {
+	Color3.fromRGB(231, 76, 60),
+	Color3.fromRGB(46, 204, 113),
+	Color3.fromRGB(155, 89, 182),
+	Color3.fromRGB(241, 196, 15),
+}
+
+-- Стандартный R6-риг: те же имена частей и Motor6D (C0/C1), что у персонажа Roblox
+local function buildRig(name: string, shirt: Color3): (Model, BasePart, Humanoid)
+	local m = Instance.new("Model")
+	m.Name = "Bot_" .. name
+	local skin = Color3.fromRGB(245, 205, 165)
+	local pants = Color3.fromRGB(44, 62, 80)
+	local function part(n: string, size: Vector3, color: Color3): Part
+		local p = Instance.new("Part")
+		p.Name = n
+		p.Size = size
+		p.Color = color
+		p.TopSurface = Enum.SurfaceType.Smooth
+		p.BottomSurface = Enum.SurfaceType.Smooth
+		p.CanCollide = n ~= "HumanoidRootPart"
+		p.Parent = m
+		return p
+	end
+	local hrp = part("HumanoidRootPart", Vector3.new(2, 2, 1), shirt)
+	hrp.Transparency = 1
+	local torso = part("Torso", Vector3.new(2, 2, 1), shirt)
+	local head = part("Head", Vector3.new(2, 1, 1), skin)
+	local la = part("Left Arm", Vector3.new(1, 2, 1), skin) -- l10n-ok: имя части R6
+	local ra = part("Right Arm", Vector3.new(1, 2, 1), skin) -- l10n-ok: имя части R6
+	local ll = part("Left Leg", Vector3.new(1, 2, 1), pants) -- l10n-ok: имя части R6
+	local rl = part("Right Leg", Vector3.new(1, 2, 1), pants) -- l10n-ok: имя части R6
+	local function motor(n: string, parent: Instance, p0: BasePart, p1: BasePart, c0: CFrame, c1: CFrame)
+		local j = Instance.new("Motor6D")
+		j.Name = n
+		j.Part0 = p0
+		j.Part1 = p1
+		j.C0 = c0
+		j.C1 = c1
+		j.Parent = parent
+	end
+	local NK = CFrame.new(0, 0, 0, -1, 0, 0, 0, 0, 1, 0, 1, 0)
+	local RS = CFrame.new(0, 0, 0, 0, 0, 1, 0, 1, 0, -1, 0, 0)
+	local LS = CFrame.new(0, 0, 0, 0, 0, -1, 0, 1, 0, 1, 0, 0)
+	motor("RootJoint", hrp, hrp, torso, NK, NK)
+	motor("Right Shoulder", torso, torso, ra, CFrame.new(1, 0.5, 0) * RS, CFrame.new(-0.5, 0.5, 0) * RS) -- l10n-ok: имя части R6
+	motor("Left Shoulder", torso, torso, la, CFrame.new(-1, 0.5, 0) * LS, CFrame.new(0.5, 0.5, 0) * LS) -- l10n-ok: имя части R6
+	motor("Right Hip", torso, torso, rl, CFrame.new(1, -1, 0) * RS, CFrame.new(0.5, 1, 0) * RS) -- l10n-ok: имя части R6
+	motor("Left Hip", torso, torso, ll, CFrame.new(-1, -1, 0) * LS, CFrame.new(-0.5, 1, 0) * LS) -- l10n-ok: имя части R6
+	motor("Neck", torso, torso, head, CFrame.new(0, 1, 0) * NK, CFrame.new(0, -0.5, 0) * NK)
+	local hum = Instance.new("Humanoid")
+	hum.HipHeight = 0
+	hum.WalkSpeed = C.BOT_SPEED
+	hum.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
+	hum.Parent = m
+	m.PrimaryPart = hrp
+	-- табличка над головой: «Бот Max» (переводит WorldLocalizer)
+	local g = Instance.new("BillboardGui")
+	g.Name = "OverheadTag"
+	g.Size = UDim2.fromOffset(160, 26)
+	g.StudsOffset = Vector3.new(0, 2.4, 0)
+	g.MaxDistance = 60
+	g.LightInfluence = 0
+	g.AlwaysOnTop = false
+	local l = Instance.new("TextLabel")
+	l.Name = "NameLabel"
+	l.BackgroundTransparency = 1
+	l.Size = UDim2.fromScale(1, 1)
+	l.Font = Enum.Font.GothamBold
+	l.TextScaled = true
+	l.TextColor3 = Color3.fromRGB(200, 230, 255)
+	l.TextStrokeTransparency = 0.4
+	l.ZIndex = 1
+	Locale.setWorld(l, "bot.tag", { player = name })
+	l.Parent = g
+	g.Parent = head
+	m:SetAttribute("IsBot", true)
+	return m, hrp, hum
+end
+
+local function moveTo(b: Bot, pos: Vector3)
+	b.Humanoid:MoveTo(Vector3.new(pos.X, b.Root.Position.Y - 3, pos.Z))
+end
+
+local function swingFx(b: Bot)
+	local ev = Remotes.getEvent("CombatFx")
+	for _, p in ipairs(game:GetService("Players"):GetPlayers()) do
+		ev:FireClient(p, "Swing", b.Model)
+	end
+end
+
+local function nearestOther(b: Bot, range: number): Vector3?
+	local best, bd = nil, range
+	local players = game:GetService("Players"):GetPlayers()
+	local function consider(r: BasePart?)
+		if r and r ~= b.Root then
+			local d = (r.Position - b.Root.Position).Magnitude
+			if d < bd then
+				best, bd = r.Position, d
+			end
+		end
+	end
+	for _, p in ipairs(players) do
+		local character = p.Character
+		consider(character and character:FindFirstChild("HumanoidRootPart") :: BasePart?)
+	end
+	for _, o in ipairs(bots) do
+		consider(o.Root)
+	end
+	return best
+end
+
+local function think(b: Bot, now: number)
+	local u = b.Unit
+	local hum = b.Humanoid
+	if b.Model.Parent == nil then
+		return
+	end
+	local isSuper = SuperpowerService.isSuperKey(b.Key)
+	local base = C.BOT_SPEED * (if isSuper then C.SPEED_MULT else 1)
+	if u.StunnedUntil > now then
+		hum.WalkSpeed = 0
+		return
+	end
+	hum.WalkSpeed = base
+	local pos = b.Root.Position
+	local active = SuperpowerService.isActive()
+	local targetRoot = SuperpowerService.targetRoot()
+	if active and isSuper then
+		-- суперигрок-бот: идёт на ближайшего охотника и бьёт ударной волной
+		local foe = nearestOther(b, 70)
+		if foe then
+			if (foe - pos).Magnitude <= C.SLAM_RANGE * 0.7 then
+				if SuperpowerService.superSlam(b.Key) then
+					swingFx(b)
+				end
+			end
+			moveTo(b, foe)
+		elseif now >= b.NextWander then
+			b.NextWander = now + rng:NextNumber(2, 4)
+			moveTo(b, b.Home + Vector3.new(rng:NextNumber(-30, 30), 0, rng:NextNumber(-30, 30)))
+		end
+	elseif active and targetRoot then
+		local tp = targetRoot.Position
+		local d = (tp - pos).Magnitude
+		if d > 140 then
+			-- цель в другом мире: «бежим» туда (телепорт на 30 стадов от цели)
+			local ang = b.Index * 2.1
+			b.Model:PivotTo(CFrame.new(tp + Vector3.new(math.cos(ang) * 30, 3, math.sin(ang) * 30)))
+			return
+		end
+		local ang = b.Index * 2.1 + now * 0.3
+		moveTo(b, tp + Vector3.new(math.cos(ang) * 6, 0, math.sin(ang) * 6))
+		if d <= C.HIT_RANGE * 0.85 and SuperpowerService.botHit(b.Key) then
+			swingFx(b)
+		end
+	else
+		if (pos - b.Home).Magnitude > ZoneData.HUB_RADIUS + 60 then
+			b.Model:PivotTo(CFrame.new(b.Home + Vector3.new(0, 3, 0)))
+			return
+		end
+		if now >= b.NextWander then
+			b.NextWander = now + rng:NextNumber(3, 6)
+			local a = rng:NextNumber(0, math.pi * 2)
+			local r = rng:NextNumber(14, 48)
+			moveTo(b, Vector3.new(math.cos(a) * r, 0, 20 + math.sin(a) * r * 0.6))
+		end
+	end
+end
+
+function SuperBots.list(): { Bot }
+	return bots
+end
+
+-- Создать ботов (идемпотентно). init вызывает это только при Config.DEMO_BOTS; тесты — напрямую.
+function SuperBots.spawn()
+	if #bots > 0 then
+		return
+	end
+	local folder = Instance.new("Folder")
+	folder.Name = "Bots"
+	folder.Parent = Workspace
+	for i = 1, math.min(C.BOT_COUNT, #C.BOT_NAMES) do
+		local name = C.BOT_NAMES[i]
+		local home = Vector3.new(-24 + (i - 1) * 24, 0, 40)
+		local m, root, hum = buildRig(name, SHIRTS[(i - 1) % #SHIRTS + 1])
+		m:PivotTo(CFrame.new(home + Vector3.new(0, 3.2, 0)))
+		m.Parent = folder
+		pcall(function()
+			root:SetNetworkOwner(nil) -- физикой ботов владеет сервер
+		end)
+		local key = "bot" .. i
+		local b: Bot
+		local unit: SuperpowerService.Unit = {
+			Key = key,
+			Name = name,
+			IsBot = true,
+			Player = nil,
+			GetModel = function()
+				return if m.Parent then m else nil
+			end,
+			Eligible = function()
+				return m.Parent ~= nil and hum.Health > 0
+			end,
+			Knock = function(dir: Vector3, dist: number, _stun: number)
+				pcall(function()
+					m:PivotTo(m:GetPivot() + dir * dist + Vector3.new(0, 1, 0))
+				end)
+			end,
+			StunnedUntil = 0,
+			ImmuneUntil = 0,
+			LastHit = -1e9,
+			LastSlam = -1e9,
+		}
+		b = {
+			Key = key,
+			Name = name,
+			Index = i,
+			Model = m,
+			Root = root,
+			Humanoid = hum,
+			Unit = unit,
+			NextWander = 0,
+			Home = home,
+		}
+		table.insert(bots, b)
+		SuperpowerService.addUnit(unit)
+	end
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc >= 0.2 then
+			acc = 0
+			local now = os.clock()
+			for _, b in ipairs(bots) do
+				think(b, now)
+			end
+		end
+	end)
+end
+
+function SuperBots.init()
+	if Config.DEMO_BOTS then
+		SuperBots.spawn()
+	end
+end
+
+return SuperBots
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+				<Properties>
+					<string name="Name">SuperpowerService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SuperpowerService — событие «Суперсила / Охота».
+	Раз в INTERVAL секунд сервер выбирает случайного подходящего участника (живой, данные загружены, не в обмене,
+	по возможности не тот же, что в прошлый раз). Он получает суперсилу на DURATION секунд (но не дольше, чем до
+	следующего выбора): крупнее (Model:ScaleTo), быстрее, выше прыжок, x урон и x монеты, удар по площади с ударной
+	волной и «PvP-HP» охоты. Остальные получают задание «Останови его!» и могут бить его своей атакой (Attack /
+	CombatService) и питомцами. Исходы: HP цели = 0 → «остановлен» (награда охотникам по вкладу + бонус за последний
+	удар), таймер истёк → «продержался» (крупная награда ему, утешительная охотникам). Всё считается только здесь.
+
+	Участники (Unit) — игроки и, при Config.DEMO_BOTS, серверные боты (SuperBots регистрирует их через addUnit).
+	Тестовые переключатели (только сервер, атрибуты Workspace): SuperpowerTimeScale (ускорение цикла),
+	SuperpowerPaused (не начинать новые раунды), SuperpowerForce = "me" | "bot" | ключ (начать раунд сейчас).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage.Shared
+
+local Config = require(Shared.Config)
+local Locale = require(Shared.Locale)
+local Remotes = require(Shared.Remotes)
+local Logic = require(Shared.SuperpowerLogic)
+
+local AntiExploit = require(script.Parent.AntiExploit)
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local Progress = require(script.Parent.Progress)
+local Session = require(script.Parent.Session)
+local State = require(script.Parent.State)
+local TradeService = require(script.Parent.TradeService)
+
+local C = Config.SUPERPOWER
+
+local SuperpowerService = {}
+
+export type Unit = {
+	Key: string,
+	Name: string,
+	IsBot: boolean,
+	Player: Player?,
+	GetModel: () -> Model?,
+	Eligible: () -> boolean,
+	Knock: ((dir: Vector3, dist: number, stun: number) -> ())?,
+	StunnedUntil: number,
+	ImmuneUntil: number,
+	LastHit: number,
+	LastSlam: number,
+}
+
+export type Round = {
+	Id: number,
+	Active: boolean,
+	Done: boolean,
+	TargetKey: string,
+	TargetName: string,
+	TargetIsBot: boolean,
+	Hp: number,
+	MaxHp: number,
+	Started: number,
+	Ends: number,
+	Duration: number,
+	Damage: { [string]: number },
+	LastHitKey: string?,
+	Tag: BillboardGui?,
+	Fill: Frame?,
+}
+
+export type Outcome = { Kind: string, Target: string, Round: number, At: number }
+
+local units: { [string]: Unit } = {}
+local round: Round? = nil
+local roundId = 0
+local lastKey: string? = nil
+local nextPickAt = 0
+local lastOutcome: Outcome? = nil
+local lastBroadcast = 0
+local rng = Random.new()
+local FX_RADIUS = 200
+
+-- ---------------------------------------------------------------------------
+-- Вспомогательное
+-- ---------------------------------------------------------------------------
+
+function SuperpowerService.keyOf(player: Player): string
+	return "p" .. tostring(player.UserId)
+end
+
+local function timeScale(): number
+	local v = Workspace:GetAttribute("SuperpowerTimeScale")
+	return if type(v) == "number" then v else 1
+end
+
+local function rootOf(u: Unit?): BasePart?
+	local m = u and u.GetModel()
+	local r = m and m:FindFirstChild("HumanoidRootPart")
+	return if r and r:IsA("BasePart") then r else nil
+end
+
+local function flat(v: Vector3): Vector3
+	local f = Vector3.new(v.X, 0, v.Z)
+	return if f.Magnitude > 0.01 then f.Unit else Vector3.new(0, 0, -1)
+end
+
+local function combatFx(pos: Vector3?, ...: any)
+	local ev = Remotes.getEvent("CombatFx")
+	for _, p in ipairs(Players:GetPlayers()) do
+		local character = p.Character
+		local r = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+		if pos == nil or (r and (r.Position - pos).Magnitude <= FX_RADIUS) then
+			ev:FireClient(p, ...)
+		end
+	end
+end
+
+local function refreshMovement(player: Player)
+	local data = DataService.get(player)
+	local character = player.Character
+	local hum = character and character:FindFirstChildOfClass("Humanoid")
+	if data and hum then
+		hum.WalkSpeed = Economy.getWalkSpeed(player, data)
+		hum.JumpPower = Economy.getJumpPower(player)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Участники
+-- ---------------------------------------------------------------------------
+
+function SuperpowerService.addUnit(u: Unit)
+	units[u.Key] = u
+end
+
+function SuperpowerService.removeUnit(key: string)
+	local r = round
+	if r and r.TargetKey == key and not r.Done then
+		SuperpowerService.finish("cancel")
+	end
+	units[key] = nil
+end
+
+function SuperpowerService.getUnit(key: string): Unit?
+	return units[key]
+end
+
+local function playerUnit(player: Player): Unit
+	local u: Unit = {
+		Key = SuperpowerService.keyOf(player),
+		Name = player.DisplayName,
+		IsBot = false,
+		Player = player,
+		GetModel = function()
+			return player.Character
+		end,
+		Eligible = function()
+			local s = Session.get(player)
+			local character = player.Character
+			local hum = character and character:FindFirstChildOfClass("Humanoid")
+			return player.Parent ~= nil
+				and s ~= nil
+				and s.Ready
+				and DataService.get(player) ~= nil
+				and hum ~= nil
+				and hum.Health > 0
+				and (character :: Model):FindFirstChild("HumanoidRootPart") ~= nil
+				and not TradeService.isTrading(player)
+		end,
+		StunnedUntil = 0,
+		ImmuneUntil = 0,
+		LastHit = -1e9,
+		LastSlam = -1e9,
+	}
+	u.Knock = function(dir: Vector3, dist: number, stun: number)
+		local s = Session.get(player)
+		local root = rootOf(u)
+		if not s or not root then
+			return
+		end
+		AntiExploit.markTeleport(player)
+		pcall(function()
+			root.CFrame = root.CFrame + dir * dist + Vector3.new(0, 1.5, 0)
+		end)
+		s.StunnedUntil = os.clock() + stun
+		refreshMovement(player)
+		task.delay(stun + 0.05, function()
+			if player.Parent then
+				refreshMovement(player)
+			end
+		end)
+	end
+	return u
+end
+
+local function participants(): { Unit }
+	local list = {}
+	for _, u in pairs(units) do
+		if u.Eligible() then
+			table.insert(list, u)
+		end
+	end
+	table.sort(list, function(a, b)
+		return a.Key < b.Key
+	end)
+	return list
+end
+
+-- ---------------------------------------------------------------------------
+-- Суперсила: включение/выключение
+-- ---------------------------------------------------------------------------
+
+local function makeTag(model: Model): (BillboardGui?, Frame?)
+	local head = model:FindFirstChild("Head") or model:FindFirstChild("HumanoidRootPart")
+	if not head then
+		return nil, nil
+	end
+	local g = Instance.new("BillboardGui")
+	g.Name = "SuperTag"
+	g.Size = UDim2.fromOffset(170, 40)
+	g.StudsOffset = Vector3.new(0, 4.8, 0) -- над именем игрока (имя на 2.6)
+	g.MaxDistance = 160
+	g.LightInfluence = 0
+	g.AlwaysOnTop = false
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.BackgroundTransparency = 1
+	title.Size = UDim2.fromScale(1, 0.6)
+	title.Font = Enum.Font.FredokaOne
+	title.TextScaled = true
+	title.TextColor3 = Color3.fromRGB(255, 214, 70)
+	title.TextStrokeTransparency = 0.2
+	title.ZIndex = 1
+	Locale.setWorld(title, "super.tag")
+	title.Parent = g
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.BackgroundColor3 = Color3.fromRGB(30, 24, 40)
+	back.BorderSizePixel = 0
+	back.Position = UDim2.fromScale(0.08, 0.66)
+	back.Size = UDim2.fromScale(0.84, 0.26)
+	back.ZIndex = 1
+	back.Parent = g
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BackgroundColor3 = Color3.fromRGB(255, 120, 60)
+	fill.BorderSizePixel = 0
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.ZIndex = 2
+	fill.Parent = back
+	g.Parent = head
+	return g, fill
+end
+
+local GROW_STEPS = 6
+
+-- ScaleTo масштабирует вокруг центра: поднимаем, чтобы ноги остались на земле (R6: 3 стада до ступней)
+local function scaleModel(model: Model, scale: number)
+	pcall(function()
+		local before = model:GetScale()
+		if math.abs(before - scale) < 1e-3 then
+			return
+		end
+		model:ScaleTo(scale)
+		local lift = 3 * (model:GetScale() - before)
+		if lift > 0 then
+			model:PivotTo(model:GetPivot() + Vector3.new(0, lift + 0.1, 0))
+		end
+	end)
+end
+
+local function updateBar(r: Round)
+	local u = units[r.TargetKey]
+	local model = u and u.GetModel()
+	if model then
+		model:SetAttribute("SuperHp", math.ceil(r.Hp))
+		model:SetAttribute("SuperMaxHp", r.MaxHp)
+	end
+	if r.Fill then
+		r.Fill.Size = UDim2.fromScale(math.clamp(r.Hp / r.MaxHp, 0, 1), 1)
+	end
+end
+
+local function setPower(u: Unit, on: boolean, r: Round?)
+	local model = u.GetModel()
+	if model then
+		model:SetAttribute("Super", if on then true else nil)
+		if on then
+			-- рост за ~0.5 с (видно всем: сервер масштабирует модель ступенями)
+			task.spawn(function()
+				for i = 1, GROW_STEPS do
+					if model:GetAttribute("Super") ~= true then
+						return
+					end
+					scaleModel(model, 1 + (C.SCALE - 1) * i / GROW_STEPS)
+					task.wait(0.08)
+				end
+			end)
+		else
+			scaleModel(model, 1)
+		end
+		if not on then
+			model:SetAttribute("SuperHp", nil)
+			model:SetAttribute("SuperMaxHp", nil)
+		end
+		local old = model:FindFirstChild("SuperTag", true)
+		if old then
+			old:Destroy()
+		end
+		if on and r then
+			r.Tag, r.Fill = makeTag(model)
+		end
+	end
+	local player = u.Player
+	if player then
+		local s = Session.get(player)
+		if s then
+			s.SuperSpeed = if on then C.SPEED_MULT else 1
+			s.SuperJump = if on then C.JUMP_MULT else 1
+			s.SuperCoin = if on then C.COIN_MULT else 1
+		end
+		refreshMovement(player)
+		State.markCore(player)
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Раунд
+-- ---------------------------------------------------------------------------
+
+local function broadcast(now: number)
+	lastBroadcast = now
+	local ev = Remotes.getEvent("Superpower")
+	local r = round
+	local target = r and units[r.TargetKey]
+	local model = target and target.GetModel()
+	local enough = Logic.enoughPlayers(C, #participants())
+	for _, player in ipairs(Players:GetPlayers()) do
+		local s = Session.get(player)
+		if s and s.Ready then
+			local key = SuperpowerService.keyOf(player)
+			local me = units[key]
+			local v: { [string]: any } = {
+				Round = roundId,
+				Active = r ~= nil and not r.Done,
+				NextIn = if r then nil else math.max(0, math.ceil(nextPickAt - now)),
+				Waiting = not enough,
+				Stunned = me ~= nil and me.StunnedUntil > now,
+			}
+			local o = lastOutcome
+			if o and now - o.At < 8 then
+				v.Outcome = { Kind = o.Kind, Target = o.Target, Round = o.Round }
+			end
+			if r and not r.Done then
+				v.Target = r.TargetName
+				v.TargetIsBot = r.TargetIsBot
+				v.IsYou = r.TargetKey == key
+				v.Model = model
+				v.Hp = math.ceil(r.Hp)
+				v.MaxHp = r.MaxHp
+				v.Left = math.max(0, r.Ends - now)
+				v.Duration = r.Duration
+				v.YourDamage = math.floor(r.Damage[key] or 0)
+				v.MinDamage = Logic.minDamage(C, r.MaxHp)
+			end
+			ev:FireClient(player, v)
+		end
+	end
+end
+
+-- Начать раунд (forcedKey — для тестов/админов). Возвращает ключ суперигрока или nil.
+function SuperpowerService.start(forcedKey: string?): string?
+	if round then
+		return nil
+	end
+	local now = os.clock()
+	local list = participants()
+	local interval, duration = Logic.timing(C, timeScale())
+	if not Logic.enoughPlayers(C, #list) then
+		nextPickAt = now + math.min(5, interval)
+		return nil
+	end
+	local key: string?
+	if forcedKey and units[forcedKey] and units[forcedKey].Eligible() then
+		key = forcedKey
+	else
+		local cands = {}
+		for _, u in ipairs(list) do
+			table.insert(cands, { Key = u.Key, Eligible = true, IsBot = u.IsBot })
+		end
+		local function rint(n: number): number
+			return rng:NextInteger(1, n)
+		end
+		key = if Config.DEMO_BOTS
+			then Logic.pickWithBots(cands, lastKey, function()
+				return rng:NextNumber()
+			end, rint, C.BOT_PLAYER_SUPER_CHANCE)
+			else Logic.pick(cands, lastKey, rint)
+	end
+	if not key then
+		nextPickAt = now + math.min(5, interval)
+		return nil
+	end
+	local u = units[key]
+	roundId += 1
+	-- PvP-HP по числу охотников; бот считается за половину игрока (он слабее живого охотника)
+	local hunters = 0
+	for _, x in ipairs(list) do
+		if x.Key ~= key then
+			hunters += if x.IsBot then 0.5 else 1
+		end
+	end
+	local maxHp = Logic.maxHp(C, hunters)
+	local r: Round = {
+		Id = roundId,
+		Active = true,
+		Done = false,
+		TargetKey = key,
+		TargetName = u.Name,
+		TargetIsBot = u.IsBot,
+		Hp = maxHp,
+		MaxHp = maxHp,
+		Started = now,
+		Ends = now + duration,
+		Duration = duration,
+		Damage = {},
+		LastHitKey = nil,
+	}
+	round = r
+	lastKey = key
+	nextPickAt = now + interval
+	for _, x in pairs(units) do
+		x.LastHit = -1e9
+	end
+	setPower(u, true, r)
+	updateBar(r)
+	local model = u.GetModel()
+	local root = rootOf(u)
+	combatFx(nil, "SuperStart", model, root and root.Position)
+	broadcast(now)
+	return key
+end
+
+local function grant(player: Player, rw: Logic.Reward, msgKey: string, args: { [string]: any })
+	local data = DataService.get(player)
+	if not data or player.Parent == nil then
+		return
+	end
+	local reward: { [string]: any } = {
+		Coins = Economy.getPerClick(player, data) * rw.Clicks,
+		Gems = if rw.Gems > 0 then rw.Gems else nil,
+		Res = if rw.Essence > 0 then { Essence = rw.Essence } else nil,
+		BpXp = rw.BpXp,
+	}
+	if rw.RareChance > 0 and rng:NextNumber() < rw.RareChance then
+		reward.Item = C.STOP_REWARD.RareItem
+	end
+	Economy.grant(player, reward)
+	local a = table.clone(args)
+	a.reward = Economy.describe(reward, Locale.langOf(player))
+	Notify.send(player, Locale.m(msgKey, a), "reward")
+end
+
+-- Завершить раунд: "stopped" | "survived" | "cancel". Награды — ровно один раз (r.Done ставится до выдачи).
+function SuperpowerService.finish(outcome: string)
+	local r = round
+	if not r or r.Done then
+		return
+	end
+	r.Done = true
+	r.Active = false
+	round = nil
+	local now = os.clock()
+	local target = units[r.TargetKey]
+	local root = rootOf(target)
+	local pos = if root then root.Position else nil
+	if target then
+		setPower(target, false, nil)
+	end
+	local humans: { [string]: boolean } = {}
+	local byKey: { [string]: Player } = {}
+	for _, p in ipairs(Players:GetPlayers()) do
+		local s = Session.get(p)
+		if s and s.Ready and DataService.get(p) then
+			local k = SuperpowerService.keyOf(p)
+			humans[k] = true
+			byKey[k] = p
+		end
+	end
+	local who = { player = r.TargetName }
+	if outcome == "stopped" then
+		local hunters = table.clone(humans)
+		hunters[r.TargetKey] = nil
+		local frac = math.clamp((r.Ends - now) / math.max(1, r.Duration), 0, 1)
+		local rewards, afk = Logic.stopRewards(C, r.Damage, r.MaxHp, r.LastHitKey, frac, hunters)
+		for k, rw in pairs(rewards) do
+			local p = byKey[k]
+			grant(p, rw, if rw.LastHit then "super.reward_last" else "super.reward_stop", who)
+			Progress.record(p, "superstop", nil, 1, nil)
+		end
+		for k in pairs(afk) do
+			Notify.send(byKey[k], Locale.m("super.too_little", who), "info")
+		end
+		local sp = byKey[r.TargetKey]
+		if sp then
+			Notify.send(sp, "super.you_stopped", "info")
+		end
+	elseif outcome == "survived" then
+		local rewards, afk = Logic.surviveRewards(C, r.TargetKey, r.Damage, r.MaxHp, humans)
+		for k, rw in pairs(rewards) do
+			local p = byKey[k]
+			if k == r.TargetKey then
+				grant(p, rw, "super.reward_survive", who)
+				Progress.record(p, "supersurvive", nil, 1, nil)
+			else
+				grant(p, rw, "super.reward_consolation", who)
+			end
+		end
+		for k in pairs(afk) do
+			Notify.send(byKey[k], Locale.m("super.escaped", who), "info")
+		end
+	else
+		for _, p in pairs(byKey) do
+			Notify.send(p, Locale.m("super.cancelled", who), "info")
+		end
+	end
+	lastOutcome = { Kind = outcome, Target = r.TargetName, Round = r.Id, At = now }
+	combatFx(nil, "SuperEnd", pos, outcome)
+	broadcast(now)
+end
+
+-- ---------------------------------------------------------------------------
+-- Бой (вызывается из CombatService и SuperBots)
+-- ---------------------------------------------------------------------------
+
+local function applyDamage(r: Round, attacker: Unit, amount: number, kind: string)
+	if r.Done or amount <= 0 then
+		return
+	end
+	local dealt = math.min(amount, r.Hp)
+	r.Hp -= dealt
+	r.Damage[attacker.Key] = (r.Damage[attacker.Key] or 0) + dealt
+	r.LastHitKey = attacker.Key
+	updateBar(r)
+	local target = units[r.TargetKey]
+	local tRoot = rootOf(target)
+	local aRoot = rootOf(attacker)
+	if tRoot then
+		local dir = if aRoot then flat(tRoot.Position - aRoot.Position) else Vector3.new(0, 0, -1)
+		local hitPos = tRoot.Position + Vector3.new(0, 1.5, 0) - dir * 2
+		if kind ~= "pet" then
+			combatFx(hitPos, "Impact", hitPos, dir)
+		end
+		if attacker.Player then
+			Remotes.getEvent("Fx"):FireClient(
+				attacker.Player,
+				"Hit",
+				hitPos + Vector3.new(0, 3, 0),
+				tostring(math.floor(dealt)),
+				"super"
+			)
+		end
+	end
+	if r.Hp <= 0 then
+		SuperpowerService.finish("stopped")
+	end
+end
+
+function SuperpowerService.isActive(): boolean
+	return round ~= nil
+end
+
+function SuperpowerService.current(): Round?
+	return round
+end
+
+function SuperpowerService.isSuperKey(key: string): boolean
+	local r = round
+	return r ~= nil and not r.Done and r.TargetKey == key
+end
+
+function SuperpowerService.isSuper(player: Player): boolean
+	return SuperpowerService.isSuperKey(SuperpowerService.keyOf(player))
+end
+
+function SuperpowerService.isStunned(player: Player): boolean
+	local u = units[SuperpowerService.keyOf(player)]
+	return u ~= nil and u.StunnedUntil > os.clock()
+end
+
+-- Множитель урона по врагам (суперигрок бьёт сильнее)
+function SuperpowerService.damageMult(player: Player): number
+	return if SuperpowerService.isSuper(player) then C.DAMAGE_MULT else 1
+end
+
+function SuperpowerService.targetRoot(): BasePart?
+	local r = round
+	return if r then rootOf(units[r.TargetKey]) else nil
+end
+
+-- Общая проверка удара охотника. Возвращает (true, урон-цель) или (false, причина)
+local function hunterCheck(attacker: Unit?, cooldown: number): (boolean, string?)
+	local r = round
+	if not attacker then
+		return false, "unit"
+	end
+	if attacker.StunnedUntil > os.clock() then
+		return false, "stunned"
+	end
+	local tRoot = rootOf(r and units[r.TargetKey])
+	local aRoot = rootOf(attacker)
+	if not tRoot or not aRoot then
+		return false, "inactive"
+	end
+	local dist = (tRoot.Position - aRoot.Position).Magnitude
+	local reach = (C.SCALE - 1) * 2.5
+	local now = os.clock()
+	local ok, why = Logic.canHit(
+		{ HIT_RANGE = C.HIT_RANGE, HIT_COOLDOWN = cooldown },
+		r :: any,
+		attacker.Key,
+		now,
+		dist,
+		reach,
+		attacker.LastHit
+	)
+	if ok then
+		attacker.LastHit = now
+	end
+	return ok, why
+end
+
+-- Удар игрока-охотника (Action "Attack"). true — удар ушёл в суперигрока (по врагам не бьём)
+function SuperpowerService.tryPlayerHit(player: Player): boolean
+	local r = round
+	local u = units[SuperpowerService.keyOf(player)]
+	if not r or r.Done or not u or u.Key == r.TargetKey then
+		return false
+	end
+	local ok, why = hunterCheck(u, C.HIT_COOLDOWN)
+	if not ok then
+		return why == "cooldown" or why == "stunned"
+	end
+	local data = DataService.get(player)
+	local power = if data then Economy.getPetPower(data) else 0
+	applyDamage(r, u, Logic.hunterHit(C, power, r.MaxHp), "player")
+	return true
+end
+
+-- Питомцы охотника атакуют суперигрока, если он в радиусе боя. true — тик потрачен на цель
+function SuperpowerService.petTick(player: Player, data: any, from: Vector3): boolean
+	local r = round
+	local u = units[SuperpowerService.keyOf(player)]
+	if not r or r.Done or not u or u.Key == r.TargetKey or #data.Equipped == 0 then
+		return false
+	end
+	local tRoot = rootOf(units[r.TargetKey])
+	if not tRoot or (tRoot.Position - from).Magnitude > Config.COMBAT_RANGE then
+		return false
+	end
+	applyDamage(r, u, Logic.petHit(C, #data.Equipped, Economy.getPetPower(data), r.MaxHp), "pet")
+	return true
+end
+
+-- Удар бота-охотника
+function SuperpowerService.botHit(key: string): boolean
+	local r = round
+	local u = units[key]
+	if not r or r.Done or not u or not u.IsBot or key == r.TargetKey then
+		return false
+	end
+	local ok = hunterCheck(u, C.BOT_ATTACK_INTERVAL)
+	if not ok then
+		return false
+	end
+	applyDamage(r, u, math.min(C.BOT_DAMAGE, math.floor(C.MAX_HIT_SHARE * r.MaxHp)), "bot")
+	return true
+end
+
+-- Удар суперигрока: ударная волна (по кулдауну) отталкивает и оглушает охотников. Урона охотникам нет.
+function SuperpowerService.superSlam(key: string): boolean
+	local r = round
+	local u = units[key]
+	local now = os.clock()
+	if not r or r.Done or r.TargetKey ~= key or not u or now - u.LastSlam < C.SLAM_COOLDOWN then
+		return false
+	end
+	u.LastSlam = now
+	local root = rootOf(u)
+	if not root then
+		return false
+	end
+	local range = C.SLAM_RANGE * C.SCALE / 1.6
+	combatFx(root.Position, "Shockwave", root.Position, range)
+	for k, other in pairs(units) do
+		local oRoot = rootOf(other)
+		if k ~= key and oRoot and other.Eligible() then
+			local d = oRoot.Position - root.Position
+			if Vector3.new(d.X, 0, d.Z).Magnitude <= range and now >= other.ImmuneUntil then
+				other.StunnedUntil = now + C.STUN_SECONDS
+				other.ImmuneUntil = now + C.STUN_SECONDS + C.STUN_IMMUNE
+				if other.Knock then
+					other.Knock(flat(d), C.SLAM_KNOCKBACK, C.STUN_SECONDS)
+				end
+				combatFx(oRoot.Position, "Stun", other.GetModel(), C.STUN_SECONDS)
+			end
+		end
+	end
+	return true
+end
+
+-- ---------------------------------------------------------------------------
+-- Цикл
+-- ---------------------------------------------------------------------------
+
+function SuperpowerService.step(now: number)
+	local force = Workspace:GetAttribute("SuperpowerForce")
+	if type(force) == "string" and force ~= "" then
+		Workspace:SetAttribute("SuperpowerForce", nil)
+		if round then
+			SuperpowerService.finish("cancel")
+		end
+		local key: string? = force
+		if force == "me" or force == "bot" then
+			key = nil
+			for _, u in ipairs(participants()) do
+				if (force == "bot") == u.IsBot then
+					key = u.Key
+					break
+				end
+			end
+		end
+		SuperpowerService.start(key)
+	end
+	local r = round
+	if r then
+		local target = units[r.TargetKey]
+		local model = target and target.GetModel()
+		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		if not target or not model then
+			SuperpowerService.finish("cancel")
+		elseif hum and hum.Health <= 0 then
+			SuperpowerService.finish("stopped") -- погиб от врагов: охота засчитана
+		elseif now >= r.Ends then
+			SuperpowerService.finish("survived")
+		end
+	elseif C.ENABLED and now >= nextPickAt and Workspace:GetAttribute("SuperpowerPaused") ~= true then
+		SuperpowerService.start(nil)
+	end
+	if now - lastBroadcast >= (if round then 0.5 else 2) then
+		broadcast(now)
+	end
+end
+
+function SuperpowerService.init()
+	local _, _, first = Logic.timing(C, timeScale())
+	nextPickAt = os.clock() + first
+	local function onPlayer(player: Player)
+		SuperpowerService.addUnit(playerUnit(player))
+	end
+	Players.PlayerAdded:Connect(onPlayer)
+	for _, p in ipairs(Players:GetPlayers()) do
+		onPlayer(p)
+	end
+	Players.PlayerRemoving:Connect(function(player)
+		SuperpowerService.removeUnit(SuperpowerService.keyOf(player))
+	end)
+	Workspace:GetAttributeChangedSignal("SuperpowerTimeScale"):Connect(function()
+		local interval, _, firstDelay = Logic.timing(C, timeScale())
+		if not round then
+			nextPickAt = math.min(nextPickAt, os.clock() + math.min(interval, firstDelay))
+		end
+	end)
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc >= 0.2 then
+			acc = 0
+			SuperpowerService.step(os.clock())
+		end
+	end)
+end
+
+return SuperpowerService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11288,6 +13089,11 @@ type Trade = {
 
 local trades: { [Player]: Trade } = {}
 local invites: { [Player]: { From: Player, Time: number } } = {} -- ключ — приглашённый
+
+-- Игрок сейчас в обмене (окно торговли открыто) — такие не участвуют в событии «Суперсила»
+function TradeService.isTrading(player: Player): boolean
+	return trades[player] ~= nil
+end
 
 -- Предложение бота: детерминированно по 10-минутному слоту, не дороже Epic
 function TradeService.botOffer(slot: number): { [string]: PetMeta.PetState }
@@ -11766,7 +13572,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11819,7 +13625,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11901,6 +13707,7 @@ local function makeLabel(
 	Locale.setWorld(l, text, args)
 	l.TextColor3 = color
 	l.TextStrokeTransparency = 0.4
+	l.ZIndex = 1
 	l.Parent = parent
 	return l
 end
@@ -11909,7 +13716,7 @@ local function billboard(parent: BasePart, offset: Vector3, width: number, heigh
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.fromOffset(width, height)
 	gui.StudsOffset = offset
-	gui.MaxDistance = 90
+	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
 	gui.LightInfluence = 0
 	gui.Parent = parent
 	return gui
@@ -12225,9 +14032,17 @@ local function addPrompt(target: BasePart, id: string, action: string, object: s
 	end)
 end
 
-local function sign(target: BasePart, text: string, subtext: string?, color: Color3, height: number)
-	local gui = billboard(target, Vector3.new(0, height, 0), 240, 76)
-	gui.MaxDistance = 110
+local function sign(
+	target: BasePart,
+	text: string,
+	subtext: string?,
+	color: Color3,
+	height: number,
+	w: number?,
+	h: number?
+)
+	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76)
+	gui.MaxDistance = 60
 	makeLabel(gui, text, UDim2.fromScale(1, if subtext then 0.56 else 0.9), Color3.fromRGB(255, 255, 255))
 	if subtext then
 		local sub = makeLabel(gui, subtext, UDim2.fromScale(1, 0.38), color)
@@ -12419,7 +14234,8 @@ local function buildHub(world: Folder)
 		Enum.Material.Neon,
 		false
 	)
-	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 4)
+	-- ниже и компактнее: с точки спавна вывеска не упирается в верхнюю панель HUD
+	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 1.2, 210, 60)
 
 	-- Точка появления
 	local sp = Instance.new("SpawnLocation")
@@ -12777,7 +14593,7 @@ function WorldBuilder.build()
 			Enum.Material.Wood
 		)
 		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
-		gui.MaxDistance = 140
+		gui.MaxDistance = 90
 		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
 		local mult =
 			makeLabel(gui, "world.zone_mult", UDim2.fromScale(1, 0.38), zone.Accent, { n = zone.Multiplier })
@@ -12845,7 +14661,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12940,38 +14756,73 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000043">
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000047">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000044">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000048">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000045">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
--- Боевые эффекты от сервера: удары других игроков и попадания (вспышка/искры). Урон считается только на сервере.
+-- Боевые эффекты от сервера: удары других игроков и ботов, попадания (вспышка/искры) и событие «Суперсила»
+-- (аура суперигрока, превращение, ударная волна, остановка, оглушение). Урон считается только на сервере.
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
+local SuperFx = require(Shared:WaitForChild("SuperFx"))
 
 Remotes.getEvent("CombatFx").OnClientEvent:Connect(function(kind: any, a: any, b: any)
-	if kind == "Swing" and typeof(a) == "Instance" and a:IsA("Player") then
-		if a ~= Players.LocalPlayer then -- свой удар уже нарисован по нажатию
+	if kind == "Swing" and typeof(a) == "Instance" then
+		if a:IsA("Player") then
+			if a ~= Players.LocalPlayer then -- свой удар уже нарисован по нажатию
+				AttackFx.swing(a, false)
+			end
+		elseif a:IsA("Model") then -- бот
 			AttackFx.swing(a, false)
 		end
 	elseif kind == "Impact" and typeof(a) == "Vector3" then
 		AttackFx.impact(a, if typeof(b) == "Vector3" then b else nil)
+	elseif kind == "SuperStart" then
+		if typeof(a) == "Instance" and a:IsA("Model") then
+			SuperFx.aura(a)
+		end
+		if typeof(b) == "Vector3" then
+			SuperFx.transform(b)
+		end
+	elseif kind == "Shockwave" and typeof(a) == "Vector3" then
+		SuperFx.shockwave(a, if type(b) == "number" then b else 14)
+	elseif kind == "SuperEnd" then
+		SuperFx.clearAura()
+		if typeof(a) == "Vector3" and b == "stopped" then
+			SuperFx.burst(a)
+		end
+	elseif kind == "Stun" and typeof(a) == "Instance" and a:IsA("Model") then
+		SuperFx.stun(a, if type(b) == "number" then b else 1)
+	end
+end)
+
+-- Аура держится по состоянию события (на случай входа в середине раунда или респавна модели)
+Remotes.getEvent("Superpower").OnClientEvent:Connect(function(st: any)
+	if type(st) ~= "table" then
+		return
+	end
+	local m = st.Model
+	if st.Active and typeof(m) == "Instance" and m:IsA("Model") then
+		SuperFx.aura(m)
+	elseif not st.Active and SuperFx.auraModel() then
+		SuperFx.clearAura()
 	end
 end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000046">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13107,7 +14958,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000047">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13214,22 +15065,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000048">
+	<Item class="StarterGui" referent="RBX0000000000000000000000000000004C">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000049">
+		<Item class="ScreenGui" referent="RBX0000000000000000000000000000004D">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX0000000000000000000000000000004A">
+			<Item class="Folder" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13262,7 +15113,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13361,7 +15212,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13448,7 +15299,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13677,7 +15528,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13819,7 +15670,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14006,7 +15857,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14236,7 +16087,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14257,7 +16108,9 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local HuntHud = require(script.Parent.HuntHud)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
@@ -14299,13 +16152,13 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		active += 1
 		local base = layer.AbsolutePosition
-		local big = kind == "Kill" or kind == "Ability" or extra == "boss"
+		local big = kind == "Kill" or kind == "Ability" or extra == "boss" or extra == "super"
 		local l = Widgets.label({
 			Name = "Fx_" .. tostring(kind),
 			Text = tostring(text),
 			Size = UDim2.fromOffset(150, if big then 30 else 22),
 			Position = UDim2.fromOffset(v.X - base.X - 75, v.Y - base.Y),
-			TextColor3 = COLORS[kind] or Theme.Text,
+			TextColor3 = if extra == "super" then Theme.Orange else (COLORS[kind] or Theme.Text),
 			TextStrokeTransparency = 0.3,
 			Font = Theme.Font,
 			ZIndex = 36,
@@ -14324,14 +16177,16 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	end)
 
 	-- ---------- статус множителей ----------
-	local status = UiKit.text(
-		gui,
-		"",
-		UDim2.new(0.5, -150, 0, 66),
-		UDim2.fromOffset(300, 18),
-		{ TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = Theme.TextDim, MaxSize = 14, ZIndex = 5 }
-	)
+	local status = UiKit.text(gui, "", UDim2.new(0.5, -150, 0, 67), UDim2.fromOffset(300, 19), {
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = Theme.TextDim,
+		MaxSize = 14,
+		ZIndex = 5,
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.15,
+	})
 	status.Name = "Multipliers"
+	Widgets.corner(status, 8)
 
 	-- ---------- полоса босса ----------
 	local bossBox = Widgets.New("Frame", {
@@ -14374,9 +16229,12 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		Parent = gui,
 	})
 	UiKit.list(events, 4)
+	local huntCard = HuntHud.init(gui, events)
 	local eventList: any = {}
+	local seenActive: { [string]: boolean } = {}
+	local EVENT_COLORS = { GoldenRain = Theme.Gold, LunarNight = Theme.Purple, BossRaid = Theme.Red }
 	local function drawEvents()
-		Widgets.clear(events)
+		Widgets.clear(events, { "HuntCard" })
 		local n = 0
 		for _, e in ipairs(eventList) do
 			if e.Active then
@@ -14415,6 +16273,16 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		for _, e in ipairs(list) do
 			e.Got = os.clock()
+			-- баннер «событие началось» (в общем стеке с баннерами охоты)
+			if e.Active and not seenActive[e.Id] then
+				Toasts.banner(
+					L.t("event.started", { name = L.n(e.Name) }),
+					L.n(e.Desc),
+					EVENT_COLORS[e.Id],
+					4
+				)
+			end
+			seenActive[e.Id] = e.Active == true
 		end
 		eventList = list
 		drawEvents()
@@ -14440,6 +16308,19 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		UDim2.new(1, -16, 1, -8),
 		{ MaxSize = 13, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 6 }
 	)
+
+	-- трекер — сразу под карточками событий/охоты (колонка справа не перекрывается)
+	local function relayout()
+		local y = 12
+		for _, c in ipairs(events:GetChildren()) do
+			if c:IsA("GuiObject") and c.Visible then
+				y += c.Size.Y.Offset + 4
+			end
+		end
+		events.Size = UDim2.fromOffset(250, math.max(1, y - 12))
+		tracker.Position = UDim2.new(1, -12, 0, y + 4)
+	end
+	local _ = huntCard
 
 	-- ---------- кнопка Attack ----------
 	local lastAttack = 0
@@ -14608,6 +16489,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		if #eventList > 0 then
 			drawEvents()
 		end
+		relayout()
 	end)
 end
 
@@ -14615,7 +16497,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14813,7 +16695,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14858,7 +16740,7 @@ local function statPill(parent: Instance, order: number, icon: string, color: Co
 		Size = UDim2.fromOffset(190, 38),
 		Position = UDim2.fromOffset(12, 12 + (order - 1) * 44),
 		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
 		Parent = parent,
 	})
 	Widgets.corner(pill, 19)
@@ -14921,7 +16803,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		Position = UDim2.new(0.5, 0, 0, 10),
 		Size = UDim2.fromOffset(300, 54),
 		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.1,
+		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
 		Parent = gui,
 	})
 	Widgets.corner(zoneBox, 14)
@@ -15161,7 +17043,451 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+					<Properties>
+						<string name="Name">HuntHud</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	HuntHud — интерфейс события «Суперсила / Охота» (только отображение; всё решает сервер).
+	  * карточка "HuntCard" первой в списке событий справа: задание «Останови X!» / «Продержись»,
+	    полоса HP суперигрока, таймер, твой урон и порог награды, дистанция, оглушение;
+	    вне раунда за 15 с до выбора — «Суперсила через 0:08»;
+	  * экранный указатель-стрелка к цели (на краю эллипса вокруг центра или над целью, если она в кадре);
+	  * 3D-стрелка-компас на земле перед своим персонажем, повернутая к цели;
+	  * баннеры начала/итога в общем стеке Toasts.
+	Состояние приходит персонально событием Remotes "Superpower" (раз в 0.5 с во время охоты).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
+local UiKit = require(script.Parent.UiKit)
+local Widgets = require(script.Parent.Widgets)
+
+local HuntHud = {}
+
+local CARD_H = 100
+local IDLE_H = 42
+local SHOW_NEXT = 15
+local ARROW_COLOR = Color3.fromRGB(255, 196, 40)
+
+local st: any = nil
+local gotAt = 0
+local lastStartBanner = 0
+local lastOutcomeBanner = 0
+local roundWasYou: { [number]: boolean } = {}
+
+local function displayName(s: any): string
+	local n = tostring(s.Target or "?")
+	return if s.TargetIsBot then L.t("bot.tag", { player = n }) else n
+end
+
+local function leftNow(): number
+	if not st or not st.Left then
+		return 0
+	end
+	return math.max(0, st.Left - (os.clock() - gotAt))
+end
+
+local function myRoot(): BasePart?
+	local c = Players.LocalPlayer.Character
+	local r = c and c:FindFirstChild("HumanoidRootPart")
+	return if r and r:IsA("BasePart") then r else nil
+end
+
+local function targetRoot(): BasePart?
+	local m = st and st.Model
+	if typeof(m) ~= "Instance" or not m.Parent then
+		return nil
+	end
+	local r = m:FindFirstChild("HumanoidRootPart")
+	return if r and r:IsA("BasePart") then r else nil
+end
+
+local function hunting(): boolean
+	return st ~= nil and st.Active == true and not st.IsYou
+end
+
+-- ---------------------------------------------------------------------------
+-- 3D-стрелка-компас у своего персонажа
+-- ---------------------------------------------------------------------------
+local arrowParts: { Part } = {}
+
+local function arrow3d(): { Part }
+	if #arrowParts > 0 and arrowParts[1].Parent then
+		return arrowParts
+	end
+	local folder = Workspace:FindFirstChild("ClientFx")
+	if not folder then
+		folder = Instance.new("Folder")
+		folder.Name = "ClientFx"
+		folder.Parent = Workspace
+	end
+	arrowParts = {}
+	for i, size in ipairs({
+		Vector3.new(0.7, 0.3, 3.4),
+		Vector3.new(0.7, 0.3, 2.1),
+		Vector3.new(0.7, 0.3, 2.1),
+	}) do
+		local p = Instance.new("Part")
+		p.Name = if i == 1 then "HuntArrow" else "HuntArrowHead"
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Material = Enum.Material.Neon
+		p.Color = ARROW_COLOR
+		p.Size = size
+		p.Transparency = 1
+		p.Parent = folder
+		table.insert(arrowParts, p)
+	end
+	return arrowParts
+end
+
+local function hideArrow3d()
+	for _, p in ipairs(arrowParts) do
+		p.Transparency = 1
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- init
+-- ---------------------------------------------------------------------------
+function HuntHud.init(gui: ScreenGui, events: Frame)
+	local card = Widgets.New("Frame", {
+		Name = "HuntCard",
+		Size = UDim2.new(1, 0, 0, CARD_H),
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.05,
+		LayoutOrder = 0,
+		Visible = false,
+		ZIndex = 6,
+		Parent = events,
+	})
+	Widgets.corner(card, 10)
+	local stroke = Widgets.stroke(card, Theme.Orange, 2)
+	local title = UiKit.text(
+		card,
+		"",
+		UDim2.fromOffset(8, 2),
+		UDim2.new(1, -66, 0, 20),
+		{ Font = Theme.Font, TextColor3 = Theme.Orange, MaxSize = 15, ZIndex = 7 }
+	)
+	title.Name = "Title"
+	local timer = UiKit.text(card, "", UDim2.new(1, -58, 0, 2), UDim2.fromOffset(50, 20), {
+		Font = Theme.Font,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Theme.Gold,
+		MaxSize = 15,
+		ZIndex = 7,
+	})
+	timer.Name = "Timer"
+	local objective = UiKit.text(
+		card,
+		"",
+		UDim2.fromOffset(8, 22),
+		UDim2.new(1, -16, 0, 17),
+		{ TextColor3 = Theme.Text, MaxSize = 12, ZIndex = 7 }
+	)
+	objective.Name = "Objective"
+	local hpBar = UiKit.bar(card, UDim2.fromOffset(8, 42), UDim2.new(1, -16, 0, 16), Theme.Red)
+	hpBar.Back.Name = "HpBar"
+	local damage = UiKit.text(
+		card,
+		"",
+		UDim2.fromOffset(8, 61),
+		UDim2.new(1, -16, 0, 16),
+		{ TextColor3 = Theme.TextDim, MaxSize = 11, ZIndex = 7 }
+	)
+	damage.Name = "Damage"
+	local extra = UiKit.text(
+		card,
+		"",
+		UDim2.fromOffset(8, 79),
+		UDim2.new(1, -16, 0, 17),
+		{ Font = Theme.Font, TextColor3 = Theme.Gold, MaxSize = 12, ZIndex = 7 }
+	)
+	extra.Name = "Extra"
+
+	-- экранный указатель (три повёрнутые полоски) + подпись
+	local pointer = Widgets.New("Frame", {
+		Name = "HuntPointer",
+		Size = UDim2.fromOffset(0, 0),
+		BackgroundTransparency = 1,
+		Visible = false,
+		ZIndex = 30,
+		Parent = gui,
+	})
+	local function bar(name: string, w: number, h: number): Frame
+		local f = Widgets.New("Frame", {
+			Name = name,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromOffset(w, h),
+			BackgroundColor3 = ARROW_COLOR,
+			BorderSizePixel = 0,
+			ZIndex = 31,
+			Parent = pointer,
+		})
+		Widgets.corner(f, 3)
+		Widgets.stroke(f, Color3.fromRGB(70, 40, 0), 2)
+		return f
+	end
+	local shaft = bar("Shaft", 44, 11)
+	local headA = bar("HeadA", 24, 11)
+	local headB = bar("HeadB", 24, 11)
+	local pointerLabel = Widgets.label({
+		Name = "Label",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.fromOffset(150, 20),
+		Font = Theme.Font,
+		TextColor3 = Theme.Text,
+		TextStrokeTransparency = 0.2,
+		ZIndex = 32,
+		Parent = pointer,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = pointerLabel })
+
+	local function place(f: GuiObject, x: number, y: number, rot: number)
+		f.Position = UDim2.fromOffset(x, y)
+		f.Rotation = rot
+	end
+
+	local function drawPointer()
+		local tRoot = targetRoot()
+		local cam = Workspace.CurrentCamera
+		if not hunting() or not tRoot or not cam then
+			pointer.Visible = false
+			hideArrow3d()
+			return
+		end
+		local me0 = myRoot()
+		if me0 and (tRoot.Position - me0.Position).Magnitude < 14 then
+			pointer.Visible = false -- цель рядом: указатель не нужен (дистанция есть в карточке)
+			hideArrow3d()
+			return
+		end
+		local vp = cam.ViewportSize
+		local off = gui.AbsolutePosition
+		local scale = (st.Model and st.Model:GetAttribute("Super")) and 1.6 or 1
+		local v = cam:WorldToViewportPoint(tRoot.Position + Vector3.new(0, 5 * scale, 0))
+		local cx, cy = vp.X / 2, vp.Y / 2
+		local dx, dy = v.X - cx, v.Y - cy
+		if v.Z < 0 then
+			dx, dy = -dx, -dy
+		end
+		local px, py, ang
+		if v.Z > 0 and math.abs(dx) < vp.X * 0.36 and math.abs(dy) < vp.Y * 0.32 then
+			-- цель в кадре: стрелка над ней, остриём вниз
+			px, py, ang = v.X, v.Y - 42, math.pi / 2
+		else
+			ang = math.atan2(dy, dx)
+			px = cx + math.cos(ang) * vp.X * 0.38
+			py = cy + math.sin(ang) * vp.Y * 0.34
+		end
+		-- не залезаем на HUD: меню слева, карточки справа, панели сверху и кнопки снизу
+		px = math.clamp(px, 215, math.max(216, vp.X - 215))
+		py = math.clamp(py, 125, math.max(126, vp.Y - 140))
+		px -= off.X
+		py -= off.Y
+		local dirX, dirY = math.cos(ang), math.sin(ang)
+		local deg = math.deg(ang)
+		place(shaft, px, py, deg)
+		local tipX, tipY = px + dirX * 22, py + dirY * 22
+		for i, h in ipairs({ headA, headB }) do
+			local a = ang + (if i == 1 then 1 else -1) * math.rad(140)
+			place(h, tipX + math.cos(a) * 10, tipY + math.sin(a) * 10, math.deg(a))
+		end
+		local me = myRoot()
+		local dist = if me then (tRoot.Position - me.Position).Magnitude else 0
+		pointerLabel.Text = displayName(st) .. " · " .. L.t("hunt.distance", { n = math.floor(dist + 0.5) })
+		place(pointerLabel, px - dirX * 42, py - dirY * 36 + (if math.abs(dirY) > 0.7 then 0 else 14), 0)
+		pointer.Visible = true
+
+		if me and dist > 10 then
+			local parts = arrow3d()
+			local flat = Vector3.new(tRoot.Position.X - me.Position.X, 0, tRoot.Position.Z - me.Position.Z)
+			if flat.Magnitude > 0.1 then
+				-- стрелка-компас лежит на земле перед персонажем (её не закрывают баннеры и подписи)
+				local myScale = me.Parent and (me.Parent :: Model):GetScale() or 1
+				local base = me.Position + flat.Unit * 4.5 - Vector3.new(0, 2.75 * myScale, 0)
+				local cf = CFrame.lookAt(base, base + flat.Unit)
+				parts[1].CFrame = cf * CFrame.new(0, 0, -0.2)
+				parts[2].CFrame = cf * CFrame.new(-0.62, 0, -1.3) * CFrame.Angles(0, math.rad(-40), 0)
+				parts[3].CFrame = cf * CFrame.new(0.62, 0, -1.3) * CFrame.Angles(0, math.rad(40), 0)
+				for _, p in ipairs(parts) do
+					p.Transparency = 0.05
+				end
+			end
+		else
+			hideArrow3d()
+		end
+	end
+
+	local function drawCard()
+		if not st then
+			card.Visible = false
+			return
+		end
+		if st.Active then
+			card.Visible = true
+			card.Size = UDim2.new(1, 0, 0, CARD_H)
+			hpBar.Back.Visible = true
+			local left = leftNow()
+			timer.Text = Util.formatTime(math.ceil(left))
+			hpBar.Set(
+				(st.Hp or 0) / math.max(1, st.MaxHp or 1),
+				("%d / %d"):format(st.Hp or 0, st.MaxHp or 0)
+			)
+			if st.IsYou then
+				stroke.Color = Theme.Gold
+				title.TextColor3 = Theme.Gold
+				title.Text = L.t("hunt.you_title")
+				objective.Text = L.t("hunt.you_objective")
+				damage.Text = ""
+				extra.Text = ""
+			else
+				stroke.Color = Theme.Orange
+				title.TextColor3 = Theme.Orange
+				title.Text = L.t("hunt.card_title", { player = displayName(st) })
+				objective.Text = L.t("hunt.objective", { player = displayName(st) })
+				local n, min = st.YourDamage or 0, st.MinDamage or 0
+				damage.Text = if n >= min
+					then L.t("hunt.damage_ok", { n = n })
+					else L.t("hunt.damage", { n = n, min = min })
+				damage.TextColor3 = if n >= min then Theme.Green else Theme.TextDim
+				if st.Stunned then
+					extra.Text = L.t("hunt.stunned")
+					extra.TextColor3 = Theme.Red
+				else
+					local me, t = myRoot(), targetRoot()
+					extra.Text = if me and t
+						then "→ " .. L.t(
+							"hunt.distance",
+							{ n = math.floor((t.Position - me.Position).Magnitude + 0.5) }
+						)
+						else ""
+					extra.TextColor3 = Theme.Gold
+				end
+			end
+		elseif st.NextIn and not st.Waiting and st.NextIn - (os.clock() - gotAt) <= SHOW_NEXT then
+			card.Visible = true
+			card.Size = UDim2.new(1, 0, 0, IDLE_H)
+			stroke.Color = Theme.Orange
+			title.TextColor3 = Theme.Orange
+			title.Text = L.t(
+				"hunt.next",
+				{ time = Util.formatTime(math.max(0, math.ceil(st.NextIn - (os.clock() - gotAt)))) }
+			)
+			timer.Text = ""
+			objective.Text = L.t("hunt.next_desc")
+			hpBar.Back.Visible = false
+			damage.Text = ""
+			extra.Text = ""
+		else
+			card.Visible = false
+		end
+	end
+
+	local function banners()
+		if st.Active and st.Round ~= lastStartBanner then
+			lastStartBanner = st.Round
+			roundWasYou[st.Round] = st.IsYou == true
+			if st.IsYou then
+				Toasts.banner(
+					L.t("hunt.banner_you"),
+					L.t("hunt.banner_you_sub", { time = Util.formatTime(math.ceil(st.Left or 0)) }),
+					Theme.Gold,
+					4.5
+				)
+			else
+				Toasts.banner(
+					L.t("hunt.banner_start"),
+					L.t("hunt.banner_start_sub", { player = displayName(st) }),
+					Theme.Orange,
+					4.5
+				)
+			end
+		end
+		local o = st.Outcome
+		if type(o) == "table" and o.Round ~= lastOutcomeBanner and o.Round == lastStartBanner then
+			lastOutcomeBanner = o.Round
+			local you = roundWasYou[o.Round]
+			local who = { player = tostring(o.Target or "?") }
+			if o.Kind == "stopped" then
+				if you then
+					Toasts.banner(
+						L.t("hunt.banner_you_stopped"),
+						L.t("hunt.banner_you_stopped_sub"),
+						Theme.Blue,
+						4
+					)
+				else
+					Toasts.banner(
+						L.t("hunt.banner_stopped"),
+						L.t("hunt.banner_stopped_sub", who),
+						Theme.Green,
+						4
+					)
+				end
+			elseif o.Kind == "survived" then
+				if you then
+					Toasts.banner(
+						L.t("hunt.banner_you_survived"),
+						L.t("hunt.banner_you_survived_sub"),
+						Theme.Gold,
+						4
+					)
+				else
+					Toasts.banner(
+						L.t("hunt.banner_survived"),
+						L.t("hunt.banner_survived_sub", who),
+						Theme.Purple,
+						4
+					)
+				end
+			end
+		end
+	end
+
+	Remotes.getEvent("Superpower").OnClientEvent:Connect(function(s)
+		if type(s) ~= "table" then
+			return
+		end
+		st = s
+		gotAt = os.clock()
+		gui:SetAttribute("HuntActive", s.Active == true)
+		gui:SetAttribute("HuntHp", s.Hp)
+		banners()
+		drawCard()
+	end)
+
+	local acc = 0
+	RunService.RenderStepped:Connect(function(dt)
+		drawPointer()
+		acc += dt
+		if acc >= 0.25 then
+			acc = 0
+			drawCard()
+		end
+	end)
+
+	return card
+end
+
+return HuntHud
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15476,7 +17802,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16073,7 +18399,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16316,7 +18642,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16426,7 +18752,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16533,7 +18859,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16765,7 +19091,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16947,7 +19273,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -16975,11 +19301,11 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
--- Всплывающие уведомления сверху экрана.
+-- Всплывающие уведомления сверху экрана и баннеры событий (общий стек: совпавшие события не перекрывают друг друга).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -16990,6 +19316,12 @@ local Widgets = require(script.Parent.Widgets)
 local Toasts = {}
 
 local container: Frame
+local order = 0
+
+local function nextOrder(): number
+	order += 1
+	return order
+end
 
 local COLORS = {
 	info = Theme.Blue,
@@ -17014,6 +19346,7 @@ function Toasts.show(msg: any, kind: string?)
 		TextScaled = true,
 		TextWrapped = true,
 		ZIndex = 60,
+		LayoutOrder = nextOrder(),
 		Parent = container,
 	})
 	Widgets.corner(toast, 10)
@@ -17036,12 +19369,69 @@ function Toasts.show(msg: any, kind: string?)
 	end)
 end
 
+-- Крупный баннер события: заголовок + подзаголовок (строки или L.m(...)), цветная рамка, seconds на экране
+function Toasts.banner(title: any, sub: any?, color: Color3?, seconds: number?): Frame?
+	if not container then
+		return nil
+	end
+	local accent = color or Theme.Gold
+	local b = Widgets.New("Frame", {
+		Name = "Banner",
+		Size = UDim2.new(1, 0, 0, if sub then 56 else 40),
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.05,
+		ZIndex = 60,
+		LayoutOrder = nextOrder(),
+		Parent = container,
+	})
+	Widgets.corner(b, 12)
+	local stroke = Widgets.stroke(b, accent, 3)
+	local t = Widgets.label({
+		Name = "Title",
+		Text = L.renderLocal(title) or "",
+		Size = UDim2.new(1, -20, 0, 27),
+		Position = UDim2.fromOffset(10, 3),
+		Font = Theme.Font,
+		TextColor3 = accent,
+		ZIndex = 61,
+		Parent = b,
+	})
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, MinTextSize = 10, Parent = t })
+	local s: TextLabel? = nil
+	if sub then
+		s = Widgets.label({
+			Name = "Sub",
+			Text = L.renderLocal(sub) or "",
+			Size = UDim2.new(1, -20, 0, 22),
+			Position = UDim2.fromOffset(10, 31),
+			TextColor3 = Theme.Text,
+			ZIndex = 61,
+			Parent = b,
+		})
+		Widgets.New("UITextSizeConstraint", { MaxTextSize = 16, MinTextSize = 9, Parent = s })
+	end
+	task.delay(seconds or 4, function()
+		if b.Parent then
+			local tw = Widgets.tween(b, 0.4, { BackgroundTransparency = 1 })
+			Widgets.tween(t, 0.4, { TextTransparency = 1 })
+			Widgets.tween(stroke, 0.4, { Transparency = 1 })
+			if s then
+				Widgets.tween(s, 0.4, { TextTransparency = 1 })
+			end
+			tw.Completed:Once(function()
+				b:Destroy()
+			end)
+		end
+	end)
+	return b
+end
+
 function Toasts.init(gui: ScreenGui)
 	container = Widgets.New("Frame", {
 		Name = "Toasts",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 96),
-		Size = UDim2.new(0.5, 0, 0, 200),
+		Position = UDim2.new(0.5, 0, 0, 140), -- ниже панели мира и полосы босса
+		Size = UDim2.new(0.5, 0, 0, 260),
 		BackgroundTransparency = 1,
 		ZIndex = 60,
 		Parent = gui,
@@ -17064,7 +19454,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17569,7 +19959,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17810,7 +20200,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17915,7 +20305,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18175,7 +20565,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18307,7 +20697,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000063">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000068">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict

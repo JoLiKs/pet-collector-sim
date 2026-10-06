@@ -15,7 +15,7 @@ local Workspace = game:GetService("Workspace")
 local AttackFx = {}
 
 AttackFx.SWING_TIME = 0.38
-AttackFx.lastSwing = {} :: { [Player]: { T: number, Dir: Vector3 } }
+AttackFx.lastSwing = {} :: { [any]: { T: number, Dir: Vector3 } } -- ключ: Player или модель бота
 
 local WINDUP = 0.07
 local SLASH = 0.11
@@ -231,9 +231,12 @@ local function nearestEnemyPos(from: Vector3, range: number): Vector3?
 	return best
 end
 
--- Удар персонажа игрока. isLocal = свой персонаж (поворот к цели и рывок делаем только для него).
-function AttackFx.swing(player: Player, isLocal: boolean)
-	local character = player.Character
+-- Удар персонажа игрока (или модели бота). isLocal = свой персонаж (поворот к цели и рывок делаем только для него).
+function AttackFx.swing(who: Player | Model, isLocal: boolean)
+	local character: Model? = if typeof(who) == "Instance" and who:IsA("Player")
+		then (who :: Player).Character
+		else who :: Model
+	local player = who
 	local root = character and character:FindFirstChild("HumanoidRootPart")
 	if not character or not root or not root:IsA("BasePart") then
 		return

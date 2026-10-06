@@ -32,6 +32,8 @@ local STAT_OF_KIND = {
 	trade = "Trades",
 	raid = "Raids",
 	rain = "RainCoins",
+	superstop = "SuperStops", -- остановил суперигрока (событие «Суперсила»)
+	supersurvive = "SuperSurvived", -- продержался суперсилой до конца
 }
 
 local BP_XP_OF_KIND = {
@@ -39,6 +41,8 @@ local BP_XP_OF_KIND = {
 	boss = Config.BP_XP_PER_KILL * 10,
 	gather = Config.BP_XP_PER_GATHER,
 	craft = Config.BP_XP_PER_CRAFT,
+	superstop = 30,
+	supersurvive = 40,
 }
 
 local function checkAchievements(player: Player, data: DataService.Data, stat: string)

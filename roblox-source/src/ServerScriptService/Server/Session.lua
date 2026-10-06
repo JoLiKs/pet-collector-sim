@@ -17,6 +17,11 @@ export type PlayerSession = {
 	LastPosition: Vector3?,
 	LastPositionTime: number,
 	Ready: boolean, -- данные загружены, можно играть
+	-- событие «Суперсила» (SuperpowerService): множители суперигрока и оглушение охотника
+	SuperSpeed: number,
+	SuperJump: number,
+	SuperCoin: number,
+	StunnedUntil: number,
 }
 
 local Session = {}
@@ -43,6 +48,10 @@ function Session.create(player: Player): PlayerSession
 		LastPosition = nil,
 		LastPositionTime = 0,
 		Ready = false,
+		SuperSpeed = 1,
+		SuperJump = 1,
+		SuperCoin = 1,
+		StunnedUntil = 0,
 	}
 	sessions[player] = s
 	return s

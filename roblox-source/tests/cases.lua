@@ -1226,6 +1226,7 @@ test(
 			raid = 1,
 			trade = 1,
 			rain = 1,
+			superstop = 1,
 		}
 		for npcId, chain in pairs(Q.Chains) do
 			check(Q.Npcs[npcId] ~= nil, "цепочка принадлежит NPC " .. npcId)
@@ -1672,15 +1673,6 @@ test(
 	end
 )
 
-print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
-if failed > 0 or (TEST_ERRORS or 0) > 0 then
-	print("FAILED:")
-	for _, f in ipairs(failures) do
-		print(" - " .. f)
-	end
-	error("tests failed")
-end
-
 test("Враги: расширенный пул, лут и фрагменты", function()
 	local S = boot("E")
 	local ED, Z, R = S.EnemyData, S.ZoneData, S.ResourceData
@@ -1720,3 +1712,434 @@ test("События: до Offset событие неактивно (старт 
 		check(not on, e.Id .. " ещё не началось")
 	end
 end)
+
+-- =============================================================================================
+-- Суперсила / Охота
+-- =============================================================================================
+test(
+	"Суперсила: чистая логика (тайминг, выбор, урон, проверки удара, награды по вкладу)",
+	function()
+		local S = boot("SpL")
+		local Lg = S.U.require("ReplicatedStorage/Shared/SuperpowerLogic")
+		local C = S.Config.SUPERPOWER
+		check(S.Config.DEMO_BOTS == false, "в игре боты по умолчанию выключены")
+		-- тайминг
+		local interval, duration, first = Lg.timing(C, 1)
+		check(
+			interval == 60 and duration >= 30 and duration <= 40,
+			"60 с цикл, 30–40 с суперсилы"
+		)
+		check(
+			duration <= interval - C.GAP,
+			"суперсила кончается до следующего выбора"
+		)
+		local i10, d10, f10 = Lg.timing(C, 10)
+		check(
+			math.abs(i10 - interval / 10) < 1e-9 and math.abs(d10 - duration / 10) < 1e-9,
+			"ускорение x10"
+		)
+		check(f10 < first, "первый запуск тоже ускоряется")
+		local i0 = Lg.timing(C, 1000)
+		check(i0 == interval / 60, "ускорение ограничено x60")
+		check(select(1, Lg.timing(C, -5)) == interval, "некорректное ускорение = x1")
+		-- мало игроков
+		check(not Lg.enoughPlayers(C, 0) and not Lg.enoughPlayers(C, 1), "1 игрок — ждём")
+		check(Lg.enoughPlayers(C, 2), "2 игрока — можно")
+		check(not Lg.enoughPlayers({ MIN_PLAYERS = 1 }, 1), "минимум 2 даже при MIN_PLAYERS=1")
+		-- выбор
+		local cands = {
+			{ Key = "a", Eligible = true },
+			{ Key = "b", Eligible = false },
+			{ Key = "c", Eligible = true },
+		}
+		local function first1()
+			return 1
+		end
+		check(Lg.pick(cands, nil, first1) == "a", "выбор из подходящих")
+		check(Lg.pick(cands, "a", first1) == "c", "не тот же, что в прошлый раз")
+		for n = 1, 2 do
+			local k = Lg.pick(cands, nil, function()
+				return n
+			end)
+			check(k ~= "b", "неподходящий (в обмене/мёртв) не выбирается")
+		end
+		check(
+			Lg.pick({ { Key = "a", Eligible = true } }, "a", first1) == "a",
+			"единственный — можно повторить"
+		)
+		check(
+			Lg.pick({ { Key = "b", Eligible = false } }, nil, first1) == nil,
+			"некого выбрать — nil"
+		)
+		check(Lg.pick({}, nil, first1) == nil, "пустой список — nil")
+		-- распределение выбора близко к равномерному
+		local rng = Random.new(7)
+		local counts = { a = 0, c = 0, d = 0 }
+		local pool =
+			{ { Key = "a", Eligible = true }, { Key = "c", Eligible = true }, { Key = "d", Eligible = true } }
+		for _ = 1, 3000 do
+			local k = Lg.pick(pool, nil, function(n)
+				return rng:NextInteger(1, n)
+			end)
+			counts[k] += 1
+		end
+		check(
+			counts.a > 850 and counts.c > 850 and counts.d > 850,
+			"выбор случайный и равномерный"
+		)
+		-- с ботами
+		local mix = {
+			{ Key = "p1", Eligible = true, IsBot = false },
+			{ Key = "bot1", Eligible = true, IsBot = true },
+			{ Key = "bot2", Eligible = true, IsBot = true },
+		}
+		check(Lg.pickWithBots(mix, nil, function()
+			return 0.1
+		end, first1, 0.5) == "p1", "демо: шанс — живой игрок")
+		local kb = Lg.pickWithBots(mix, nil, function()
+			return 0.9
+		end, first1, 0.5)
+		check(kb == "bot1", "демо: иначе бот")
+		check(Lg.pickWithBots(mix, "p1", function()
+			return 0.1
+		end, first1, 0.5) ~= "p1", "демо: живой не дважды подряд")
+		-- HP и урон
+		local hp1, hp3 = Lg.maxHp(C, 1), Lg.maxHp(C, 3)
+		check(hp3 > hp1 and Lg.maxHp(C, 0) == hp1, "HP растёт с числом охотников")
+		local weak, strong = Lg.hunterHit(C, 0, hp3), Lg.hunterHit(C, 1e12, hp3)
+		check(weak >= 1 and strong > weak, "урон растёт с силой команды")
+		check(
+			strong <= C.MAX_HIT_SHARE * hp3,
+			"потолок урона за удар (нельзя убить одним ударом)"
+		)
+		check(Lg.petHit(C, 0, 100, hp3) == 0, "без питомцев урона питомцев нет")
+		check(
+			Lg.petHit(C, 3, 1e12, hp3) <= C.PET_MAX_PER_TICK * hp3,
+			"потолок урона питомцев"
+		)
+		-- проверки удара
+		local round = { Active = true, TargetKey = "s" }
+		check(select(2, Lg.canHit(C, nil, "h", 10, 1)) == "inactive", "вне охоты PvP нет")
+		check(
+			select(2, Lg.canHit(C, { Active = true, TargetKey = "s", Done = true }, "h", 10, 1)) == "inactive",
+			"после конца раунда урона нет"
+		)
+		check(select(2, Lg.canHit(C, round, "s", 10, 1)) == "self", "по себе нельзя")
+		check(
+			select(2, Lg.canHit(C, round, "h", 10, C.HIT_RANGE + 5)) == "far",
+			"далеко — нельзя"
+		)
+		check(
+			Lg.canHit(C, round, "h", 10, C.HIT_RANGE + 1, 2),
+			"крупная цель — досягаемость больше"
+		)
+		check(
+			select(2, Lg.canHit(C, round, "h", 10, 0 / 0)) == "far",
+			"NaN-дистанция отклоняется"
+		)
+		check(
+			select(2, Lg.canHit(C, round, "h", 10, 1, 0, 10 - C.HIT_COOLDOWN / 2)) == "cooldown",
+			"кулдаун"
+		)
+		check(
+			Lg.canHit(C, round, "h", 10, 1, 0, 10 - C.HIT_COOLDOWN - 0.01),
+			"после кулдауна — можно"
+		)
+		-- награды за остановку
+		local maxHp = 1000
+		local min = Lg.minDamage(C, maxHp)
+		local dmg = { h1 = 600, h2 = 300, afk = min - 1, bot1 = 100 }
+		local humans = { h1 = true, h2 = true, afk = true, idle = true }
+		local rw, afk = Lg.stopRewards(C, dmg, maxHp, "h2", 0, humans)
+		check(rw.h1 ~= nil and rw.h2 ~= nil, "нанёсшие урон получают награду")
+		check(rw.bot1 == nil, "боты наград не получают")
+		check(
+			afk.afk and afk.idle and rw.afk == nil and rw.idle == nil,
+			"анти-AFK: меньше минимума — без награды"
+		)
+		check(
+			rw.h1.Clicks > rw.h2.Clicks - C.LAST_HIT_BONUS.Clicks,
+			"больше вклад — больше награда"
+		)
+		check(rw.h2.LastHit and not rw.h1.LastHit, "бонус за последний удар")
+		check(rw.h1.K <= C.STOP_K_MAX and rw.h2.K >= C.STOP_K_MIN, "вклад в пределах")
+		local fast = Lg.stopRewards(C, dmg, maxHp, "h2", 1, humans)
+		check(
+			fast.h1.Clicks > rw.h1.Clicks,
+			"быстрая остановка — бонус за время"
+		)
+		local solo = Lg.stopRewards(C, { h1 = 1000 }, maxHp, "h1", 0, { h1 = true })
+		check(solo.h1.K == 1, "один охотник — базовая награда")
+		-- продержался
+		local sr, safk = Lg.surviveRewards(
+			C,
+			"s",
+			{ h1 = min, h2 = min - 1 },
+			maxHp,
+			{ s = true, h1 = true, h2 = true }
+		)
+		check(
+			sr.s and sr.s.Clicks == C.SURVIVE_REWARD.Clicks and sr.s.BpXp == C.SURVIVE_REWARD.BpXp,
+			"крупная награда суперигроку"
+		)
+		check(
+			sr.h1 and sr.h1.Clicks == C.CONSOLATION.Clicks,
+			"утешительная — охотнику с уроном"
+		)
+		check(safk.h2 and sr.h2 == nil, "утешительной нет без минимума урона")
+		check(
+			sr.s.Clicks > sr.h1.Clicks * 5,
+			"награда суперигрока крупнее утешительной"
+		)
+	end
+)
+
+local function bootSuper(label)
+	local S = boot(label)
+	local U = S.U
+	S.SP = U.require("ServerScriptService/Server/SuperpowerService")
+	S.Progress = U.require("ServerScriptService/Server/Progress")
+	S.Lg = U.require("ReplicatedStorage/Shared/SuperpowerLogic")
+	S.C = S.Config.SUPERPOWER
+	S.WS = U.Workspace
+	S.WS:SetAttribute("SuperpowerPaused", true)
+	return S
+end
+
+local function setPos(player, pos)
+	player.Character:FindFirstChild("HumanoidRootPart").Position = pos
+end
+
+test(
+	"Суперсила: сервис — выбор, удары, оба исхода, защита и награды без дюпа",
+	function()
+		local S = bootSuper("SpS")
+		local SP, C = S.SP, S.C
+		local d1, _, p1 = S.join(9101, "Alice")
+		local d2, _, p2 = S.join(9102, "Bob")
+		SP.init()
+		local k1, k2 = SP.keyOf(p1), SP.keyOf(p2)
+		-- вне охоты урона нет
+		check(
+			SP.tryPlayerHit(p2) == false and not SP.isActive(),
+			"вне охоты удар не идёт в игрока"
+		)
+		check(SP.damageMult(p1) == 1, "без суперсилы множитель 1")
+		-- игрок в обмене не подходит
+		local Trade = S.U.require("ServerScriptService/Server/TradeService")
+		local origIsTrading = Trade.isTrading
+		Trade.isTrading = function(p)
+			return p == p2
+		end
+		check(SP.start(nil) == nil, "в обмене — не выбирается; одного мало")
+		Trade.isTrading = origIsTrading
+		-- раунд: Alice — суперигрок
+		local coins1, gems1, gems2 = d1.Coins, d1.Gems, d2.Gems
+		check(
+			SP.start(k1) == k1 and SP.isSuper(p1) and not SP.isSuper(p2),
+			"раунд начался, Alice — цель"
+		)
+		check(SP.start(k2) == nil, "второй раунд параллельно не начинается")
+		local r = SP.current()
+		check(r.MaxHp == S.Lg.maxHp(C, 1), "PvP-HP по числу охотников")
+		check(SP.damageMult(p1) == C.DAMAGE_MULT, "суперигрок бьёт сильнее")
+		check(
+			S.Session.get(p1).SuperCoin == C.COIN_MULT and S.Session.get(p1).SuperSpeed == C.SPEED_MULT,
+			"множители"
+		)
+		check(p1.Character:GetAttribute("Super") == true, "атрибут Super на модели")
+		DRIVE_UNTIL_IDLE(2)
+		check(math.abs(p1.Character:GetScale() - C.SCALE) < 1e-6, "суперигрок вырос (ScaleTo)")
+		check(
+			r.Ends - r.Started <= C.INTERVAL - C.GAP,
+			"длительность до следующего выбора"
+		)
+		-- суперигрок не бьёт сам себя
+		check(
+			SP.tryPlayerHit(p1) == false and r.Hp == r.MaxHp,
+			"суперигрок не наносит урон себе"
+		)
+		-- охотник далеко
+		setPos(p2, Vector3.new(200, 3, 5))
+		check(SP.tryPlayerHit(p2) == false and r.Hp == r.MaxHp, "далеко — урона нет")
+		setPos(p2, Vector3.new(8, 3, 5))
+		check(SP.tryPlayerHit(p2) == true and r.Hp < r.MaxHp, "охотник рядом — HP падает")
+		local hpAfter = r.Hp
+		check(
+			SP.tryPlayerHit(p2) == true and r.Hp == hpAfter,
+			"кулдаун: повторный удар без урона"
+		)
+		-- удар суперигрока: отталкивание и оглушение охотника, прогресс охоты не трогает
+		check(SP.superSlam(k1) == true, "ударная волна")
+		check(SP.isStunned(p2), "охотник оглушён")
+		check(
+			r.Hp == hpAfter and (r.Damage[k2] or 0) > 0,
+			"оглушение не отнимает вклад"
+		)
+		check(SP.superSlam(k1) == false, "у волны кулдаун")
+		ADVANCE(C.HIT_COOLDOWN + 0.01)
+		check(SP.tryPlayerHit(p2) == true and r.Hp == hpAfter, "оглушённый не бьёт")
+		ADVANCE(C.STUN_SECONDS + 0.1)
+		-- бьём до остановки
+		local guard = 0
+		while SP.isActive() and guard < 500 do
+			guard += 1
+			ADVANCE(C.HIT_COOLDOWN + 0.01)
+			SP.tryPlayerHit(p2)
+		end
+		check(not SP.isActive(), "HP=0 — охота завершена")
+		check(d2.Gems > gems2 and d2.Coins > 0, "охотник получил награду")
+		check(
+			(d2.Stats.SuperStops or 0) == 1,
+			"статистика SuperStops (квесты/достижения)"
+		)
+		check(
+			d1.Coins >= coins1 and d1.Gems == gems1,
+			"суперигрок ничего не потерял"
+		)
+		check(
+			S.Session.get(p1).SuperCoin == 1 and S.Session.get(p1).SuperSpeed == 1,
+			"множители сняты"
+		)
+		check(
+			p1.Character:GetAttribute("Super") == nil and p1.Character:GetScale() == 1,
+			"размер вернулся"
+		)
+		-- повторный finish не выдаёт награду второй раз
+		local g = d2.Gems
+		SP.finish("stopped")
+		check(d2.Gems == g, "без дюпа наград")
+		check(SP.tryPlayerHit(p2) == false, "после конца урон не принимается")
+		-- второй раунд: следующий выбор — не Alice
+		local key = SP.start(nil)
+		check(key == k2, "следующий суперигрок — другой")
+		-- Alice бьёт слабо (меньше минимума) → без утешительной награды
+		setPos(p1, Vector3.new(8, 3, 5))
+		setPos(p2, Vector3.new(5, 3, 5))
+		ADVANCE(5)
+		SP.tryPlayerHit(p1)
+		local gemsA, gemsB = d1.Gems, d2.Gems
+		local cur = SP.current()
+		ADVANCE(cur.Duration + 0.5)
+		SP.step(os.clock())
+		check(not SP.isActive(), "таймер истёк — продержался")
+		check(
+			d2.Gems >= gemsB + C.SURVIVE_REWARD.Gems,
+			"крупная награда продержавшемуся (+ достижение)"
+		)
+		check((d2.Stats.SuperSurvived or 0) == 1, "статистика SuperSurvived")
+		local minD = S.Lg.minDamage(C, cur.MaxHp)
+		if (cur.Damage[k1] or 0) >= minD then
+			check(d1.Gems == gemsA + C.CONSOLATION.Gems, "утешительная награда")
+		else
+			check(d1.Gems == gemsA, "без минимума урона утешительной нет")
+		end
+		-- выход цели — отмена без наград
+		SP.start(k1)
+		local gb = d2.Gems
+		SP.removeUnit(k1)
+		check(
+			not SP.isActive() and d2.Gems == gb,
+			"цель вышла — раунд отменён без наград"
+		)
+	end
+)
+
+test(
+	"Суперсила: мало игроков, боты-охотники, переключатели для тестов",
+	function()
+		local S = bootSuper("SpB")
+		local SP, C, WS = S.SP, S.C, S.WS
+		local d1, _, p1 = S.join(9201, "Solo")
+		SP.init()
+		check(SP.start(nil) == nil, "один игрок — ждём второго")
+		-- боты (как в демо): регистрируются юнитами
+		local function bot(i, pos)
+			local m = NEW_NODE("Model", "Bot" .. i)
+			local hrp = NEW_NODE("Part", "HumanoidRootPart")
+			hrp.Position = pos
+			hrp.Parent = m
+			local hum = NEW_NODE("Humanoid")
+			hum.Health = 100
+			hum.Parent = m
+			local u = {
+				Key = "bot" .. i,
+				Name = "Bot" .. i,
+				IsBot = true,
+				GetModel = function()
+					return m
+				end,
+				Eligible = function()
+					return true
+				end,
+				StunnedUntil = 0,
+				ImmuneUntil = 0,
+				LastHit = -1e9,
+				LastSlam = -1e9,
+			}
+			SP.addUnit(u)
+			return u, m
+		end
+		bot(1, Vector3.new(9, 3, 5))
+		bot(2, Vector3.new(300, 3, 5))
+		-- переключатель SuperpowerForce = "me" (используется браузерным тестом)
+		WS:SetAttribute("SuperpowerForce", "me")
+		SP.step(os.clock())
+		check(SP.isSuper(p1), "Force=me: суперсила у игрока")
+		check(
+			WS:GetAttribute("SuperpowerForce") == nil,
+			"переключатель сбрасывается"
+		)
+		check(SP.botHit("bot1") == true, "бот рядом бьёт суперигрока")
+		check(SP.botHit("bot1") == false, "у бота кулдаун")
+		check(SP.botHit("bot2") == false, "дальний бот не достаёт")
+		-- Force=bot: игрок охотится на бота
+		WS:SetAttribute("SuperpowerForce", "bot")
+		SP.step(os.clock())
+		local r = SP.current()
+		check(r and r.TargetIsBot and r.TargetKey == "bot1", "Force=bot: суперсила у бота")
+		check(SP.isActive() and not SP.isSuper(p1), "игрок — охотник")
+		-- ускорение цикла атрибутом
+		SP.finish("cancel")
+		WS:SetAttribute("SuperpowerTimeScale", 10)
+		WS:SetAttribute("SuperpowerPaused", false)
+		ADVANCE(S.C.INTERVAL / 10 + 0.1)
+		SP.step(os.clock())
+		check(SP.isActive(), "ускоренный цикл запустил раунд")
+		local cur = SP.current()
+		check(
+			math.abs(cur.Duration - select(2, S.Lg.timing(C, 10))) < 1e-6,
+			"длительность ускорена"
+		)
+		-- игрок ловит бота до конца: награда только живому игроку
+		if cur.TargetIsBot then
+			local u = SP.getUnit(cur.TargetKey)
+			u.GetModel():FindFirstChild("HumanoidRootPart").Position = Vector3.new(6, 3, 5)
+			local gems = d1.Gems
+			local guard = 0
+			while SP.isActive() and guard < 400 do
+				guard += 1
+				ADVANCE(C.HIT_COOLDOWN + 0.01)
+				SP.tryPlayerHit(p1)
+				SP.botHit("bot1")
+			end
+			check(
+				not SP.isActive() and d1.Gems > gems,
+				"бот остановлен, игрок награждён"
+			)
+		else
+			check(true, "раунд у игрока (выбор случайный)")
+		end
+		WS:SetAttribute("SuperpowerPaused", true)
+	end
+)
+
+-- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
+print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
+if failed > 0 or (TEST_ERRORS or 0) > 0 then
+	print("FAILED:")
+	for _, f in ipairs(failures) do
+		print(" - " .. f)
+	end
+	error("tests failed")
+end

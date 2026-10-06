@@ -305,11 +305,17 @@ function Methods.GetChildren(self)
 	return rawget(self, "_list")
 end
 function Methods.Destroy() end
+local BASE_PARTS = { Part = true, MeshPart = true, WedgePart = true, TrussPart = true }
 function Methods.IsA(self, class)
-	return rawget(self, "_class") == class
+	local c = rawget(self, "_class")
+	return c == class or class == "Instance" or (class == "BasePart" and BASE_PARTS[c] == true)
 end
 function Methods.SetAttribute(self, k, v)
 	rawget(self, "_attrs")[k] = v
+	local sigs = rawget(self, "_attrSignals")
+	if sigs and sigs[k] then
+		sigs[k]:Fire()
+	end
 end
 function Methods.GetAttribute(self, k)
 	return rawget(self, "_attrs")[k]
@@ -330,6 +336,27 @@ function Methods.GetPlayerByUserId(self, id)
 	return nil
 end
 function Methods.PivotTo() end
+-- масштаб модели (Model:ScaleTo/GetScale) и pivot — для Суперсилы
+function Methods.ScaleTo(self, s)
+	assert(type(s) == "number" and s > 0, "ScaleTo: scale must be > 0")
+	rawget(self, "_props").ScaleFactor = s
+end
+function Methods.GetScale(self)
+	return rawget(self, "_props").ScaleFactor or 1
+end
+function Methods.GetPivot(self)
+	local hrp = rawget(self, "_children").HumanoidRootPart
+	return CFrame.new(if hrp and hrp.Position then hrp.Position else Vector3.zero)
+end
+function Methods.GetAttributeChangedSignal(self, k)
+	local sigs = rawget(self, "_attrSignals")
+	if not sigs then
+		sigs = {}
+		rawset(self, "_attrSignals", sigs)
+	end
+	sigs[k] = sigs[k] or MAKE_SIGNAL()
+	return sigs[k]
+end
 function Methods.LoadCharacterAsync() end
 function Methods.Kick(self, msg)
 	rawget(self, "_props").Kicked = msg
@@ -404,6 +431,7 @@ function MAKE_UNIVERSE(label)
 		return n
 	end
 	local RS, SSS = svc("ReplicatedStorage"), svc("ServerScriptService")
+	U.Workspace = svc("Workspace") -- общий Workspace (атрибуты-переключатели видны всем модулям)
 	local players = svc("Players")
 	players.PlayerAdded = makeSignal()
 	players.PlayerRemoving = makeSignal()

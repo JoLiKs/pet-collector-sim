@@ -136,7 +136,9 @@ function Economy.getCoinMultiplier(player: Player, data: DataService.Data): numb
 		+ Economy.talent(data, "Coins")
 		+ Economy.passive(data, "Coins")
 		+ Economy.getFriendBonus(player)
-	return Economy.getBonusMultiplier(player) * bonus * Economy.getCoinBoost(data)
+	local s = Session.get(player)
+	local super = if s then s.SuperCoin else 1 -- суперсила (SuperpowerService)
+	return Economy.getBonusMultiplier(player) * bonus * Economy.getCoinBoost(data) * super
 end
 
 -- Монет за один клик в текущей зоне
@@ -182,7 +184,21 @@ end
 function Economy.getWalkSpeed(player: Player, data: DataService.Data): number
 	local speed = Formulas.walkSpeed(data.Upgrades.Speed, Session.hasPass(player, "DOUBLE_SPEED"))
 	speed *= 1 + Economy.talent(data, "Speed") + Economy.passive(data, "Speed")
-	return math.min(speed, Config.MAX_WALKSPEED)
+	speed = math.min(speed, Config.MAX_WALKSPEED)
+	local s = Session.get(player)
+	if s then
+		if s.StunnedUntil > os.clock() then
+			return 0 -- оглушён ударной волной суперигрока
+		end
+		speed *= s.SuperSpeed
+	end
+	return speed
+end
+
+-- Сила прыжка (суперсила увеличивает)
+function Economy.getJumpPower(player: Player): number
+	local s = Session.get(player)
+	return Config.JUMP_POWER * (if s then s.SuperJump else 1)
 end
 
 function Economy.getXpMultiplier(data: DataService.Data): number

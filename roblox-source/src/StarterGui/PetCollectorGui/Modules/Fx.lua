@@ -16,7 +16,9 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local HuntHud = require(script.Parent.HuntHud)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
@@ -58,13 +60,13 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		active += 1
 		local base = layer.AbsolutePosition
-		local big = kind == "Kill" or kind == "Ability" or extra == "boss"
+		local big = kind == "Kill" or kind == "Ability" or extra == "boss" or extra == "super"
 		local l = Widgets.label({
 			Name = "Fx_" .. tostring(kind),
 			Text = tostring(text),
 			Size = UDim2.fromOffset(150, if big then 30 else 22),
 			Position = UDim2.fromOffset(v.X - base.X - 75, v.Y - base.Y),
-			TextColor3 = COLORS[kind] or Theme.Text,
+			TextColor3 = if extra == "super" then Theme.Orange else (COLORS[kind] or Theme.Text),
 			TextStrokeTransparency = 0.3,
 			Font = Theme.Font,
 			ZIndex = 36,
@@ -83,14 +85,16 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	end)
 
 	-- ---------- статус множителей ----------
-	local status = UiKit.text(
-		gui,
-		"",
-		UDim2.new(0.5, -150, 0, 66),
-		UDim2.fromOffset(300, 18),
-		{ TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = Theme.TextDim, MaxSize = 14, ZIndex = 5 }
-	)
+	local status = UiKit.text(gui, "", UDim2.new(0.5, -150, 0, 67), UDim2.fromOffset(300, 19), {
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextColor3 = Theme.TextDim,
+		MaxSize = 14,
+		ZIndex = 5,
+		BackgroundColor3 = Theme.Bg,
+		BackgroundTransparency = 0.15,
+	})
 	status.Name = "Multipliers"
+	Widgets.corner(status, 8)
 
 	-- ---------- полоса босса ----------
 	local bossBox = Widgets.New("Frame", {
@@ -133,9 +137,12 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		Parent = gui,
 	})
 	UiKit.list(events, 4)
+	local huntCard = HuntHud.init(gui, events)
 	local eventList: any = {}
+	local seenActive: { [string]: boolean } = {}
+	local EVENT_COLORS = { GoldenRain = Theme.Gold, LunarNight = Theme.Purple, BossRaid = Theme.Red }
 	local function drawEvents()
-		Widgets.clear(events)
+		Widgets.clear(events, { "HuntCard" })
 		local n = 0
 		for _, e in ipairs(eventList) do
 			if e.Active then
@@ -174,6 +181,16 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		for _, e in ipairs(list) do
 			e.Got = os.clock()
+			-- баннер «событие началось» (в общем стеке с баннерами охоты)
+			if e.Active and not seenActive[e.Id] then
+				Toasts.banner(
+					L.t("event.started", { name = L.n(e.Name) }),
+					L.n(e.Desc),
+					EVENT_COLORS[e.Id],
+					4
+				)
+			end
+			seenActive[e.Id] = e.Active == true
 		end
 		eventList = list
 		drawEvents()
@@ -199,6 +216,19 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		UDim2.new(1, -16, 1, -8),
 		{ MaxSize = 13, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 6 }
 	)
+
+	-- трекер — сразу под карточками событий/охоты (колонка справа не перекрывается)
+	local function relayout()
+		local y = 12
+		for _, c in ipairs(events:GetChildren()) do
+			if c:IsA("GuiObject") and c.Visible then
+				y += c.Size.Y.Offset + 4
+			end
+		end
+		events.Size = UDim2.fromOffset(250, math.max(1, y - 12))
+		tracker.Position = UDim2.new(1, -12, 0, y + 4)
+	end
+	local _ = huntCard
 
 	-- ---------- кнопка Attack ----------
 	local lastAttack = 0
@@ -367,6 +397,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		if #eventList > 0 then
 			drawEvents()
 		end
+		relayout()
 	end)
 end
 

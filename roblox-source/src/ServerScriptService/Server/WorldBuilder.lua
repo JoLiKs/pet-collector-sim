@@ -77,6 +77,7 @@ local function makeLabel(
 	Locale.setWorld(l, text, args)
 	l.TextColor3 = color
 	l.TextStrokeTransparency = 0.4
+	l.ZIndex = 1
 	l.Parent = parent
 	return l
 end
@@ -85,7 +86,7 @@ local function billboard(parent: BasePart, offset: Vector3, width: number, heigh
 	local gui = Instance.new("BillboardGui")
 	gui.Size = UDim2.fromOffset(width, height)
 	gui.StudsOffset = offset
-	gui.MaxDistance = 90
+	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
 	gui.LightInfluence = 0
 	gui.Parent = parent
 	return gui
@@ -401,9 +402,17 @@ local function addPrompt(target: BasePart, id: string, action: string, object: s
 	end)
 end
 
-local function sign(target: BasePart, text: string, subtext: string?, color: Color3, height: number)
-	local gui = billboard(target, Vector3.new(0, height, 0), 240, 76)
-	gui.MaxDistance = 110
+local function sign(
+	target: BasePart,
+	text: string,
+	subtext: string?,
+	color: Color3,
+	height: number,
+	w: number?,
+	h: number?
+)
+	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76)
+	gui.MaxDistance = 60
 	makeLabel(gui, text, UDim2.fromScale(1, if subtext then 0.56 else 0.9), Color3.fromRGB(255, 255, 255))
 	if subtext then
 		local sub = makeLabel(gui, subtext, UDim2.fromScale(1, 0.38), color)
@@ -595,7 +604,8 @@ local function buildHub(world: Folder)
 		Enum.Material.Neon,
 		false
 	)
-	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 4)
+	-- ниже и компактнее: с точки спавна вывеска не упирается в верхнюю панель HUD
+	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 1.2, 210, 60)
 
 	-- Точка появления
 	local sp = Instance.new("SpawnLocation")
@@ -953,7 +963,7 @@ function WorldBuilder.build()
 			Enum.Material.Wood
 		)
 		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
-		gui.MaxDistance = 140
+		gui.MaxDistance = 90
 		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
 		local mult =
 			makeLabel(gui, "world.zone_mult", UDim2.fromScale(1, 0.38), zone.Accent, { n = zone.Multiplier })

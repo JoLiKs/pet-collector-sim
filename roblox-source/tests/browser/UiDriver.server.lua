@@ -14,6 +14,12 @@ local EventService = require(Server.EventService)
 local Session = require(Server.Session)
 local State = require(Server.State)
 
+-- «Суперсила» в UI-тестах по умолчанию на паузе (чтобы случайный раунд не мешал старым сценариям);
+-- ?attr.SuperpowerAuto=true в URL оставляет обычный цикл.
+if Workspace:GetAttribute("SuperpowerAuto") ~= true then
+	Workspace:SetAttribute("SuperpowerPaused", true)
+end
+
 local player = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
 while
 	not (
@@ -79,6 +85,33 @@ function handlers.event(arg)
 end
 function handlers.raid()
 	EventService.force("BossRaid", true)
+end
+-- super:me | super:bot — начать раунд сейчас; super:on — снять паузу; super:fast — ускорить цикл x10;
+-- super:end — дотянуть таймер до конца (исход «продержался»); super:near — встать рядом с суперигроком
+function handlers.super(arg)
+	local SuperpowerService = require(Server.SuperpowerService)
+	if arg == "me" or arg == "bot" then
+		Workspace:SetAttribute("SuperpowerForce", arg)
+	elseif arg == "on" then
+		Workspace:SetAttribute("SuperpowerPaused", false)
+	elseif arg == "fast" then
+		Workspace:SetAttribute("SuperpowerTimeScale", 10)
+		Workspace:SetAttribute("SuperpowerPaused", false)
+	elseif arg == "end" then
+		local r = SuperpowerService.current()
+		if r then
+			r.Ends = os.clock() + 0.2
+		end
+	elseif arg == "near" then
+		local t = SuperpowerService.targetRoot()
+		if t then
+			local d = player.Character.HumanoidRootPart.Position - t.Position
+			local flat = Vector3.new(d.X, 0, d.Z)
+			local off = if flat.Magnitude > 0.1 then flat.Unit * 6 else Vector3.new(6, 0, 0)
+			AntiExploit.markTeleport(player)
+			player.Character:PivotTo(CFrame.lookAt(t.Position + off, t.Position))
+		end
+	end
 end
 function handlers.bpxp(arg)
 	Economy.addBpXp(player, tonumber(arg))

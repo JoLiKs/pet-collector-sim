@@ -143,7 +143,7 @@ local function onCharacterAdded(player: Player, character: Model)
 		return
 	end
 	humanoid.UseJumpPower = true
-	humanoid.JumpPower = Config.JUMP_POWER
+	humanoid.JumpPower = Economy.getJumpPower(player)
 	humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
 	humanoid.DisplayDistanceType = Enum.HumanoidDisplayDistanceType.None
 

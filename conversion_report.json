@@ -1,14 +1,14 @@
 {
-  "version": "2.1.0",
+  "version": "2.2.0",
   "project": {
     "name": "PetCollectorSimulator",
     "kind": "rojo"
   },
   "scripts": {
-    "total": 87,
-    "transpiled": 87,
+    "total": 92,
+    "transpiled": 92,
     "failed": [],
-    "lines": 17881
+    "lines": 20246
   },
   "globals": {
     "used": 28,
@@ -63,12 +63,15 @@
       "Vector3.new",
       "Vector3.zero",
       "math.abs",
+      "math.atan2",
       "math.ceil",
       "math.clamp",
       "math.cos",
+      "math.deg",
       "math.exp",
       "math.floor",
       "math.huge",
+      "math.log",
       "math.max",
       "math.min",
       "math.pi",
@@ -125,9 +128,12 @@
       "Camera",
       "Folder",
       "Frame",
+      "Humanoid",
       "IntValue",
       "Model",
+      "Motor6D",
       "Part",
+      "PointLight",
       "ProximityPrompt",
       "RemoteEvent",
       "RemoteFunction",
