@@ -133,6 +133,7 @@ R2W.start = function (opts) {
     let dt = (now - last) / 1000; last = now; if (dt > 0.1) dt = 0.1;
     acc += dt;
     try {
+      if (ENV.paused) acc = 0; // R2W.ENV.paused = true — заморозить симуляцию (рендер продолжается; для скриншотов/отладки)
       if (acc > 0.0001) {
         const sub = acc > 1 / 25 ? 2 : 1; for (let i = 0; i < sub; i++) ENV.frame(acc / sub); acc = 0;
       }
@@ -5074,6 +5075,17 @@ ENV.buildRig = function (name, shirt, skin) {
   mkPart('Left Leg', v3(1, 2, 1), v3(-0.5, -2, 0), pants, m); mkPart('Right Leg', v3(1, 2, 1), v3(0.5, -2, 0), pants, m);
   const h = newInstance('Humanoid'); h.props.HipHeight = 0; h.props.RigType = En('HumanoidRigType', 'R6'); h.setParent(m);
   m.props.PrimaryPart = hrp;
+  // Standard R6 joints (same names / C0 / C1 as a real Roblox R6 character): scripts can animate limbs via Motor6D.C0 / Transform.
+  const torso = m.findChild('Torso');
+  const R = (a) => a; const cf = (x, y, z, r) => new CFrame(x, y, z, r);
+  const RS = [0, 0, 1, 0, 1, 0, -1, 0, 0], LS = [0, 0, -1, 0, 1, 0, 1, 0, 0], NK = [-1, 0, 0, 0, 0, 1, 0, 1, 0];
+  const motor = (name, parent, p0, p1, c0, c1) => { const j = newInstance('Motor6D'); j.props.Name = name; j.props.Part0 = p0; j.props.Part1 = p1; j.props.C0 = c0; j.props.C1 = c1; j.setParent(parent); return j; };
+  motor('RootJoint', hrp, hrp, torso, cf(0, 0, 0, NK), cf(0, 0, 0, NK));
+  motor('Right Shoulder', torso, torso, m.findChild('Right Arm'), cf(1, 0.5, 0, R(RS)), cf(-0.5, 0.5, 0, RS));
+  motor('Left Shoulder', torso, torso, m.findChild('Left Arm'), cf(-1, 0.5, 0, LS), cf(0.5, 0.5, 0, LS));
+  motor('Right Hip', torso, torso, m.findChild('Right Leg'), cf(1, -1, 0, RS), cf(0.5, 1, 0, RS));
+  motor('Left Hip', torso, torso, m.findChild('Left Leg'), cf(-1, -1, 0, LS), cf(-0.5, 1, 0, LS));
+  motor('Neck', torso, torso, m.findChild('Head'), cf(0, 1, 0, NK), cf(0, -0.5, 0, NK));
   return m;
 };
 ENV.character = {
@@ -5444,10 +5456,25 @@ function setupCtl(h) {
   const ctl = { m, hrp, r6, feet, top: r6 ? 2 : hrp.props.Size.y / 2 + 1.5, pos: [cf.x, cf.y, cf.z], yaw: Math.atan2(-cf.r[2], cf.r[8]) || 0, vy: 0, vx: 0, vz: 0, grounded: false, lastCF: cf, floor: null, floorCF: null, t: 0, phase: 0, swing: 0, dead: false, deathT: 0, moveT: 0, jumpReq: false, rec: world.parts.get(hrp), parts: null, restPose: false, airT: 0 };
   if (cf.r) { const fy = D.eulerYXZ(cf.r); ctl.yaw = fy[1]; }
   ctl.parts = {}; for (const n of ['Torso', 'Head', 'Left Arm', 'Right Arm', 'Left Leg', 'Right Leg']) { const p = m.findChild(n); if (p) ctl.parts[n] = p; }
+  ctl.motors = findMotors(m, ctl);
   ctl.rel = new Map();
   const inv = D.cfInverse(cf);
   for (const p of m.descendants()) if (p.isA('BasePart')) { p.charPart = true; const r = world.parts.get(p); if (r) r.inCtl = true; if (!r6 && p !== hrp) ctl.rel.set(p, D.cfMul(inv, p.props.CFrame)); }
   h.ctl = ctl; return ctl;
+}
+// R6 Motor6D joints (if present): limb = Part0 * C0 * anim * Transform * C1^-1 — scripts can tween C0 / set Transform.
+function findMotors(m, ctl) {
+  const out = {}; let n = 0;
+  for (const d of m.descendants()) if (d.className === 'Motor6D' && d.props.Part1) { out[d.props.Name] = d; n++; }
+  if (!out.RootJoint || !out['Right Shoulder']) return null;
+  return n ? out : null;
+}
+function rotZ(a) { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; }
+function motorCF(j, base, ang) {
+  const p = j.props; let t = p.C0;
+  if (ang) t = D.cfMul(t, new CFrame(0, 0, 0, rotZ(ang)));
+  if (p.Transform) t = D.cfMul(t, p.Transform);
+  return D.cfMul(D.cfMul(base, t), D.cfInverse(p.C1));
 }
 function ctlBox(ctl) {
   const c = ctl; const cy = c.pos[1] - c.feet + (c.feet + c.top) / 2, hy = (c.feet + c.top) / 2;
@@ -5473,6 +5500,18 @@ function poseRig(ctl, swing, air, fall) {
   setPart(ctl.hrp, root);
   if (!ctl.r6) { for (const [p, rel] of ctl.rel) if (!p.destroyed) setPart(p, D.cfMul(root, rel)); return; }
   const P = ctl.parts;
+  if (!ctl.motors && ((ctl.motorScan = (ctl.motorScan || 0) + 1) % 30 === 1)) ctl.motors = findMotors(ctl.m, ctl);
+  const M = ctl.motors;
+  if (M && !M.RootJoint.destroyed) {
+    const a = swing * 0.9;
+    const torsoCF = motorCF(M.RootJoint, root, 0);
+    if (P.Torso) setPart(P.Torso, torsoCF);
+    const joint = (name, ang) => { const j = M[name]; if (j && !j.destroyed && j.props.Part1 && !j.props.Part1.destroyed) setPart(j.props.Part1, motorCF(j, torsoCF, ang)); };
+    joint('Neck', 0);
+    joint('Right Shoulder', air ? 2.8 : -a); joint('Left Shoulder', air ? -2.8 : -a);
+    joint('Right Hip', air ? -0.35 : a); joint('Left Hip', air ? -0.35 : a);
+    return;
+  }
   const put = (name, cf) => { if (P[name]) setPart(P[name], D.cfMul(root, cf)); };
   put('Torso', new CFrame(0, 0, 0)); put('Head', new CFrame(0, 1.5, 0));
   const a = swing * 0.9;
@@ -6517,7 +6556,7 @@ class GuiRenderer {
     // border / stroke
     const shadows = [];
     const bs = p.BorderSizePixel || 0;
-    if (bs > 0 && (p.BackgroundTransparency || 0) < 1 || bs > 0 && !isText && i.className !== 'ImageLabel') shadows.push(`0 0 0 ${bs}px ${css(p.BorderColor3, 1)}`);
+    if (bs > 0 && (p.BackgroundTransparency || 0) < 1) shadows.push(`0 0 0 ${bs}px ${css(p.BorderColor3, 1 - (p.BackgroundTransparency || 0))}`); // как в Roblox: рамка прозрачна вместе с фоном
     if (stroke && !(isText && stroke.ApplyStrokeMode.name === 'Contextual')) { const th = stroke.Thickness; shadows.length = 0; shadows.push(`0 0 0 ${th}px ${css(stroke.Color, 1 - stroke.Transparency)}`); }
     set('boxShadow', shadows.join(','));
     if (p.Rotation) set('transform', `rotate(${p.Rotation}deg)${scale !== 1 ? ` scale(${scale})` : ''}`); else set('transform', scale !== 1 ? `scale(${scale})` : 'none');

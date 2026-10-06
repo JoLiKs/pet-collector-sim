@@ -63,6 +63,8 @@ local raidEnd: ((boolean, { [Player]: number }, number) -> ())? = nil
 local raidDeadline = 0
 local lunarOn = false
 
+local FX_RADIUS = 150 -- кому рассылать боевые эффекты
+local KNOCKBACK = 2.6 -- отбрасывание рядового врага ударом игрока
 local ATTACK_SLAM_DAMAGE = 28
 local ATTACK_SLAM_RANGE = 22
 local ATTACK_SLAM_INTERVAL = 3.2
@@ -728,8 +730,13 @@ local function attack(player: Player, enemyId: any): (boolean, string?)
 		return false, nil -- кулдаун без тоста
 	end
 	lastAttack[player] = now
-	-- Всегда проигрываем замах (в т.ч. «в воздух»), даже если рядом никого нет.
-	fx(player, "Swing", root.Position + Vector3.new(0, 2.2, 0), "", nil)
+	-- Замах (в т.ч. «в воздух») видят другие игроки рядом; сам атакующий рисует его сразу по нажатию.
+	for _, other in ipairs(Players:GetPlayers()) do
+		local r = rootOf(other)
+		if other ~= player and r and (r.Position - root.Position).Magnitude <= FX_RADIUS then
+			Remotes.getEvent("CombatFx"):FireClient(other, "Swing", player)
+		end
+	end
 	local target: Enemy? = nil
 	if type(enemyId) == "string" then
 		target = enemies[enemyId]
@@ -749,7 +756,22 @@ local function attack(player: Player, enemyId: any): (boolean, string?)
 		Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
 		blade
 	)
+	local dir = Vector3.new(target.Pos.X - root.Position.X, 0, target.Pos.Z - root.Position.Z)
+	dir = if dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
+	local hitPos = target.Pos + Vector3.new(0, target.Half * 0.6, 0) - dir * math.min(target.Half, 2)
+	for _, other in ipairs(Players:GetPlayers()) do
+		local r = rootOf(other)
+		if r and (r.Position - hitPos).Magnitude <= FX_RADIUS then
+			Remotes.getEvent("CombatFx"):FireClient(other, "Impact", hitPos, dir)
+		end
+	end
 	damageEnemy(target, dmg, player, "player")
+	-- Кнокбэк: рядовых отбрасывает заметно, боссов — чуть-чуть, рейд-босса — нет
+	if not target.Dead and target.Special ~= "raid" then
+		local push = if target.Def.Boss then 0.4 else KNOCKBACK
+		target.Pos = target.Pos + dir * push
+		target.Model:PivotTo(CFrame.lookAt(target.Pos, target.Pos - dir))
+	end
 	return true, nil
 end
 

@@ -10,6 +10,7 @@ local FOLDER_NAME = "Remotes"
 
 Remotes.Events = {
 	"Fx", -- S->C: боевые эффекты (kind, ...)
+	"CombatFx", -- S->C (игрокам рядом): ("Swing", attacker) | ("Impact", pos, dir)
 	"EventState", -- S->C: активные события и таймеры
 	"Dialog", -- S->C: диалог NPC
 	"OpenUi", -- S->C: открыть панель (станция в мире)

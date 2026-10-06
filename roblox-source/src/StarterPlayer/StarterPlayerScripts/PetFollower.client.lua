@@ -10,6 +10,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local PetModel = require(Shared:WaitForChild("PetModel"))
 
 local RENDER_DISTANCE = 220
@@ -92,11 +93,13 @@ RunService.RenderStepped:Connect(function(dt)
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root and root:IsA("BasePart") and (root.Position - camPos).Magnitude < RENDER_DISTANCE then
 			local count = #r.Pets
+			local lunge = AttackFx.petLunge(player) -- рывок питомцев вместе с ударом хозяина
 			for _, entry in ipairs(r.Pets) do
 				local offset = slotOffset(entry.Index, count)
 				local bob = math.sin(t * 3 + entry.Index * 1.7) * 0.25
 				local worldPos = (root.CFrame * CFrame.new(offset.X, 0, offset.Z)).Position
 					+ Vector3.new(0, -1.4 + 1.1 + bob, 0)
+					+ lunge
 				local look = root.CFrame.LookVector
 				local flat = Vector3.new(look.X, 0, look.Z)
 				if flat.Magnitude < 0.01 then

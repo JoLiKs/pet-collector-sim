@@ -5,10 +5,10 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 79,
-    "transpiled": 79,
+    "total": 81,
+    "transpiled": 81,
     "failed": [],
-    "lines": 15297
+    "lines": 15649
   },
   "globals": {
     "used": 27,

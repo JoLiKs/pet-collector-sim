@@ -154,6 +154,360 @@ return AchievementData
 			</Item>
 			<Item class="ModuleScript" referent="RBX00000000000000000000000000000008">
 				<Properties>
+					<string name="Name">AttackFx</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	AttackFx — визуал удара на КЛИЕНТЕ (урон считает только сервер).
+	  * замах правой рукой через Motor6D.C0 (R6: Torso["Right Shoulder"], R15: RightUpperArm.RightShoulder) + поворот торса (RootJoint/Root);
+	  * меч из примитивов в руке на время удара;
+	  * след удара — неоновый полумесяц из сегментов, пролетает справа налево и тает (Transparency);
+	  * лёгкий рывок вперёд (только свой персонаж), рывок питомцев (PetFollower читает AttackFx.lastSwing);
+	  * вспышка и искры при попадании (AttackFx.impact).
+	Только стандартные API: Motor6D, CFrame, TweenService, Part/Neon — одинаково в Roblox и в эмуляторе roblox2web.
+]]
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local AttackFx = {}
+
+AttackFx.SWING_TIME = 0.38
+AttackFx.lastSwing = {} :: { [Player]: { T: number, Dir: Vector3 } }
+
+local WINDUP = 0.07
+local SLASH = 0.11
+local ARC_RADIUS = 5.2
+local ARC_SEGMENTS = 11
+
+local running: { [Model]: { Stop: () -> () } } = {}
+
+local function fxFolder(): Folder
+	local f = Workspace:FindFirstChild("ClientFx")
+	if f and f:IsA("Folder") then
+		return f
+	end
+	local nf = Instance.new("Folder")
+	nf.Name = "ClientFx"
+	nf.Parent = Workspace
+	return nf
+end
+
+local function fxPart(name: string, size: Vector3, cf: CFrame, color: Color3, transparency: number): Part
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Anchored = true
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.CastShadow = false
+	p.Material = Enum.Material.Neon
+	p.Color = color
+	p.Size = size
+	p.CFrame = cf
+	p.Transparency = transparency
+	p.Parent = fxFolder()
+	return p
+end
+
+local function fadeAndDestroy(p: BasePart, delay: number, duration: number, goal: { [string]: any }?)
+	task.delay(delay, function()
+		if not p.Parent then
+			return
+		end
+		local g: { [string]: any } = goal or {}
+		g.Transparency = 1
+		local tw = TweenService:Create(
+			p,
+			TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			g
+		)
+		tw:Play()
+		task.delay(duration + 0.05, function()
+			p:Destroy()
+		end)
+	end)
+end
+
+local function findMotor(
+	character: Model,
+	r6Parent: string,
+	r6Name: string,
+	r15Parent: string,
+	r15Name: string
+): Motor6D?
+	local a = character:FindFirstChild(r6Parent)
+	local m = a and a:FindFirstChild(r6Name)
+	if m and m:IsA("Motor6D") then
+		return m
+	end
+	local b = character:FindFirstChild(r15Parent)
+	local m2 = b and b:FindFirstChild(r15Name)
+	if m2 and m2:IsA("Motor6D") then
+		return m2
+	end
+	return nil
+end
+
+local function lerp(a: number, b: number, t: number): number
+	return a + (b - a) * t
+end
+
+-- Ключевые позы руки в пространстве торса: yaw (вокруг вертикали), pitch (подъём вперёд), twist торса
+local POSES = {
+	rest = { Yaw = 0, Pitch = 0, Twist = 0 },
+	windup = { Yaw = -1.5, Pitch = 2.3, Twist = -0.35 },
+	slash = { Yaw = 1.25, Pitch = 1.3, Twist = 0.42 },
+}
+
+-- Поза в момент t (секунды от начала удара)
+function AttackFx.poseAt(t: number): (number, number, number)
+	local a, b, k
+	if t < WINDUP then
+		a, b, k = POSES.rest, POSES.windup, t / WINDUP
+	elseif t < WINDUP + SLASH then
+		local u = (t - WINDUP) / SLASH
+		a, b, k = POSES.windup, POSES.slash, 1 - (1 - u) * (1 - u) -- резкий удар с замедлением в конце
+	elseif t < AttackFx.SWING_TIME then
+		a, b, k = POSES.slash, POSES.rest, (t - WINDUP - SLASH) / (AttackFx.SWING_TIME - WINDUP - SLASH)
+	else
+		return 0, 0, 0
+	end
+	return lerp(a.Yaw, b.Yaw, k), lerp(a.Pitch, b.Pitch, k), lerp(a.Twist, b.Twist, k)
+end
+
+-- Меч из примитивов: позиционируется каждый кадр по руке (без Weld — одинаково в Roblox и эмуляторе)
+local function buildSword(): { Parts: { { Part: Part, Offset: CFrame } } }
+	local parts = {}
+	local function add(name: string, size: Vector3, offset: CFrame, color: Color3, material: Enum.Material)
+		local p = fxPart(name, size, CFrame.new(), color, 0)
+		p.Material = material
+		table.insert(parts, { Part = p, Offset = offset })
+	end
+	add(
+		"SwordHandle",
+		Vector3.new(0.22, 0.75, 0.22),
+		CFrame.new(0, 0.1, 0),
+		Color3.fromRGB(90, 60, 40),
+		Enum.Material.Wood
+	)
+	add(
+		"SwordGuard",
+		Vector3.new(0.28, 0.16, 1.0),
+		CFrame.new(0, -0.32, 0),
+		Color3.fromRGB(230, 190, 70),
+		Enum.Material.SmoothPlastic
+	)
+	add(
+		"SwordBlade",
+		Vector3.new(0.14, 3.2, 0.42),
+		CFrame.new(0, -2.0, 0),
+		Color3.fromRGB(205, 215, 230),
+		Enum.Material.SmoothPlastic
+	)
+	add(
+		"SwordEdge",
+		Vector3.new(0.06, 3.1, 0.1),
+		CFrame.new(0, -2.0, -0.24),
+		Color3.fromRGB(200, 240, 255),
+		Enum.Material.Neon
+	)
+	return { Parts = parts }
+end
+
+-- След удара: полумесяц из неоновых сегментов, появляется справа налево и тает
+function AttackFx.slashArc(origin: CFrame)
+	-- плоскость дуги наклонена к камере (видна сзади-сверху) и по диагонали: удар сверху-справа вниз-влево
+	local arcCF = origin * CFrame.new(0, 0.9, -0.6) * CFrame.Angles(math.rad(38), 0, math.rad(-24))
+	local a0, a1 = math.rad(-80), math.rad(85)
+	local function point(a: number, r: number): Vector3
+		return (arcCF * CFrame.new(-math.sin(a) * r, 0, -math.cos(a) * r)).Position
+	end
+	local up = arcCF.UpVector
+	for i = 0, ARC_SEGMENTS - 1 do
+		local k = i / (ARC_SEGMENTS - 1)
+		local aa = lerp(a0, a1, i / ARC_SEGMENTS)
+		local ab = lerp(a0, a1, (i + 1) / ARC_SEGMENTS)
+		local pa, pb = point(aa, ARC_RADIUS), point(ab, ARC_RADIUS)
+		local mid = (pa + pb) / 2
+		local len = (pb - pa).Magnitude * 1.18
+		local width = 0.25 + 1.55 * math.sin(math.pi * k) -- толще в середине — полумесяц
+		local cf = CFrame.lookAt(mid, pb, up)
+		local appear = SLASH * k * 0.9
+		local core = fxPart("SlashArc", Vector3.new(width, 0.1, len), cf, Color3.fromRGB(255, 205, 70), 1)
+		local glow = fxPart(
+			"SlashGlow",
+			Vector3.new(width * 1.9, 0.05, len * 1.05),
+			cf * CFrame.new(width * 0.35, 0, 0),
+			Color3.fromRGB(90, 175, 255),
+			1
+		)
+		task.delay(appear, function()
+			if core.Parent then
+				core.Transparency = 0
+				glow.Transparency = 0.35
+			end
+		end)
+		local outward = (mid - arcCF.Position).Unit * 0.9
+		fadeAndDestroy(core, appear + 0.05, 0.22, { CFrame = cf + outward })
+		fadeAndDestroy(glow, appear + 0.03, 0.2, { CFrame = cf + outward * 1.3 })
+	end
+end
+
+-- Вспышка и искры в точке попадания
+function AttackFx.impact(pos: Vector3, dir: Vector3?)
+	local d = if dir and dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
+	local flash =
+		fxPart("HitFlash", Vector3.new(1.2, 1.2, 1.2), CFrame.new(pos), Color3.fromRGB(255, 240, 160), 0.1)
+	flash.Shape = Enum.PartType.Ball
+	fadeAndDestroy(flash, 0, 0.18, { Size = Vector3.new(4.5, 4.5, 4.5) })
+	local rng = Random.new()
+	for _ = 1, 8 do
+		local spread = Vector3.new(rng:NextNumber(-1, 1), rng:NextNumber(-0.2, 1), rng:NextNumber(-1, 1))
+		local v = (d + spread * 0.9).Unit
+		local cf = CFrame.lookAt(pos, pos + v)
+		local spark = fxPart("HitSpark", Vector3.new(0.18, 0.18, 0.9), cf, Color3.fromRGB(255, 200, 80), 0)
+		fadeAndDestroy(spark, 0, 0.3, { CFrame = cf + v * rng:NextNumber(2.5, 4.5) })
+	end
+end
+
+local function nearestEnemyPos(from: Vector3, range: number): Vector3?
+	local folder = Workspace:FindFirstChild("Enemies")
+	if not folder then
+		return nil
+	end
+	local best, bd = nil, range
+	for _, m in ipairs(folder:GetChildren()) do
+		if m:IsA("Model") and (m:GetAttribute("Hp") or 0) > 0 then
+			local p = m:GetPivot().Position
+			local d = (Vector3.new(p.X, from.Y, p.Z) - from).Magnitude
+			if d < bd then
+				best, bd = p, d
+			end
+		end
+	end
+	return best
+end
+
+-- Удар персонажа игрока. isLocal = свой персонаж (поворот к цели и рывок делаем только для него).
+function AttackFx.swing(player: Player, isLocal: boolean)
+	local character = player.Character
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	if not character or not root or not root:IsA("BasePart") then
+		return
+	end
+	local prev = running[character]
+	if prev then
+		prev.Stop()
+	end
+
+	-- направление удара: к ближайшему врагу, иначе куда смотрит камера (свой) / персонаж (чужой)
+	local dir = root.CFrame.LookVector
+	if isLocal then
+		local target = nearestEnemyPos(root.Position, 24)
+		if target then
+			dir = target - root.Position
+		else
+			local cam = Workspace.CurrentCamera
+			if cam then
+				dir = cam.CFrame.LookVector
+			end
+		end
+	end
+	local flat = Vector3.new(dir.X, 0, dir.Z)
+	if flat.Magnitude < 0.01 then
+		flat = Vector3.new(0, 0, -1)
+	end
+	flat = flat.Unit
+	if isLocal then
+		root.CFrame = CFrame.lookAt(root.Position, root.Position + flat)
+	end
+	AttackFx.lastSwing[player] = { T = os.clock(), Dir = flat }
+
+	local shoulder = findMotor(character, "Torso", "Right Shoulder", "RightUpperArm", "RightShoulder")
+	local rootJoint = findMotor(character, "HumanoidRootPart", "RootJoint", "LowerTorso", "Root")
+	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
+	local shoulderBase = shoulder and shoulder.C0
+	local rootBase = rootJoint and rootJoint.C0
+	local sword = buildSword()
+	local t0 = os.clock()
+	local arcDone, lunged = false, 0
+	local conn: RBXScriptConnection? = nil
+
+	local function stop()
+		if conn then
+			conn:Disconnect()
+			conn = nil
+		end
+		if shoulder and shoulderBase then
+			shoulder.C0 = shoulderBase
+		end
+		if rootJoint and rootBase then
+			rootJoint.C0 = rootBase
+		end
+		for _, s in ipairs(sword.Parts) do
+			s.Part:Destroy()
+		end
+		running[character] = nil
+	end
+	running[character] = { Stop = stop }
+
+	local function step()
+		local t = os.clock() - t0
+		if t >= AttackFx.SWING_TIME or not character.Parent then
+			stop()
+			return
+		end
+		local yaw, pitch, twist = AttackFx.poseAt(t)
+		if shoulder and shoulderBase then
+			shoulder.C0 = CFrame.new(shoulderBase.Position)
+				* CFrame.Angles(0, yaw, 0)
+				* CFrame.Angles(pitch, 0, 0)
+				* shoulderBase.Rotation
+		end
+		if rootJoint and rootBase then
+			rootJoint.C0 = CFrame.new(rootBase.Position) * CFrame.Angles(0, twist, 0) * rootBase.Rotation
+		end
+		-- меч в руке: рукоять в кисти, клинок продолжает руку с наклоном вперёд
+		if arm and arm:IsA("BasePart") then
+			local grip = arm.CFrame * CFrame.new(0, -0.85, 0) * CFrame.Angles(math.rad(30), 0, 0)
+			for _, s in ipairs(sword.Parts) do
+				s.Part.CFrame = grip * s.Offset
+			end
+		end
+		if not arcDone and t >= WINDUP then
+			arcDone = true
+			AttackFx.slashArc(CFrame.lookAt(root.Position, root.Position + flat))
+		end
+		-- рывок вперёд в фазе удара (только свой персонаж — его позицией владеет клиент)
+		if isLocal and t >= WINDUP and lunged < 4 then
+			lunged += 1
+			root.CFrame = root.CFrame + flat * 0.4
+		end
+	end
+	conn = RunService.RenderStepped:Connect(step)
+	step()
+end
+
+-- Смещение питомца при рывке (0..1 по времени удара)
+function AttackFx.petLunge(player: Player): Vector3
+	local s = AttackFx.lastSwing[player]
+	if not s then
+		return Vector3.zero
+	end
+	local t = (os.clock() - s.T) / 0.4
+	if t < 0 or t > 1 then
+		return Vector3.zero
+	end
+	local k = math.sin(math.pi * t)
+	return s.Dir * (3.5 * k) + Vector3.new(0, 0.9 * k, 0)
+end
+
+return AttackFx
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000009">
+				<Properties>
 					<string name="Name">BattlePassData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 -- Батл-пасс сезона: бесплатные и премиум-награды (премиум = геймпасс BATTLE_PASS).
@@ -232,7 +586,7 @@ return BattlePassData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000009">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000A">
 				<Properties>
 					<string name="Name">Config</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -504,7 +858,7 @@ return Config
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000B">
 				<Properties>
 					<string name="Name">EnemyData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1112,7 +1466,7 @@ return EnemyData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
 				<Properties>
 					<string name="Name">EventData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1210,7 +1564,7 @@ return EventData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
 				<Properties>
 					<string name="Name">Formulas</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1329,7 +1683,7 @@ return Formulas
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1838,7 +2192,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2135,7 +2489,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2449,7 +2803,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2729,7 +3083,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2870,7 +3224,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2885,6 +3239,7 @@ local FOLDER_NAME = "Remotes"
 
 Remotes.Events = {
 	"Fx", -- S->C: боевые эффекты (kind, ...)
+	"CombatFx", -- S->C (игрокам рядом): ("Swing", attacker) | ("Impact", pos, dir)
 	"EventState", -- S->C: активные события и таймеры
 	"Dialog", -- S->C: диалог NPC
 	"OpenUi", -- S->C: открыть панель (станция в мире)
@@ -2950,7 +3305,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3050,7 +3405,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3218,7 +3573,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3431,7 +3786,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3585,7 +3940,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3666,7 +4021,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3751,7 +4106,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3892,11 +4247,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000001A">
+	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000001B">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX0000000000000000000000000000001B">
+		<Item class="Script" referent="RBX0000000000000000000000000000001C">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -3946,11 +4301,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX0000000000000000000000000000001C">
+		<Item class="Folder" referent="RBX0000000000000000000000000000001D">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4074,7 +4429,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4173,7 +4528,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4254,7 +4609,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4322,6 +4677,8 @@ local raidEnd: ((boolean, { [Player]: number }, number) -> ())? = nil
 local raidDeadline = 0
 local lunarOn = false
 
+local FX_RADIUS = 150 -- кому рассылать боевые эффекты
+local KNOCKBACK = 2.6 -- отбрасывание рядового врага ударом игрока
 local ATTACK_SLAM_DAMAGE = 28
 local ATTACK_SLAM_RANGE = 22
 local ATTACK_SLAM_INTERVAL = 3.2
@@ -4987,8 +5344,13 @@ local function attack(player: Player, enemyId: any): (boolean, string?)
 		return false, nil -- кулдаун без тоста
 	end
 	lastAttack[player] = now
-	-- Всегда проигрываем замах (в т.ч. «в воздух»), даже если рядом никого нет.
-	fx(player, "Swing", root.Position + Vector3.new(0, 2.2, 0), "", nil)
+	-- Замах (в т.ч. «в воздух») видят другие игроки рядом; сам атакующий рисует его сразу по нажатию.
+	for _, other in ipairs(Players:GetPlayers()) do
+		local r = rootOf(other)
+		if other ~= player and r and (r.Position - root.Position).Magnitude <= FX_RADIUS then
+			Remotes.getEvent("CombatFx"):FireClient(other, "Swing", player)
+		end
+	end
 	local target: Enemy? = nil
 	if type(enemyId) == "string" then
 		target = enemies[enemyId]
@@ -5008,7 +5370,22 @@ local function attack(player: Player, enemyId: any): (boolean, string?)
 		Economy.talent(data, "PlayerDamage") + Economy.getDamageMultiplier(data) - 1,
 		blade
 	)
+	local dir = Vector3.new(target.Pos.X - root.Position.X, 0, target.Pos.Z - root.Position.Z)
+	dir = if dir.Magnitude > 0.01 then dir.Unit else Vector3.new(0, 0, -1)
+	local hitPos = target.Pos + Vector3.new(0, target.Half * 0.6, 0) - dir * math.min(target.Half, 2)
+	for _, other in ipairs(Players:GetPlayers()) do
+		local r = rootOf(other)
+		if r and (r.Position - hitPos).Magnitude <= FX_RADIUS then
+			Remotes.getEvent("CombatFx"):FireClient(other, "Impact", hitPos, dir)
+		end
+	end
 	damageEnemy(target, dmg, player, "player")
+	-- Кнокбэк: рядовых отбрасывает заметно, боссов — чуть-чуть, рейд-босса — нет
+	if not target.Dead and target.Special ~= "raid" then
+		local push = if target.Def.Boss then 0.4 else KNOCKBACK
+		target.Pos = target.Pos + dir * push
+		target.Model:PivotTo(CFrame.lookAt(target.Pos, target.Pos - dir))
+	end
 	return true, nil
 end
 
@@ -5069,7 +5446,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5168,7 +5545,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5201,7 +5578,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5291,7 +5668,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5720,7 +6097,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6122,7 +6499,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6383,7 +6760,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6432,7 +6809,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6588,7 +6965,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6632,7 +7009,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6849,7 +7226,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6871,7 +7248,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6945,7 +7322,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7349,7 +7726,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7620,7 +7997,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7750,7 +8127,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7932,7 +8309,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8036,7 +8413,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8400,7 +8777,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8478,7 +8855,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8548,7 +8925,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8592,7 +8969,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8652,7 +9029,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8880,7 +9257,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8923,7 +9300,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8952,7 +9329,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9478,7 +9855,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9530,7 +9907,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10552,7 +10929,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10646,15 +11023,38 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000003E">
+	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000003F">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX0000000000000000000000000000003F">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000040">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000040">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000041">
+				<Properties>
+					<string name="Name">CombatFx</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Боевые эффекты от сервера: удары других игроков и попадания (вспышка/искры). Урон считается только на сервере.
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AttackFx = require(Shared:WaitForChild("AttackFx"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+
+Remotes.getEvent("CombatFx").OnClientEvent:Connect(function(kind: any, a: any, b: any)
+	if kind == "Swing" and typeof(a) == "Instance" and a:IsA("Player") then
+		if a ~= Players.LocalPlayer then -- свой удар уже нарисован по нажатию
+			AttackFx.swing(a, false)
+		end
+	elseif kind == "Impact" and typeof(a) == "Vector3" then
+		AttackFx.impact(a, if typeof(b) == "Vector3" then b else nil)
+	end
+end)
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10669,6 +11069,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local PetModel = require(Shared:WaitForChild("PetModel"))
 
 local RENDER_DISTANCE = 220
@@ -10751,11 +11152,13 @@ RunService.RenderStepped:Connect(function(dt)
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		if root and root:IsA("BasePart") and (root.Position - camPos).Magnitude < RENDER_DISTANCE then
 			local count = #r.Pets
+			local lunge = AttackFx.petLunge(player) -- рывок питомцев вместе с ударом хозяина
 			for _, entry in ipairs(r.Pets) do
 				local offset = slotOffset(entry.Index, count)
 				local bob = math.sin(t * 3 + entry.Index * 1.7) * 0.25
 				local worldPos = (root.CFrame * CFrame.new(offset.X, 0, offset.Z)).Position
 					+ Vector3.new(0, -1.4 + 1.1 + bob, 0)
+					+ lunge
 				local look = root.CFrame.LookVector
 				local flat = Vector3.new(look.X, 0, look.Z)
 				if flat.Magnitude < 0.01 then
@@ -10789,22 +11192,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000041">
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000043">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000042">
+		<Item class="ScreenGui" referent="RBX00000000000000000000000000000044">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX00000000000000000000000000000043">
+			<Item class="Folder" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -10837,7 +11240,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -10932,7 +11335,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -11007,7 +11410,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -11226,7 +11629,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -11370,7 +11773,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -11557,7 +11960,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -11778,18 +12181,20 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
 -- Боевой HUD и эффекты: всплывающие числа, полоса босса, баннеры событий, трекер заданий,
 -- кнопка Attack (клавиша Q), окно оффлайн-награды, открытие панелей по станциям хаба.
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -11804,7 +12209,6 @@ local Fx = {}
 
 local COLORS = {
 	Hit = Color3.fromRGB(255, 255, 255),
-	Swing = Color3.fromRGB(255, 240, 180),
 	Kill = Theme.Gold,
 	Hurt = Color3.fromRGB(255, 80, 80),
 	Ability = Theme.Gem,
@@ -11829,10 +12233,6 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		if typeof(pos) ~= "Vector3" or active > 40 then
 			return
 		end
-		-- Локальный замах уже показан по клику; серверный Swing с пустым текстом пропускаем.
-		if kind == "Swing" and (text == nil or text == "") then
-			return
-		end
 		local cam = Workspace.CurrentCamera or camera
 		if not cam then
 			return
@@ -11846,7 +12246,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		local big = kind == "Kill" or kind == "Ability" or extra == "boss"
 		local l = Widgets.label({
 			Name = "Fx_" .. tostring(kind),
-			Text = if text == nil or text == "" then "•" else tostring(text),
+			Text = tostring(text),
 			Size = UDim2.fromOffset(150, if big then 30 else 22),
 			Position = UDim2.fromOffset(v.X - base.X - 75, v.Y - base.Y),
 			TextColor3 = COLORS[kind] or Theme.Text,
@@ -11987,51 +12387,13 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 
 	-- ---------- кнопка Attack ----------
 	local lastAttack = 0
-	local function playSwingLocal()
-		local character = game:GetService("Players").LocalPlayer.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if not root then
-			return
-		end
-		local cam = Workspace.CurrentCamera or camera
-		if not cam then
-			return
-		end
-		local v, onScreen = cam:WorldToViewportPoint(root.Position + Vector3.new(0, 2.2, 0))
-		if not onScreen then
-			return
-		end
-		active += 1
-		local base = layer.AbsolutePosition
-		local slash = Widgets.label({
-			Name = "Fx_Swing",
-			Text = "⚔",
-			Size = UDim2.fromOffset(64, 48),
-			Position = UDim2.fromOffset(v.X - base.X - 32, v.Y - base.Y - 20),
-			TextColor3 = COLORS.Swing,
-			TextStrokeTransparency = 0.2,
-			Font = Theme.Font,
-			ZIndex = 37,
-			Parent = layer,
-		})
-		Widgets.New("UITextSizeConstraint", { MaxTextSize = 36, Parent = slash })
-		local tw = Widgets.tween(slash, 0.35, {
-			Position = UDim2.fromOffset(v.X - base.X + 30, v.Y - base.Y - 50),
-			TextTransparency = 1,
-			TextStrokeTransparency = 1,
-			Rotation = 40,
-		})
-		tw.Completed:Once(function()
-			active -= 1
-			slash:Destroy()
-		end)
-	end
 	local function attack()
-		if os.clock() - lastAttack < 0.35 then
+		if os.clock() - lastAttack < AttackFx.SWING_TIME then
 			return
 		end
 		lastAttack = os.clock()
-		playSwingLocal() -- сразу, даже если врагов нет (без тоста)
+		-- Замах рисуем сразу (предсказание на клиенте), даже если врагов рядом нет — удар «в воздух», без тоста.
+		AttackFx.swing(Players.LocalPlayer, true)
 		Actions.call("Attack")
 	end
 	Widgets.button({
@@ -12196,7 +12558,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -12388,7 +12750,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -12720,7 +13082,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13038,7 +13400,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13614,7 +13976,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -13896,7 +14258,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14004,7 +14366,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14233,7 +14595,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14406,7 +14768,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -14434,7 +14796,7 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -14520,7 +14882,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15017,7 +15379,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15213,7 +15575,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15314,7 +15676,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15568,7 +15930,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15688,7 +16050,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005B">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000005D">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
