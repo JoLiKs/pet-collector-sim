@@ -1,11 +1,14 @@
 --!nonstrict
 -- Небольшая обёртка для создания интерфейса кодом (никаких внешних ассетов).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Theme = require(script.Parent.Theme)
 
 local Widgets = {}
 
 -- Универсальный конструктор: New("Frame", { Name = "X", Size = ..., Parent = ... }, { children })
+-- Текстовое свойство может быть маркером L.k("ключ", args) — тогда оно перерисуется при смене языка.
 function Widgets.New(className: string, props: { [string]: any }?, children: { Instance }?): any
 	local inst = Instance.new(className)
 	local parent = nil
@@ -13,6 +16,8 @@ function Widgets.New(className: string, props: { [string]: any }?, children: { I
 		for k, v in pairs(props) do
 			if k == "Parent" then
 				parent = v
+			elseif L.isMarker(v) then
+				L.bind(inst, k, v)
 			else
 				(inst :: any)[k] = v
 			end
@@ -127,6 +132,7 @@ function Widgets.setEnabled(btn: TextButton, enabled: boolean, color: Color3?)
 end
 
 -- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
+-- title — английское имя панели (Name = title .. "Panel"); заголовок берётся из ключа "panel.<title без пробелов>".
 function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 	local root = New("Frame", {
 		Name = title .. "Panel",
@@ -156,7 +162,7 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 	Widgets.corner(header, 16)
 	Widgets.label({
 		Name = "Title",
-		Text = title,
+		Text = L.k("panel." .. string.gsub(title, " ", "")),
 		Size = UDim2.new(1, -120, 1, -14),
 		Position = UDim2.fromOffset(16, 7),
 		TextXAlignment = Enum.TextXAlignment.Left,

@@ -6,6 +6,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local L = require(Shared:WaitForChild("Locale"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -19,18 +20,18 @@ local Widgets = require(script.Parent.Widgets)
 local Hud = {}
 
 local MENU = {
-	{ Id = "Pets", Text = "PETS", Color = Theme.Orange },
-	{ Id = "Quests", Text = "QUESTS", Color = Theme.Blue },
-	{ Id = "Craft", Text = "CRAFT", Color = Theme.Green },
-	{ Id = "Market", Text = "MARKET", Color = Theme.Gold },
-	{ Id = "Zones", Text = "WORLDS", Color = Theme.Green },
-	{ Id = "Talents", Text = "TALENTS", Color = Theme.Purple },
-	{ Id = "Trade", Text = "TRADE", Color = Theme.Orange },
-	{ Id = "Boards", Text = "TOP", Color = Theme.Blue },
-	{ Id = "Daily", Text = "DAILY", Color = Theme.Gold },
-	{ Id = "Upgrades", Text = "UPGRADES", Color = Theme.Blue },
-	{ Id = "Rebirth", Text = "REBIRTH", Color = Theme.Purple },
-	{ Id = "Shop", Text = "STORE", Color = Theme.Red },
+	{ Id = "Pets", Text = L.k("menu.Pets"), Color = Theme.Orange },
+	{ Id = "Quests", Text = L.k("menu.Quests"), Color = Theme.Blue },
+	{ Id = "Craft", Text = L.k("menu.Craft"), Color = Theme.Green },
+	{ Id = "Market", Text = L.k("menu.Market"), Color = Theme.Gold },
+	{ Id = "Zones", Text = L.k("menu.Zones"), Color = Theme.Green },
+	{ Id = "Talents", Text = L.k("menu.Talents"), Color = Theme.Purple },
+	{ Id = "Trade", Text = L.k("menu.Trade"), Color = Theme.Orange },
+	{ Id = "Boards", Text = L.k("menu.Boards"), Color = Theme.Blue },
+	{ Id = "Daily", Text = L.k("menu.Daily"), Color = Theme.Gold },
+	{ Id = "Upgrades", Text = L.k("menu.Upgrades"), Color = Theme.Blue },
+	{ Id = "Rebirth", Text = L.k("menu.Rebirth"), Color = Theme.Purple },
+	{ Id = "Shop", Text = L.k("menu.Shop"), Color = Theme.Red },
 }
 
 local function statPill(parent: Instance, order: number, icon: string, color: Color3): TextLabel
@@ -81,6 +82,20 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 	local gemsLabel = statPill(gui, 2, "G", Theme.Gem)
 	local rebirthLabel = statPill(gui, 3, "R", Theme.Purple)
 
+	-- Настройки (язык): маленькая кнопка под валютами, показывает текущий язык
+	local settingsBtn = Widgets.button({
+		Name = "Settings",
+		Text = L.t("hud.settings", { lang = string.upper(L.lang()) }),
+		Color = Theme.BgLight,
+		Position = UDim2.fromOffset(12, 12 + 3 * 44),
+		Size = UDim2.fromOffset(190, 30),
+		MaxTextSize = 16,
+		Parent = gui,
+		OnClick = function()
+			openPanel("Settings")
+		end,
+	})
+
 	-- Мир и множитель сверху по центру
 	local zoneBox = Widgets.New("Frame", {
 		Name = "ZoneBox",
@@ -118,7 +133,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 	})
 	local collect = Widgets.button({
 		Name = "Collect",
-		Text = "COLLECT",
+		Text = L.k("hud.collect"),
 		Color = Theme.Orange,
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -24),
@@ -129,7 +144,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 
 	local autoBtn = Widgets.button({
 		Name = "AutoToggle",
-		Text = "AUTO: ON",
+		Text = L.k("hud.auto_on"),
 		Color = Theme.Green,
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0.5, 140, 1, -24),
@@ -263,16 +278,17 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 	ClientState.onCore(function(core)
 		coinsLabel.Text = Util.formatNumber(core.Coins)
 		gemsLabel.Text = Util.formatNumber(core.Gems)
-		rebirthLabel.Text = "Rebirth " .. tostring(core.Rebirths)
+		rebirthLabel.Text = L.t("hud.rebirth", { n = core.Rebirths })
 		local zone = ZoneData.ById[core.CurrentZone]
 		if zone then
 			zoneLabel.Text = if inHub()
-				then ("Hub  (coins: %s x%d)"):format(zone.Name, zone.Multiplier)
-				else ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
+				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
+				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
 		end
-		perClickLabel.Text = "+" .. Util.formatNumber(core.PerClick) .. " per collect"
+		perClickLabel.Text = L.t("hud.per_collect", { n = Util.formatNumber(core.PerClick) })
+		settingsBtn.Text = L.t("hud.settings", { lang = string.upper(L.lang()) })
 		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
-		autoBtn.Text = if core.AutoCollect then "AUTO: ON" else "AUTO: OFF"
+		autoBtn.Text = if core.AutoCollect then L.t("hud.auto_on") else L.t("hud.auto_off")
 		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
 		dots.Daily.Visible = core.Daily.CanClaim
 		dots.Talents.Visible = core.TalentPoints > 0
@@ -309,15 +325,15 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		local zone = ZoneData.ById[core.CurrentZone]
 		if zone then
 			zoneLabel.Text = if inHub()
-				then ("Hub  (coins: %s x%d)"):format(zone.Name, zone.Multiplier)
-				else ("%s  (x%d)"):format(zone.Name, zone.Multiplier)
+				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
+				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
 		end
 		local left = core.LuckBoostEnds - ClientState.serverNow()
 		if core.LuckBoost > 1 and left > 0 then
-			buffLabel.Text = ("Luck x%d  %s"):format(core.LuckBoost, Util.formatTime(left))
+			buffLabel.Text = L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
 			buffLabel.TextColor3 = Theme.Green
 		else
-			buffLabel.Text = ("Luck x%.2f"):format(core.Luck)
+			buffLabel.Text = L.t("hud.luck", { x = string.format("%.2f", core.Luck) })
 			buffLabel.TextColor3 = Theme.TextDim
 		end
 	end)

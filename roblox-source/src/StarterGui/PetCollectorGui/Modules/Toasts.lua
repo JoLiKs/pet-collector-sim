@@ -1,6 +1,7 @@
 --!nonstrict
 -- Всплывающие уведомления сверху экрана.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
 local Theme = require(script.Parent.Theme)
@@ -17,10 +18,12 @@ local COLORS = {
 	reward = Theme.Purple,
 }
 
-function Toasts.show(text: string, kind: string?)
+-- text: готовая строка, ключ Locale или L.m(...) — всё переводится на текущий язык
+function Toasts.show(msg: any, kind: string?)
 	if not container then
 		return
 	end
+	local text = L.renderLocal(msg) or ""
 	local color = COLORS[kind or "info"] or Theme.Blue
 	local toast = Widgets.New("TextLabel", {
 		Size = UDim2.new(1, 0, 0, 40),
@@ -71,7 +74,7 @@ function Toasts.init(gui: ScreenGui)
 		Parent = container,
 	})
 	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
-		if type(text) == "string" then
+		if type(text) == "string" or type(text) == "table" then
 			Toasts.show(text, if type(kind) == "string" then kind else "info")
 		end
 	end)

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Formulas = require(Shared.Formulas)
 local TalentData = require(Shared.TalentData)
 
@@ -20,14 +21,14 @@ function RebirthService.freePoints(data: DataService.Data): number
 	return Formulas.talentPoints(data.Rebirths) - TalentData.spent(data.Talents)
 end
 
-local function rebirth(player: Player): (boolean, string?)
+local function rebirth(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	local cost = Formulas.rebirthCost(data.Rebirths)
 	if data.Coins < cost then
-		return false, "Not enough coins"
+		return false, "err.not_enough_coins"
 	end
 	local gems = Formulas.rebirthGems(data.Rebirths)
 	data.Coins = math.floor(Economy.talent(data, "StartCoins"))
@@ -38,27 +39,24 @@ local function rebirth(player: Player): (boolean, string?)
 	State.markCore(player)
 	Notify.send(
 		player,
-		("Rebirth %d! Coin multiplier is now x%.1f (+%d gems, +%d talent point%s)"):format(
-			data.Rebirths,
-			Formulas.rebirthMultiplier(data.Rebirths),
-			gems,
-			Formulas.talentPoints(data.Rebirths) - Formulas.talentPoints(data.Rebirths - 1),
-			if Formulas.talentPoints(data.Rebirths) - Formulas.talentPoints(data.Rebirths - 1) == 1
-				then ""
-				else "s"
-		),
+		Locale.m("rebirth.done", {
+			n = data.Rebirths,
+			mult = string.format("%.1f", Formulas.rebirthMultiplier(data.Rebirths)),
+			gems = gems,
+			tp = Formulas.talentPoints(data.Rebirths) - Formulas.talentPoints(data.Rebirths - 1),
+		}),
 		"reward"
 	)
 	return true, nil
 end
 
-local function buyTalent(player: Player, id: any): (boolean, string?)
+local function buyTalent(player: Player, id: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(id) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	if not Stations.inHub(player) then
-		return false, "Visit the Rebirth Altar in the Hub"
+		return false, "rebirth.visit_altar"
 	end
 	local ok, why = TalentData.canBuy(data.Talents, id, RebirthService.freePoints(data))
 	if not ok then
@@ -69,23 +67,23 @@ local function buyTalent(player: Player, id: any): (boolean, string?)
 	return true, nil
 end
 
-local function respec(player: Player): (boolean, string?)
+local function respec(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	if not Stations.inHub(player) then
-		return false, "Visit the Rebirth Altar in the Hub"
+		return false, "rebirth.visit_altar"
 	end
 	if TalentData.spent(data.Talents) == 0 then
-		return false, "Nothing to reset"
+		return false, "rebirth.nothing_reset"
 	end
 	if not Economy.trySpend(player, "Gems", TalentData.RESPEC_GEMS) then
-		return false, ("Respec costs %d gems"):format(TalentData.RESPEC_GEMS)
+		return false, Locale.m("rebirth.respec_cost", { n = TalentData.RESPEC_GEMS })
 	end
 	data.Talents = {}
 	State.markCore(player)
-	Notify.send(player, "Talents reset — spend your points anew!", "info")
+	Notify.send(player, Locale.m("rebirth.respec_done"), "info")
 	return true, nil
 end
 

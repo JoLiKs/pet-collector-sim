@@ -60,4 +60,9 @@ require(Modules:WaitForChild("Fx")).init(gui, function(name: string)
 end)
 
 Hud.init(gui, openPanel)
+require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)
+
+-- Смена языка: привязанные тексты (L.k) перерисовывает сам Locale, остальное — повторный снимок состояния
+local L = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Locale"))
+L.onChanged(ClientState.refresh)
 ClientState.requestResync()

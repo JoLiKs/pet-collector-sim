@@ -12,7 +12,7 @@ function Actions.call(name: string, ...): boolean
 	local fn = Remotes.getFunction("Action")
 	local ok, result = pcall(fn.InvokeServer, fn, name, ...)
 	if not ok or type(result) ~= "table" then
-		Toasts.show("Connection problem, try again", "error")
+		Toasts.show("err.connection", "error")
 		return false
 	end
 	if not result.ok then

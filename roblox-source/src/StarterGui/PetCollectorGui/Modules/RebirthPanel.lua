@@ -1,6 +1,7 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Formulas = require(Shared:WaitForChild("Formulas"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -55,7 +56,7 @@ function RebirthPanel.init(gui: ScreenGui)
 	local confirm = false
 	local btn
 	btn = Widgets.button({
-		Text = "REBIRTH",
+		Text = L.k("rebirth.button"),
 		Color = Theme.Purple,
 		Size = UDim2.new(0.6, 0, 0, 56),
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -69,15 +70,15 @@ function RebirthPanel.init(gui: ScreenGui)
 			end
 			if not confirm then
 				confirm = true
-				btn.Text = "Tap again to confirm!"
+				btn.Text = L.t("rebirth.confirm")
 				task.delay(3, function()
 					confirm = false
-					btn.Text = "REBIRTH"
+					btn.Text = L.t("rebirth.button")
 				end)
 				return
 			end
 			confirm = false
-			btn.Text = "REBIRTH"
+			btn.Text = L.t("rebirth.button")
 			Actions.call("Rebirth")
 		end,
 		Parent = body,
@@ -86,11 +87,12 @@ function RebirthPanel.init(gui: ScreenGui)
 	ClientState.onCore(function(core)
 		local cur = Formulas.rebirthMultiplier(core.Rebirths)
 		local nxt = Formulas.rebirthMultiplier(core.Rebirths + 1)
-		main.Text = ("Coin bonus: x%.1f  >  x%.1f"):format(cur, nxt)
-		detail.Text = ("Cost: %s coins\nReward: +%d gems and a permanent coin bonus.\nResets: coins and Click Power. You keep pets, gems, worlds and other upgrades."):format(
-			Util.formatNumber(core.RebirthCost),
-			Formulas.rebirthGems(core.Rebirths)
-		)
+		main.Text =
+			L.t("rebirth.bonus", { cur = string.format("%.1f", cur), nxt = string.format("%.1f", nxt) })
+		detail.Text = L.t("rebirth.detail", {
+			price = Util.formatNumber(core.RebirthCost),
+			n = Formulas.rebirthGems(core.Rebirths),
+		})
 		local ratio = math.clamp(core.Coins / core.RebirthCost, 0, 1)
 		bar.Size = UDim2.fromScale(ratio, 1)
 		barText.Text = ("%s / %s"):format(Util.formatNumber(core.Coins), Util.formatNumber(core.RebirthCost))

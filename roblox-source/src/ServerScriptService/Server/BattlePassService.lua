@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local BattlePassData = require(Shared.BattlePassData)
 
 local DataService = require(script.Parent.DataService)
@@ -25,41 +26,48 @@ function BattlePassService.sync(data: DataService.Data)
 	end
 end
 
-local function claim(player: Player, track: any, level: any): (boolean, string?)
+local function claim(player: Player, track: any, level: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or (track ~= "Free" and track ~= "Premium") or type(level) ~= "number" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	BattlePassService.sync(data)
 	level = math.floor(level)
 	local bp = data.BattlePass
 	local current = BattlePassData.progress(bp.Xp)
 	if level < 1 or level > current then
-		return false, "Level not reached yet"
+		return false, "bp.level_not_reached"
 	end
 	if track == "Premium" and not Session.hasPass(player, "BATTLE_PASS") then
-		return false, "Premium track needs the Battle Pass"
+		return false, "bp.need_pass"
 	end
 	local claimed = if track == "Premium" then bp.ClaimedPremium else bp.ClaimedFree
 	local key = tostring(level)
 	if claimed[key] then
-		return false, "Already claimed"
+		return false, "err.already_claimed"
 	end
 	local reward = BattlePassData.reward(track, level)
 	if not reward then
-		return false, "No reward"
+		return false, "bp.no_reward"
 	end
 	claimed[key] = true
 	Economy.grant(player, reward)
-	Notify.send(player, ("Battle Pass L%d (%s): %s"):format(level, track, Economy.describe(reward)), "reward")
+	Notify.send(
+		player,
+		Locale.m(
+			"bp.claimed",
+			{ level = level, track = track, reward = Economy.describe(reward, Locale.langOf(player)) }
+		),
+		"reward"
+	)
 	State.markPets(player)
 	return true, nil
 end
 
-local function claimAll(player: Player): (boolean, string?)
+local function claimAll(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	BattlePassService.sync(data)
 	local current = BattlePassData.progress(data.BattlePass.Xp)
@@ -77,7 +85,7 @@ local function claimAll(player: Player): (boolean, string?)
 		end
 	end
 	if n == 0 then
-		return false, "Nothing to claim"
+		return false, "err.nothing_to_claim"
 	end
 	return true, nil
 end
@@ -86,7 +94,7 @@ function BattlePassService.init()
 	Router.register("BpClaim", 6, 6, claim)
 	Router.register("BpClaimAll", 1, 2, claimAll)
 	Economy.onBpLevelUp = function(player: Player, level: number)
-		Notify.send(player, ("Battle Pass level %d reached!"):format(level), "reward")
+		Notify.send(player, Locale.m("bp.level_up", { level = level }), "reward")
 	end
 end
 

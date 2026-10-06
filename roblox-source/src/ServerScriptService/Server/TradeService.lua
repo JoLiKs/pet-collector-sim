@@ -10,6 +10,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local PetData = require(Shared.PetData)
 local PetMeta = require(Shared.PetMeta)
@@ -37,7 +38,7 @@ type Trade = {
 	B: Player?, -- nil = бот
 	BotPets: { [string]: PetMeta.PetState },
 	BotGen: number,
-	Msg: string?,
+	Msg: any,
 }
 
 local trades: { [Player]: Trade } = {}
@@ -72,7 +73,6 @@ local function petView(p: PetMeta.PetState): { [string]: any }
 		Variant = PetMeta.variantOf(p),
 		Level = p.Level or 1,
 		Evo = p.Evo or 0,
-		Name = PetMeta.displayName(p),
 		Value = PetMeta.tradeValue(p),
 	}
 end
@@ -131,7 +131,7 @@ local function participants(t: Trade): { Player }
 	return list
 end
 
-local function closeTrade(t: Trade, reason: string)
+local function closeTrade(t: Trade, reason: any)
 	TradeLogic.cancel(t.Logic)
 	trades[t.A] = nil
 	if t.B then
@@ -152,13 +152,13 @@ local function sideOf(t: Trade, player: Player): (TradeLogic.Side, TradeLogic.Si
 end
 
 -- Проверка состава предложения игрока (без побочных эффектов)
-local function validateSide(owner: Player, side: TradeLogic.Side): (boolean, string?)
+local function validateSide(owner: Player, side: TradeLogic.Side): (boolean, any)
 	local d = DataService.get(owner)
 	if not d then
-		return false, "Data not loaded"
+		return false, "err.not_loaded"
 	end
 	if d.Coins < side.Coins then
-		return false, owner.DisplayName .. " doesn't have enough coins"
+		return false, Locale.m("trade.no_coins", { player = owner.DisplayName })
 	end
 	local equipped = {}
 	for _, uid in ipairs(d.Equipped) do
@@ -167,20 +167,20 @@ local function validateSide(owner: Player, side: TradeLogic.Side): (boolean, str
 	for _, uid in ipairs(side.Pets) do
 		local p = d.Pets[uid]
 		if not p then
-			return false, "A traded pet no longer exists"
+			return false, "trade.pet_gone"
 		end
 		if p.Fav then
-			return false, "Favorite pets can't be traded"
+			return false, "trade.fav"
 		end
 		if equipped[uid] then
-			return false, "Unequip traded pets first"
+			return false, "trade.unequip"
 		end
 	end
 	return true, nil
 end
 
 -- Атомарное исполнение (без yield между проверкой и изменением)
-local function execute(t: Trade): (boolean, string?)
+local function execute(t: Trade): (boolean, any)
 	local ok, why = validateSide(t.A, t.Logic.A)
 	if not ok then
 		return false, why
@@ -195,10 +195,10 @@ local function execute(t: Trade): (boolean, string?)
 		local incomingA = #t.Logic.B.Pets - #t.Logic.A.Pets
 		local incomingB = #t.Logic.A.Pets - #t.Logic.B.Pets
 		if Economy.countPets(dA) + incomingA > Economy.getBagSize(dA) then
-			return false, t.A.DisplayName .. " has no room for the pets"
+			return false, Locale.m("trade.no_room", { player = t.A.DisplayName })
 		end
 		if Economy.countPets(dB) + incomingB > Economy.getBagSize(dB) then
-			return false, t.B.DisplayName .. " has no room for the pets"
+			return false, Locale.m("trade.no_room", { player = t.B.DisplayName })
 		end
 		local moveA, moveB = {}, {}
 		for _, uid in ipairs(t.Logic.A.Pets) do
@@ -226,7 +226,7 @@ local function execute(t: Trade): (boolean, string?)
 	-- бот
 	local incoming = #t.Logic.B.Pets - #t.Logic.A.Pets
 	if Economy.countPets(dA) + incoming > Economy.getBagSize(dA) then
-		return false, "Not enough pet storage"
+		return false, "err.storage_full"
 	end
 	for _, uid in ipairs(t.Logic.A.Pets) do
 		dA.Pets[uid] = nil
@@ -269,16 +269,16 @@ local function botThink(t: Trade)
 		end)
 		local received = TradeLogic.offerValue(t.Logic.A, petValueOf(t.A))
 		if TradeLogic.botAccepts(given, received, BOT_FAIRNESS) then
-			t.Msg = "Tom: Deal! Press Ready when you are."
+			t.Msg = Locale.m("trade.tom_deal")
 			if t.Logic.A.Ready then
 				TradeLogic.setReady(t.Logic, BOT, true, os.time(), Config.TRADE_CONFIRM_SECONDS)
 			else
 				t.Logic.B.Ready = true
 			end
 		else
-			t.Msg = ("Tom: Hmm, I'd want about %d value for that — you offer %d."):format(
-				math.floor(given * BOT_FAIRNESS),
-				math.floor(received)
+			t.Msg = Locale.m(
+				"trade.tom_want",
+				{ want = math.floor(given * BOT_FAIRNESS), offer = math.floor(received) }
 			)
 			t.Logic.B.Ready = false
 		end
@@ -292,12 +292,12 @@ local function finishIfDone(t: Trade)
 	end
 	local ok, why = execute(t)
 	if ok then
-		closeTrade(t, "Trade completed!")
+		closeTrade(t, Locale.m("trade.done"))
 		for _, p in ipairs(participants(t)) do
-			Notify.send(p, "Trade completed!", "reward")
+			Notify.send(p, Locale.m("trade.done"), "reward")
 		end
 	else
-		closeTrade(t, "Trade failed: " .. tostring(why))
+		closeTrade(t, Locale.m("trade.failed", { why = why }))
 	end
 end
 
@@ -311,18 +311,18 @@ local function tradeAllowed(player: Player): boolean
 	return s ~= nil and s.TradeAllowed
 end
 
-local function startBot(player: Player): (boolean, string?)
+local function startBot(player: Player): (boolean, any)
 	if not tradeAllowed(player) then
-		return false, "Trading is not available for your account"
+		return false, "trade.policy_self"
 	end
 	if not Config.DEMO_BOT_ENABLED then
-		return false, "Trading with the trader is disabled"
+		return false, "trade.bot_disabled"
 	end
 	if trades[player] then
-		return false, "Already trading"
+		return false, "trade.already"
 	end
 	if not Stations.inHub(player) then
-		return false, "Trader Tom stands in the Hub"
+		return false, "trade.tom_hub"
 	end
 	local t: Trade = {
 		Logic = TradeLogic.new(player, BOT),
@@ -333,49 +333,49 @@ local function startBot(player: Player): (boolean, string?)
 	}
 	t.Logic.B.Pets = { "bot1", "bot2" }
 	trades[player] = t
-	t.Msg = "Tom: Hello! Offer pets or coins of similar value to mine."
+	t.Msg = Locale.m("trade.tom_hello")
 	push(t)
 	return true, nil
 end
 
-local function invite(player: Player, userId: any): (boolean, string?)
+local function invite(player: Player, userId: any): (boolean, any)
 	if type(userId) ~= "number" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	local target = Players:GetPlayerByUserId(userId)
 	if not target or target == player then
-		return false, "Player not found"
+		return false, "trade.no_player"
 	end
 	if not tradeAllowed(player) or not tradeAllowed(target) then
-		return false, "Trading is not available for one of the accounts"
+		return false, "trade.policy_other"
 	end
 	if trades[player] or trades[target] then
-		return false, "One of you is already trading"
+		return false, "trade.busy"
 	end
 	local r1 = player.Character and player.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	local r2 = target.Character and target.Character:FindFirstChild("HumanoidRootPart") :: BasePart?
 	if not r1 or not r2 or (r1.Position - r2.Position).Magnitude > Config.TRADE_RANGE then
-		return false, "Stand closer to the player"
+		return false, "trade.closer"
 	end
 	invites[target] = { From = player, Time = os.time() }
 	Remotes.getEvent("TradeUpdate")
 		:FireClient(target, { Type = "Invite", From = player.DisplayName, FromId = player.UserId })
-	Notify.send(player, "Trade request sent to " .. target.DisplayName, "info")
+	Notify.send(player, Locale.m("trade.sent", { player = target.DisplayName }), "info")
 	return true, nil
 end
 
-local function respond(player: Player, accept: any): (boolean, string?)
+local function respond(player: Player, accept: any): (boolean, any)
 	local inv = invites[player]
 	invites[player] = nil
 	if not inv or os.time() - inv.Time > INVITE_SECONDS then
-		return false, "The request expired"
+		return false, "trade.expired"
 	end
 	if accept ~= true then
-		Notify.send(inv.From, player.DisplayName .. " declined the trade", "info")
+		Notify.send(inv.From, Locale.m("trade.declined", { player = player.DisplayName }), "info")
 		return true, nil
 	end
 	if trades[player] or trades[inv.From] or inv.From.Parent == nil then
-		return false, "Trade unavailable"
+		return false, "trade.unavailable"
 	end
 	local t: Trade =
 		{ Logic = TradeLogic.new(inv.From, player), A = inv.From, B = player, BotPets = {}, BotGen = 0 }
@@ -385,13 +385,13 @@ local function respond(player: Player, accept: any): (boolean, string?)
 	return true, nil
 end
 
-local function offer(player: Player, pets: any, coins: any): (boolean, string?)
+local function offer(player: Player, pets: any, coins: any): (boolean, any)
 	local t = trades[player]
 	if not t then
-		return false, "No active trade"
+		return false, "trade.none"
 	end
 	if type(pets) ~= "table" or type(coins) ~= "number" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	local list = {}
 	for _, uid in ipairs(pets) do
@@ -399,10 +399,10 @@ local function offer(player: Player, pets: any, coins: any): (boolean, string?)
 	end
 	local d = DataService.get(player)
 	if not d then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	if coins > d.Coins then
-		return false, "You don't have that many coins"
+		return false, "trade.not_that_many"
 	end
 	local ok, why = TradeLogic.setOffer(
 		t.Logic,
@@ -423,7 +423,7 @@ local function offer(player: Player, pets: any, coins: any): (boolean, string?)
 				0,
 				Config.TRADE_MAX_PETS
 			)
-			return false, "Pet not found"
+			return false, "err.pet_not_found"
 		end
 	end
 	t.Msg = nil
@@ -434,10 +434,10 @@ local function offer(player: Player, pets: any, coins: any): (boolean, string?)
 	return true, nil
 end
 
-local function ready(player: Player, value: any): (boolean, string?)
+local function ready(player: Player, value: any): (boolean, any)
 	local t = trades[player]
 	if not t or type(value) ~= "boolean" then
-		return false, "No active trade"
+		return false, "trade.none"
 	end
 	local id = if t.A == player then t.Logic.A.Id else t.Logic.B.Id
 	if value then
@@ -447,7 +447,7 @@ local function ready(player: Player, value: any): (boolean, string?)
 			return false, why
 		end
 		if not t.B and not t.Logic.B.Ready then
-			return false, "Tom isn't happy with the offer yet"
+			return false, "trade.tom_unhappy"
 		end
 	end
 	local ok, why = TradeLogic.setReady(t.Logic, id, value, os.time(), Config.TRADE_CONFIRM_SECONDS)
@@ -469,10 +469,10 @@ local function ready(player: Player, value: any): (boolean, string?)
 	return true, nil
 end
 
-local function confirm(player: Player): (boolean, string?)
+local function confirm(player: Player): (boolean, any)
 	local t = trades[player]
 	if not t then
-		return false, "No active trade"
+		return false, "trade.none"
 	end
 	local id = if t.A == player then t.Logic.A.Id else t.Logic.B.Id
 	local ok, why, done = TradeLogic.confirm(t.Logic, id, os.time())
@@ -491,12 +491,12 @@ local function confirm(player: Player): (boolean, string?)
 	return true, nil
 end
 
-local function cancel(player: Player): (boolean, string?)
+local function cancel(player: Player): (boolean, any)
 	local t = trades[player]
 	if not t then
 		return true, nil
 	end
-	closeTrade(t, player.DisplayName .. " cancelled the trade")
+	closeTrade(t, Locale.m("trade.cancelled", { player = player.DisplayName }))
 	return true, nil
 end
 
@@ -512,7 +512,7 @@ function TradeService.init()
 		invites[player] = nil
 		local t = trades[player]
 		if t then
-			closeTrade(t, player.DisplayName .. " left the game")
+			closeTrade(t, Locale.m("trade.left", { player = player.DisplayName }))
 		end
 	end)
 end

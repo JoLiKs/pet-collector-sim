@@ -4,11 +4,13 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local Util = require(Shared.Util)
 
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
+local LanguageService = require(script.Parent.LanguageService)
 local LeaderboardService = require(script.Parent.LeaderboardService)
 local Dailies = require(script.Parent.Dailies)
 local Monetization = require(script.Parent.Monetization)
@@ -108,14 +110,14 @@ local function refreshTag(player: Player)
 	local nameLabel = gui:FindFirstChild("NameLabel") :: TextLabel
 	local subLabel = gui:FindFirstChild("SubLabel") :: TextLabel
 	nameLabel.Text = player.DisplayName
-	local parts = {}
-	if Economy.isVip(player) then
-		table.insert(parts, "[VIP]")
-	end
-	if data.Rebirths > 0 then
-		table.insert(parts, "Rebirth " .. tostring(data.Rebirths))
-	end
-	subLabel.Text = table.concat(parts, "  ")
+	local vip = Economy.isVip(player)
+	local key = if vip and data.Rebirths > 0
+		then "tag.vip_rebirth"
+		elseif vip then "tag.vip"
+		elseif data.Rebirths > 0 then "tag.rebirth"
+		else "tag.none"
+	-- текст видят все игроки: клиентский WorldLocalizer переводит его на язык смотрящего
+	Locale.setWorld(subLabel, key, { n = data.Rebirths })
 end
 
 -- LoadCharacterAsync — актуальный API; LoadCharacter оставлен как запасной вариант для старых версий Studio
@@ -164,11 +166,8 @@ local function onPlayerAdded(player: Player)
 	if not data then
 		Session.destroy(player)
 		if player.Parent then
-			player:Kick(
-				"Could not load your data ("
-					.. tostring(err)
-					.. "). Please rejoin in a minute — your progress is safe."
-			)
+			local lang = Locale.detect(nil, LanguageService.localeId(player), nil)
+			player:Kick(Locale.get(lang, "kick.load_failed", { err = tostring(err) }))
 		end
 		return
 	end
@@ -181,6 +180,7 @@ local function onPlayerAdded(player: Player)
 		return
 	end
 
+	LanguageService.apply(player)
 	createLeaderstats(player)
 	Dailies.ensure(data)
 	PlayerService.refreshFriends(player)
@@ -193,7 +193,7 @@ local function onPlayerAdded(player: Player)
 
 	State.push(player, true)
 	if DataService.isNewPlayer(player) then
-		Notify.send(player, "Welcome! Tap COLLECT to earn coins, then open eggs to find pets!", "info")
+		Notify.send(player, "welcome.new", "info")
 	end
 	loadCharacter(player)
 end

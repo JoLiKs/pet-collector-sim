@@ -1,6 +1,7 @@
 --!strict
 -- Ежедневные награды (цикл из 7 дней). День считается по UTC: floor(os.time() / 86400).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Locale = require(ReplicatedStorage.Shared.Locale)
 local Config = require(ReplicatedStorage.Shared.Config)
 
 local DataService = require(script.Parent.DataService)
@@ -37,14 +38,14 @@ function DailyService.getInfo(
 	}
 end
 
-local function claim(player: Player): (boolean, string?)
+local function claim(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	local t = today()
 	if data.Daily.LastDay >= t then
-		return false, "Already claimed today"
+		return false, "daily.already"
 	end
 	local streak = if data.Daily.LastDay == t - 1 then data.Daily.Streak + 1 else 1
 	local day = ((streak - 1) % #Config.DAILY_REWARDS) + 1
@@ -65,15 +66,15 @@ local function claim(player: Player): (boolean, string?)
 	Economy.addGems(player, gems)
 	Economy.addCoins(player, coins, false)
 
-	local text = ("Day %d reward: +%d gems"):format(day, gems)
+	local text = Locale.tp(player, "daily.reward", { day = day, n = gems })
 	if reward.Luck2Minutes then
 		local now = os.time()
 		data.Boosts.Luck2 = math.max(data.Boosts.Luck2, now) + reward.Luck2Minutes * 60
-		text ..= (", x2 luck for %d min"):format(reward.Luck2Minutes * mult)
+		text ..= Locale.tp(player, "daily.reward_luck", { n = reward.Luck2Minutes * mult })
 		data.Boosts.Luck2 += reward.Luck2Minutes * 60 * (mult - 1)
 	end
 	Economy.addBpXp(player, 40 + 10 * math.min(streak, 7))
-	Notify.send(player, text .. "!", "reward")
+	Notify.send(player, text, "reward")
 	return true, nil
 end
 

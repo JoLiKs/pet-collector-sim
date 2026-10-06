@@ -5,13 +5,13 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 81,
-    "transpiled": 81,
+    "total": 87,
+    "transpiled": 87,
     "failed": [],
-    "lines": 15649
+    "lines": 17881
   },
   "globals": {
-    "used": 27,
+    "used": 28,
     "supported": [
       "CFrame",
       "Color3",
@@ -32,6 +32,7 @@
       "pcall",
       "print",
       "require",
+      "setmetatable",
       "string",
       "table",
       "task",
@@ -83,6 +84,7 @@
       "string.lower",
       "string.match",
       "string.rep",
+      "string.split",
       "string.sub",
       "string.upper",
       "table.clone",
@@ -104,6 +106,7 @@
       "DataStoreService",
       "HttpService",
       "Lighting",
+      "LocalizationService",
       "MarketplaceService",
       "Players",
       "PolicyService",
@@ -195,5 +198,7 @@
   },
   "methodsNotFound": [],
   "warnings": [],
-  "stubbedServices": []
+  "stubbedServices": [
+    "LocalizationService"
+  ]
 }

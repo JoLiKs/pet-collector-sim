@@ -61,10 +61,10 @@ function ClickService.init()
 	Router.register("SetAutoCollect", 2, 3, function(player, value)
 		local data = DataService.get(player)
 		if not data or type(value) ~= "boolean" then
-			return false, "Bad request"
+			return false, "err.bad_request"
 		end
 		if not Session.hasPass(player, "AUTO_COLLECT") then
-			return false, "You need the Auto Collect pass"
+			return false, "click.need_auto"
 		end
 		data.AutoCollect = value
 		State.markCore(player)

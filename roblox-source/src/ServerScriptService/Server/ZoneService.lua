@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local ZoneData = require(Shared.ZoneData)
 
 local AntiExploit = require(script.Parent.AntiExploit)
@@ -29,34 +30,34 @@ function ZoneService.moveToZone(player: Player, zoneId: string)
 	character:PivotTo(spawnCf + offset)
 end
 
-local function unlock(player: Player, zoneId: any): (boolean, string?)
+local function unlock(player: Player, zoneId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(zoneId) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	local zone = ZoneData.ById[zoneId]
 	if not zone then
-		return false, "Unknown world"
+		return false, "err.unknown"
 	end
 	if data.Zones[zoneId] then
-		return false, "Already unlocked"
+		return false, "zone.already"
 	end
 	if data.Rebirths < zone.RequiresRebirths then
-		return false, ("Requires %d rebirth(s)"):format(zone.RequiresRebirths)
+		return false, Locale.m("zone.need_rebirths", { n = zone.RequiresRebirths })
 	end
 	if not Economy.trySpend(player, "Coins", zone.UnlockCost) then
-		return false, "Not enough coins"
+		return false, "err.not_enough_coins"
 	end
 	data.Zones[zoneId] = true
 	State.markCore(player)
-	Notify.send(player, zone.Name .. " unlocked!", "success")
+	Notify.send(player, Locale.m("zone.unlocked", { zone = zone.Name }), "success")
 	return true, nil
 end
 
-local function teleport(player: Player, zoneId: any): (boolean, string?)
+local function teleport(player: Player, zoneId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(zoneId) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	if zoneId == ZoneData.HUB then
 		ZoneService.moveToZone(player, ZoneData.HUB)
@@ -65,12 +66,12 @@ local function teleport(player: Player, zoneId: any): (boolean, string?)
 	end
 	local zone = ZoneData.ById[zoneId]
 	if not zone or not data.Zones[zoneId] then
-		return false, "World is locked"
+		return false, "zone.locked"
 	end
 	local character = player.Character
 	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
 	if not humanoid or humanoid.Health <= 0 then
-		return false, "Not now"
+		return false, "err.not_now"
 	end
 	data.CurrentZone = zoneId
 	ZoneService.moveToZone(player, zoneId)

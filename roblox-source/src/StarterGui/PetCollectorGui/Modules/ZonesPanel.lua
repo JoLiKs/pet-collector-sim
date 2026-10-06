@@ -1,6 +1,7 @@
 --!nonstrict
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local PetData = require(Shared:WaitForChild("PetData"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -24,6 +25,7 @@ function ZonesPanel.init(gui: ScreenGui)
 	Widgets.padding(scroll, 4)
 
 	local rows = {}
+	local eggLabels = {}
 	for i, zone in ipairs(ZoneData.List) do
 		local row = Widgets.New("Frame", {
 			Size = UDim2.new(1, -8, 0, 78),
@@ -44,7 +46,7 @@ function ZonesPanel.init(gui: ScreenGui)
 		Widgets.corner(swatch, 12)
 		Widgets.stroke(swatch, zone.Accent, 3)
 		Widgets.label({
-			Text = zone.Name,
+			Text = L.kn(zone.Name),
 			Size = UDim2.new(0.5, 0, 0, 26),
 			Position = UDim2.fromOffset(80, 8),
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -58,8 +60,8 @@ function ZonesPanel.init(gui: ScreenGui)
 				table.insert(eggNames, egg.Name)
 			end
 		end
-		Widgets.label({
-			Text = ("x%d coins  |  %s"):format(zone.Multiplier, table.concat(eggNames, ", ")),
+		local eggsLabel = Widgets.label({
+			Text = "",
 			Size = UDim2.new(0.5, 0, 0, 34),
 			Position = UDim2.fromOffset(80, 36),
 			TextXAlignment = Enum.TextXAlignment.Left,
@@ -89,19 +91,29 @@ function ZonesPanel.init(gui: ScreenGui)
 			Parent = row,
 		})
 		rows[zone.Id] = btn
+		eggLabels[zone.Id] = { Label = eggsLabel, Eggs = eggNames, Mult = zone.Multiplier }
 	end
 
 	ClientState.onCore(function(core)
+		for _, info in pairs(eggLabels) do
+			local names = {}
+			for _, n in ipairs(info.Eggs) do
+				table.insert(names, L.n(n))
+			end
+			info.Label.Text = L.t("zones.info", { n = info.Mult, eggs = table.concat(names, ", ") })
+		end
 		for _, zone in ipairs(ZoneData.List) do
 			local btn = rows[zone.Id]
 			if core.Zones[zone.Id] then
-				btn.Text = if core.CurrentZone == zone.Id then "Go to spawn" else "Teleport"
+				btn.Text = if core.CurrentZone == zone.Id
+					then L.t("zones.go_spawn")
+					else L.t("zones.teleport")
 				Widgets.setEnabled(btn, true, Theme.Blue)
 			elseif core.Rebirths < zone.RequiresRebirths then
-				btn.Text = ("Needs %d rebirth"):format(zone.RequiresRebirths)
+				btn.Text = L.t("zones.needs_rebirth", { n = zone.RequiresRebirths })
 				Widgets.setEnabled(btn, false)
 			else
-				btn.Text = "Unlock " .. Util.formatNumber(zone.UnlockCost)
+				btn.Text = L.t("zones.unlock", { price = Util.formatNumber(zone.UnlockCost) })
 				Widgets.setEnabled(btn, core.Coins >= zone.UnlockCost, Theme.Green)
 				btn.Active = true
 			end

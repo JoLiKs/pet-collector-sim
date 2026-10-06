@@ -19,6 +19,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
+local Locale = require(ReplicatedStorage.Shared.Locale)
 local Config = require(ReplicatedStorage.Shared.Config)
 local Util = require(ReplicatedStorage.Shared.Util)
 local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
@@ -71,6 +72,7 @@ local function makeTemplate(): Data
 		LastSeen = os.time(),
 		OfflinePending = 0,
 		AutoCollect = true,
+		Settings = { Lang = "auto" }, -- "auto" | "en" | "ru" (см. LanguageService)
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		Joined = os.time(),
 	}
@@ -329,7 +331,7 @@ function DataService.saveNow(player: Player): boolean
 	end
 	local ok = write(p, false)
 	if p.LockLost and player.Parent then
-		player:Kick("Your data session was taken by another server. Please rejoin.")
+		player:Kick(Locale.tp(player, "kick.session"))
 	end
 	return ok
 end

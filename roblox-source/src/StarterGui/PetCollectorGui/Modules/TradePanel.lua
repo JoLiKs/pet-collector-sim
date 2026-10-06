@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
 local PetMeta = require(Shared:WaitForChild("PetMeta"))
@@ -34,14 +35,14 @@ function TradePanel.init(gui: ScreenGui)
 	})
 	UiKit.text(
 		idle,
-		"Trade pets and coins. Both sides must press Ready and Confirm.",
+		L.k("trade.ui.intro"),
 		UDim2.fromOffset(12, 6),
 		UDim2.new(1, -24, 0, 22),
 		{ TextColor3 = Theme.TextDim, MaxSize = 15 }
 	)
 	Widgets.button({
 		Name = "TradeBot",
-		Text = "Trade with " .. Config.DEMO_BOT_NAME .. " (trader NPC)",
+		Text = L.k("trade.ui.with_bot", { name = Config.DEMO_BOT_NAME }),
 		Color = Theme.Purple,
 		Size = UDim2.new(1, -24, 0, 48),
 		Position = UDim2.fromOffset(12, 34),
@@ -54,7 +55,7 @@ function TradePanel.init(gui: ScreenGui)
 	})
 	UiKit.text(
 		idle,
-		"Players nearby (stand within 30 studs):",
+		L.k("trade.ui.nearby"),
 		UDim2.fromOffset(12, 92),
 		UDim2.new(1, -24, 0, 20),
 		{ MaxSize = 15 }
@@ -78,7 +79,7 @@ function TradePanel.init(gui: ScreenGui)
 		UiKit.text(inviteBox, "", UDim2.fromOffset(10, 4), UDim2.new(0.5, 0, 1, -8), { MaxSize = 17 })
 	Widgets.button({
 		Name = "Accept",
-		Text = "Accept",
+		Text = L.k("trade.ui.accept"),
 		Color = Theme.Green,
 		Size = UDim2.new(0.2, 0, 0, 36),
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -93,7 +94,7 @@ function TradePanel.init(gui: ScreenGui)
 	})
 	Widgets.button({
 		Name = "Decline",
-		Text = "Decline",
+		Text = L.k("trade.ui.decline"),
 		Color = Theme.Red,
 		Size = UDim2.new(0.2, 0, 0, 36),
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -123,7 +124,7 @@ function TradePanel.init(gui: ScreenGui)
 				)
 				Widgets.button({
 					Name = "Invite",
-					Text = "Invite",
+					Text = L.k("trade.ui.invite"),
 					Color = Theme.Blue,
 					Size = UDim2.new(0.25, 0, 0, 30),
 					AnchorPoint = Vector2.new(1, 0.5),
@@ -140,7 +141,7 @@ function TradePanel.init(gui: ScreenGui)
 		if not any then
 			UiKit.text(
 				plist,
-				"Nobody else is here. Trader Tom is always happy to trade!",
+				L.t("trade.ui.nobody"),
 				UDim2.fromOffset(4, 4),
 				UDim2.new(1, -8, 0, 22),
 				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
@@ -191,14 +192,14 @@ function TradePanel.init(gui: ScreenGui)
 	Widgets.corner(theirBox, 10)
 	local mineTitle = UiKit.text(
 		mineBox,
-		"You offer",
+		L.t("trade.ui.you_offer"),
 		UDim2.fromOffset(8, 2),
 		UDim2.new(1, -16, 0, 20),
 		{ Font = Theme.Font, MaxSize = 16 }
 	)
 	local theirTitle = UiKit.text(
 		theirBox,
-		"They offer",
+		L.t("trade.ui.they_offer"),
 		UDim2.fromOffset(8, 2),
 		UDim2.new(1, -16, 0, 20),
 		{ Font = Theme.Font, MaxSize = 16 }
@@ -239,14 +240,14 @@ function TradePanel.init(gui: ScreenGui)
 
 	local pickTitle = UiKit.text(
 		live,
-		"Tap a pet to add/remove it:",
+		L.k("trade.ui.tap_pet"),
 		UDim2.new(0, 12, 1, -60),
 		UDim2.new(0.4, 0, 0, 16),
 		{ TextColor3 = Theme.TextDim, MaxSize = 12 }
 	)
 	local readyBtn = Widgets.button({
 		Name = "Ready",
-		Text = "Ready",
+		Text = L.k("trade.ui.ready"),
 		Color = Theme.Blue,
 		Size = UDim2.new(0.18, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
@@ -257,7 +258,7 @@ function TradePanel.init(gui: ScreenGui)
 	})
 	local confirmBtn = Widgets.button({
 		Name = "Confirm",
-		Text = "Confirm",
+		Text = L.k("trade.ui.confirm"),
 		Color = Theme.Green,
 		Size = UDim2.new(0.22, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
@@ -268,7 +269,7 @@ function TradePanel.init(gui: ScreenGui)
 	})
 	Widgets.button({
 		Name = "Cancel",
-		Text = "Cancel",
+		Text = L.k("trade.ui.cancel"),
 		Color = Theme.Red,
 		Size = UDim2.new(0.14, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
@@ -326,7 +327,7 @@ function TradePanel.init(gui: ScreenGui)
 		UiKit.petIcon(row, p.Id, p.Variant, 20, UDim2.fromOffset(5, 5))
 		UiKit.text(
 			row,
-			("%s L%d"):format(p.Name or PetMeta.displayName(p), p.Level or 1),
+			L.t("trade.ui.pet_line", { name = PetMeta.displayName(p), n = p.Level or 1 }),
 			UDim2.fromOffset(30, 0),
 			UDim2.new(1, -34, 1, 0),
 			{ TextColor3 = color, MaxSize = 14, ZIndex = 24 }
@@ -345,18 +346,19 @@ function TradePanel.init(gui: ScreenGui)
 			fillPlayers()
 			return
 		end
-		partnerLabel.Text = "Trade with " .. state.Partner
-		msgLabel.Text = state.Msg
-			or (
-				if state.Status == "Confirming"
-					then (if state.CountdownLeft > 0
-						then ("Check the offers... confirm in %ds"):format(state.CountdownLeft)
-						else "Both ready - press Confirm")
-					else ""
-			)
-		mineTitle.Text = ("You offer%s"):format(if state.Mine.Ready then " (READY)" else "")
-		theirTitle.Text = ("%s offers%s"):format(state.Partner, if state.Theirs.Ready then " (READY)" else "")
-		coinLabel.Text = ("Coins: %s"):format(Util.formatNumber(state.Mine.Coins))
+		local partner = L.n(state.Partner)
+		partnerLabel.Text = L.t("trade.ui.with", { name = partner })
+		msgLabel.Text = if state.Msg
+			then L.renderLocal(state.Msg)
+			else (if state.Status == "Confirming"
+				then (if state.CountdownLeft > 0
+					then L.t("trade.ui.countdown", { n = state.CountdownLeft })
+					else L.t("trade.ui.both_ready"))
+				else "")
+		mineTitle.Text = L.t(if state.Mine.Ready then "trade.ui.you_offer_ready" else "trade.ui.you_offer")
+		theirTitle.Text =
+			L.t(if state.Theirs.Ready then "trade.ui.offers_ready" else "trade.ui.offers", { name = partner })
+		coinLabel.Text = L.t("trade.ui.coins", { v = Util.formatNumber(state.Mine.Coins) })
 		offerCoins = state.Mine.Coins
 		offerUids = {}
 		Widgets.clear(mineList)
@@ -373,7 +375,7 @@ function TradePanel.init(gui: ScreenGui)
 		end
 		UiKit.text(
 			theirList,
-			("Coins: %s"):format(Util.formatNumber(state.Theirs.Coins)),
+			L.t("trade.ui.coins", { v = Util.formatNumber(state.Theirs.Coins) }),
 			UDim2.fromOffset(4, 0),
 			UDim2.new(1, -8, 0, 22),
 			{ TextColor3 = Theme.Gold, MaxSize = 15, LayoutOrder = 100 }
@@ -415,12 +417,12 @@ function TradePanel.init(gui: ScreenGui)
 		end
 		pickTitle.Visible = #uids > 0
 		local myReady = state.Mine.Ready
-		readyBtn.Text = if myReady then "Unready" else "Ready"
+		readyBtn.Text = if myReady then L.t("trade.ui.unready") else L.t("trade.ui.ready")
 		readyBtn.BackgroundColor3 = if myReady then Theme.Gold else Theme.Blue
 		local canConfirm = state.Status == "Confirming"
 			and state.CountdownLeft <= 0
 			and not state.Mine.Confirmed
-		confirmBtn.Text = if state.Mine.Confirmed then "Waiting..." else "Confirm"
+		confirmBtn.Text = if state.Mine.Confirmed then L.t("trade.ui.waiting") else L.t("trade.ui.confirm")
 		Widgets.setEnabled(confirmBtn, canConfirm, Theme.Green)
 		local _ = core
 	end
@@ -435,15 +437,21 @@ function TradePanel.init(gui: ScreenGui)
 		end
 	end)
 
+	L.onChanged(function()
+		if panel.IsOpen() then
+			panel.Refresh()
+		end
+	end)
+
 	local countdownThread = nil
 	Remotes.getEvent("TradeUpdate").OnClientEvent:Connect(function(d)
 		if type(d) ~= "table" then
 			return
 		end
 		if d.Type == "Invite" then
-			inviteText.Text = ("%s wants to trade"):format(tostring(d.From))
+			inviteText.Text = L.t("trade.ui.wants", { player = tostring(d.From) })
 			inviteBox.Visible = true
-			Toasts.show(("%s wants to trade - open Trade"):format(tostring(d.From)), "info")
+			Toasts.show(L.t("trade.ui.wants_open", { player = tostring(d.From) }), "info")
 			if panel.IsOpen() then
 				panel.Refresh()
 			end
@@ -471,7 +479,7 @@ function TradePanel.init(gui: ScreenGui)
 			end
 		elseif d.Type == "Closed" then
 			state = nil
-			Toasts.show(tostring(d.Reason or "Trade closed"), "info")
+			Toasts.show(d.Reason or "trade.ui.closed", "info")
 			if panel.IsOpen() then
 				panel.Refresh()
 			end

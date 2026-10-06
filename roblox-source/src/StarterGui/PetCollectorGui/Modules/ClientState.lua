@@ -25,6 +25,18 @@ function ClientState.onPets(fn: () -> ())
 	table.insert(petListeners, fn)
 end
 
+-- Повторно рассылает последний снимок подписчикам (например, после смены языка)
+function ClientState.refresh()
+	if ClientState.Core then
+		for _, fn in ipairs(coreListeners) do
+			task.spawn(fn, ClientState.Core)
+		end
+	end
+	for _, fn in ipairs(petListeners) do
+		task.spawn(fn)
+	end
+end
+
 -- Серверное время (unix) с поправкой, чтобы таймеры были одинаковыми у всех
 function ClientState.serverNow(): number
 	return os.time() + ClientState.TimeOffset

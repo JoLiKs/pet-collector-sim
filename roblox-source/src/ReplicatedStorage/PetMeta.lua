@@ -3,6 +3,7 @@
 	PetMeta — «игровые» свойства питомцев поверх PetData: стихия, роль, способность, варианты,
 	уровни/опыт, эволюция, итоговая сила. Чистая логика (без Roblox API) — покрыта тестами.
 ]]
+local Locale = require(script.Parent.Locale)
 local PetData = require(script.Parent.PetData)
 local Abilities = require(script.Parent.Abilities)
 
@@ -197,13 +198,13 @@ function PetMeta.addXp(p: PetState, amount: number): (number, number, number)
 	return level, xp, gained
 end
 
-function PetMeta.canEvolve(p: PetState): (boolean, string?)
+function PetMeta.canEvolve(p: PetState): (boolean, any)
 	local evo = p.Evo or 0
 	if evo >= PetMeta.MAX_EVO then
-		return false, "Already at maximum evolution"
+		return false, "evo.max"
 	end
 	if (p.Level or 1) < PetMeta.maxLevel(evo) then
-		return false, ("Reach level %d first"):format(PetMeta.maxLevel(evo))
+		return false, { key = "evo.reach_level", args = { n = PetMeta.maxLevel(evo) } }
 	end
 	return true, nil
 end
@@ -225,12 +226,25 @@ function PetMeta.power(p: PetState): number
 	return base * v * (1 + PetMeta.LEVEL_POWER_STEP * (level - 1)) * evo
 end
 
-function PetMeta.displayName(p: PetState): string
+-- Имя с вариантом и стадией эволюции на языке lang (по умолчанию — текущий язык Locale).
+-- en: "Awakened Golden Bunbun"; ru: "Банбан (золото, пробуждение)" — без согласования рода.
+function PetMeta.displayName(p: PetState, lang: string?): string
+	local l = lang or Locale.lang()
 	local def = PetData.PetsById[p.Id]
-	local name = def and def.Name or p.Id
+	local name = Locale.nameIn(l, def and def.Name or p.Id)
 	local variant = PetMeta.variantOf(p)
-	local prefix = if variant == "Normal" then "" else variant .. " "
-	return PetMeta.EVO_NAMES[p.Evo or 0] .. prefix .. name
+	local evo = p.Evo or 0
+	local hasV, hasE = variant ~= "Normal", evo > 0 and PetMeta.EVO_NAMES[evo] ~= nil
+	if not hasV and not hasE then
+		return name
+	end
+	local args = {
+		name = name,
+		variant = if hasV then Locale.get(l, "variant." .. variant) else "",
+		evo = if hasE then Locale.get(l, "evo." .. evo) else "",
+	}
+	local key = if hasV and hasE then "pet.name.ve" elseif hasV then "pet.name.v" else "pet.name.e"
+	return Locale.get(l, key, args)
 end
 
 function PetMeta.sellValue(p: PetState): number
@@ -269,20 +283,20 @@ function PetMeta.fuseVariant(inputVariant: string, roll1: number, roll2: number,
 end
 
 -- Проверка трёх питомцев перед слиянием. pets — массив PetState (без Fav).
-function PetMeta.canFuse(pets: { PetState }): (boolean, string?)
+function PetMeta.canFuse(pets: { PetState }): (boolean, any)
 	if #pets ~= PetMeta.FUSE_COUNT then
-		return false, "Choose exactly 3 pets"
+		return false, "fuse.choose3"
 	end
 	local first = pets[1]
 	for i = 2, #pets do
 		local p = pets[i]
 		if p.Id ~= first.Id or PetMeta.variantOf(p) ~= PetMeta.variantOf(first) then
-			return false, "Pets must be the same species and variant"
+			return false, "fuse.same_kind"
 		end
 	end
 	for _, p in ipairs(pets) do
 		if p.Fav then
-			return false, "Unfavorite pets before fusing"
+			return false, "fuse.unfav"
 		end
 	end
 	return true, nil

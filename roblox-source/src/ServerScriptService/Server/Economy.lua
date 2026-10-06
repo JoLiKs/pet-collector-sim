@@ -4,12 +4,14 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local BattlePassData = require(Shared.BattlePassData)
 local Config = require(Shared.Config)
 local EventData = require(Shared.EventData)
 local Formulas = require(Shared.Formulas)
 local PetMeta = require(Shared.PetMeta)
 local RecipeData = require(Shared.RecipeData)
+local ResourceData = require(Shared.ResourceData)
 local TalentData = require(Shared.TalentData)
 local ZoneData = require(Shared.ZoneData)
 local DataService = require(script.Parent.DataService)
@@ -336,29 +338,34 @@ function Economy.grant(player: Player, reward: { [string]: any })
 	end
 end
 
--- Короткое описание награды для уведомлений
-function Economy.describe(reward: { [string]: any }): string
+-- Короткое описание награды для уведомлений (на языке lang, по умолчанию en)
+function Economy.describe(reward: { [string]: any }, lang: string?): string
+	local l = lang or Locale.DEFAULT
 	local parts = {}
 	if reward.Coins then
-		table.insert(parts, ("%d coins"):format(reward.Coins))
+		table.insert(parts, Locale.get(l, "reward.coins", { n = reward.Coins }))
 	end
 	if reward.Gems then
-		table.insert(parts, ("%d gems"):format(reward.Gems))
+		table.insert(parts, Locale.get(l, "reward.gems", { n = reward.Gems }))
 	end
 	if reward.Res then
 		for res, n in pairs(reward.Res) do
-			table.insert(parts, ("%d %s"):format(n, res))
+			local rdef = ResourceData.Resources[res]
+			table.insert(parts, Locale.get(l, "reward.res", { n = n, res = rdef and rdef.Name or res }))
 		end
 	end
 	if reward.Item then
 		local it = RecipeData.Items[reward.Item]
-		table.insert(parts, ("%dx %s"):format(reward.ItemCount or 1, it and it.Name or reward.Item))
+		table.insert(
+			parts,
+			Locale.get(l, "reward.item", { n = reward.ItemCount or 1, item = it and it.Name or reward.Item })
+		)
 	end
 	if reward.Pet then
-		table.insert(parts, "a pet")
+		table.insert(parts, Locale.get(l, "reward.pet"))
 	end
 	if reward.BpXp then
-		table.insert(parts, ("%d pass XP"):format(reward.BpXp))
+		table.insert(parts, Locale.get(l, "reward.bpxp", { n = reward.BpXp }))
 	end
 	return table.concat(parts, ", ")
 end

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local Formulas = require(Shared.Formulas)
 local Remotes = require(Shared.Remotes)
@@ -38,18 +39,18 @@ function OfflineService.onJoin(player: Player): (number, number)
 	return elapsed, coins
 end
 
-local function claim(player: Player): (boolean, string?)
+local function claim(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
-		return false, "Not loaded"
+		return false, "err.not_loaded"
 	end
 	local pending = data.OfflinePending or 0
 	if pending <= 0 then
-		return false, "Nothing to claim"
+		return false, "err.nothing_to_claim"
 	end
 	data.OfflinePending = 0
 	Economy.addCoins(player, pending, false)
-	Notify.send(player, ("Welcome back! +%d coins from offline earnings"):format(pending), "reward")
+	Notify.send(player, Locale.m("offline.welcome", { n = pending }), "reward")
 	State.markCore(player)
 	return true, nil
 end

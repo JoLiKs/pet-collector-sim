@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
@@ -152,14 +153,14 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 				Widgets.stroke(card, Theme.Gold, 2)
 				UiKit.text(
 					card,
-					e.Name .. "  " .. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0)))),
+					L.n(e.Name) .. "  " .. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0)))),
 					UDim2.fromOffset(8, 1),
 					UDim2.new(1, -16, 0, 18),
 					{ Font = Theme.Font, TextColor3 = Theme.Gold, MaxSize = 14, ZIndex = 7 }
 				)
 				UiKit.text(
 					card,
-					e.Desc,
+					L.n(e.Desc),
 					UDim2.fromOffset(8, 19),
 					UDim2.new(1, -16, 0, 18),
 					{ TextColor3 = Theme.TextDim, MaxSize = 11, ZIndex = 7 }
@@ -212,7 +213,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	end
 	Widgets.button({
 		Name = "Attack",
-		Text = "ATTACK [Q]",
+		Text = L.k("hud.attack"),
 		Color = Theme.Red,
 		AnchorPoint = Vector2.new(0, 1),
 		Position = UDim2.new(0.5, -380, 1, -24),
@@ -240,7 +241,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	})
 	Widgets.corner(offline, 16)
 	Widgets.stroke(offline, Theme.Gold, 3)
-	UiKit.text(offline, "Welcome back!", UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 36), {
+	UiKit.text(offline, L.k("offline.title"), UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 36), {
 		Font = Theme.Font,
 		TextColor3 = Theme.Gold,
 		MaxSize = 30,
@@ -256,7 +257,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	)
 	Widgets.button({
 		Name = "ClaimOffline",
-		Text = "Claim",
+		Text = L.k("offline.claim"),
 		Color = Theme.Green,
 		Size = UDim2.fromOffset(180, 50),
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -271,10 +272,9 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		Parent = offline,
 	})
 	local function showOffline(coins: number, seconds: number?)
-		offText.Text = ("Your pets kept working%s and earned %s coins."):format(
-			if seconds then " for " .. Util.formatTime(seconds) else "",
-			Util.formatNumber(coins)
-		)
+		offText.Text = if seconds
+			then L.t("offline.text_time", { time = Util.formatTime(seconds), n = Util.formatNumber(coins) })
+			else L.t("offline.text", { n = Util.formatNumber(coins) })
 		offline.Visible = true
 	end
 	Remotes.getEvent("Offline").OnClientEvent:Connect(function(d)
@@ -290,9 +290,9 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		elseif core.OfflinePending == 0 then
 			offline.Visible = false
 		end
-		local parts = { ("Coins x%.2f"):format(core.CoinMult or 1) }
+		local parts = { L.t("hud.coin_mult", { x = ("%.2f"):format(core.CoinMult or 1) }) }
 		if (core.FriendBonus or 0) > 0 then
-			table.insert(parts, ("Friends +%d%%"):format(math.floor(core.FriendBonus * 100 + 0.5)))
+			table.insert(parts, L.t("hud.friends_bonus", { n = math.floor(core.FriendBonus * 100 + 0.5) }))
 		end
 		status.Text = table.concat(parts, "   |   ")
 		-- трекер: принятые задания цепочек
@@ -303,12 +303,12 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			if step then
 				table.insert(
 					lines,
-					("%s: %s %d/%d"):format(
-						QuestData.Npcs[npcId].Name,
-						step.Title,
-						st.Progress,
-						step.Obj.Count
-					)
+					L.t("hud.tracker_line", {
+						npc = L.n(QuestData.Npcs[npcId].Name),
+						title = L.n(step.Title),
+						n = st.Progress,
+						max = step.Obj.Count,
+					})
 				)
 			end
 		end
@@ -356,8 +356,10 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		bossBox.Visible = boss ~= nil
 		if boss then
 			local hp, max = boss:GetAttribute("Hp") or 0, boss:GetAttribute("MaxHp") or 1
-			bossName.Text = (if boss:GetAttribute("IsRaid") then "RAID: " else "Boss: ")
-				.. tostring(boss:GetAttribute("EnemyName"))
+			bossName.Text = L.t(
+				if boss:GetAttribute("IsRaid") then "hud.raid" else "hud.boss",
+				{ name = L.n(tostring(boss:GetAttribute("EnemyName"))) }
+			)
 			bossBar.Set(hp / max, ("%s / %s"):format(Util.formatNumber(hp), Util.formatNumber(max)))
 			local left = boss:GetAttribute("TimeLeft")
 			bossTimer.Text = if left then Util.formatTime(left) else ""

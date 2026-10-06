@@ -185,13 +185,13 @@ end
 function TalentData.canBuy(levels: { [string]: number }, id: string, pointsFree: number): (boolean, string?)
 	local node = TalentData.ById[id]
 	if not node then
-		return false, "Unknown talent"
+		return false, "err.unknown"
 	end
 	if (levels[id] or 0) >= node.Max then
-		return false, "Maxed"
+		return false, "talent.maxed"
 	end
 	if pointsFree < 1 then
-		return false, "No talent points"
+		return false, "talent.no_points"
 	end
 	for req, lv in pairs(node.Requires) do
 		if (levels[req] or 0) < lv then

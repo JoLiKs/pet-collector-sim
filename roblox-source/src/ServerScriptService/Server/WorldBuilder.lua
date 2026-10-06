@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local PetData = require(Shared.PetData)
 local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
@@ -60,13 +61,20 @@ local function block(
 	return mk(parent, name, Enum.PartType.Block, size, CFrame.new(pos), color, material, true)
 end
 
-local function makeLabel(parent: Instance, text: string, size: UDim2, color: Color3): TextLabel
+-- text — ключ Locale или исходный текст «данных»; на клиенте его переводит WorldLocalizer
+local function makeLabel(
+	parent: Instance,
+	text: string,
+	size: UDim2,
+	color: Color3,
+	args: { [string]: any }?
+): TextLabel
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
 	l.Size = size
 	l.Font = Enum.Font.FredokaOne
 	l.TextScaled = true
-	l.Text = text
+	Locale.setWorld(l, text, args)
 	l.TextColor3 = color
 	l.TextStrokeTransparency = 0.4
 	l.Parent = parent
@@ -269,8 +277,8 @@ local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
 	end
 
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = "Open"
-	prompt.ObjectText = egg.Name
+	Locale.setWorld(prompt, "prompt.open", nil, "ActionText")
+	Locale.setWorld(prompt, egg.Name, nil, "ObjectText")
 	prompt.HoldDuration = 0
 	prompt.MaxActivationDistance = 14
 	prompt.RequiresLineOfSight = false
@@ -294,9 +302,10 @@ local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
 		else Color3.fromRGB(255, 220, 90)
 	local priceLabel = makeLabel(
 		gui,
-		Util.formatNumber(egg.Price) .. " " .. egg.Currency,
+		if egg.Currency == "Gems" then "world.price_gems" else "world.price_coins",
 		UDim2.fromScale(1, 0.4),
-		priceColor
+		priceColor,
+		{ price = Util.formatNumber(egg.Price), n = egg.Price }
 	)
 	priceLabel.Position = UDim2.fromScale(0, 0.58)
 
@@ -344,10 +353,9 @@ local function buildBoard(parent: Instance, center: Vector3)
 	gui.PixelsPerStud = 40
 	gui.Parent = board
 
-	local title = makeLabel(gui, "TOP COLLECTORS", UDim2.fromScale(0.9, 0.12), Color3.fromRGB(255, 214, 90))
+	local title = makeLabel(gui, "world.top_title", UDim2.fromScale(0.9, 0.12), Color3.fromRGB(255, 214, 90))
 	title.Position = UDim2.fromScale(0.05, 0.02)
-	local sub =
-		makeLabel(gui, "Lifetime coins earned", UDim2.fromScale(0.6, 0.05), Color3.fromRGB(190, 200, 220))
+	local sub = makeLabel(gui, "board.subtitle", UDim2.fromScale(0.6, 0.05), Color3.fromRGB(190, 200, 220))
 	sub.Position = UDim2.fromScale(0.2, 0.135)
 	boardStatus = sub
 
@@ -374,8 +382,8 @@ end
 -- ---------------------------------------------------------------------------
 local function addPrompt(target: BasePart, id: string, action: string, object: string, hold: number?)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = action
-	prompt.ObjectText = object
+	Locale.setWorld(prompt, action, nil, "ActionText")
+	Locale.setWorld(prompt, object, nil, "ObjectText")
 	prompt.HoldDuration = hold or 0
 	prompt.MaxActivationDistance = 12
 	prompt.RequiresLineOfSight = false
@@ -587,7 +595,7 @@ local function buildHub(world: Folder)
 		Enum.Material.Neon,
 		false
 	)
-	sign(orb, "Pet Hub", "Heart of the world", Color3.fromRGB(255, 214, 90), 4)
+	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 4)
 
 	-- Точка появления
 	local sp = Instance.new("SpawnLocation")
@@ -638,17 +646,17 @@ local function buildHub(world: Folder)
 	-- NPC квестов
 	for _, npcId in ipairs(QuestData.NpcOrder) do
 		local npc = QuestData.Npcs[npcId]
-		buildNpc(hub, npc.Id, npc.Name, npc.Title, npc.Color, npc.Pos, "Talk")
+		buildNpc(hub, npc.Id, npc.Name, npc.Title, npc.Color, npc.Pos, "prompt.talk")
 	end
 	-- Торговец Том
 	buildNpc(
 		hub,
 		"tom",
 		"Trader Tom",
-		"Pet Trader",
+		"world.tom_title",
 		Color3.fromRGB(240, 170, 60),
 		Vector3.new(44, 0, -22),
-		"Trade"
+		"prompt.trade"
 	)
 
 	-- Верстак
@@ -689,8 +697,8 @@ local function buildHub(world: Folder)
 		Enum.Material.Metal,
 		false
 	)
-	sign(top, "Workbench", "Craft potions, tools & tickets", Color3.fromRGB(255, 200, 120), 6)
-	addPrompt(top, "craft", "Craft", "Workbench", 0)
+	sign(top, "world.workbench", "world.workbench_sub", Color3.fromRGB(255, 200, 120), 6)
+	addPrompt(top, "craft", "prompt.craft", "world.workbench", 0)
 	stationPositions.craft = benchPos
 
 	-- Лавка с ротацией
@@ -721,8 +729,8 @@ local function buildHub(world: Folder)
 		Color3.fromRGB(240, 90, 90),
 		Enum.Material.Fabric
 	)
-	sign(counter, "Market", "Stock rotates every 10 minutes", Color3.fromRGB(255, 200, 120), 8)
-	addPrompt(counter, "market", "Browse", "Market", 0)
+	sign(counter, "world.market", "world.market_sub", Color3.fromRGB(255, 200, 120), 8)
+	addPrompt(counter, "market", "prompt.browse", "world.market", 0)
 	stationPositions.market = stallPos
 
 	-- Алтарь ребёрта и талантов
@@ -757,8 +765,8 @@ local function buildHub(world: Folder)
 		Enum.Material.Neon,
 		false
 	)
-	sign(altarOrb, "Rebirth Altar", "Rebirth & Talent tree", Color3.fromRGB(210, 160, 255), 4)
-	addPrompt(altarOrb, "altar", "Pray", "Rebirth Altar", 0)
+	sign(altarOrb, "world.altar", "world.altar_sub", Color3.fromRGB(210, 160, 255), 4)
+	addPrompt(altarOrb, "altar", "prompt.pray", "world.altar", 0)
 	stationPositions.altar = altarPos
 
 	-- Портал в миры
@@ -784,7 +792,7 @@ local function buildHub(world: Folder)
 		false
 	)
 	ring.Transparency = 0.25
-	sign(ring, "World Portal", "Travel to the biomes", Color3.fromRGB(150, 220, 255), 11)
+	sign(ring, "world.portal", "world.portal_sub", Color3.fromRGB(150, 220, 255), 11)
 	local portalPad = mk(
 		hub,
 		"PortalPad",
@@ -795,7 +803,7 @@ local function buildHub(world: Folder)
 		Enum.Material.Neon,
 		false
 	)
-	addPrompt(portalPad, "portal", "Travel", "World Portal", 0)
+	addPrompt(portalPad, "portal", "prompt.travel", "world.portal", 0)
 	stationPositions.portal = portalPos
 
 	-- Яйца хаба и табло
@@ -933,7 +941,7 @@ function WorldBuilder.build()
 			Enum.Material.Neon,
 			false
 		)
-		addPrompt(pad, "hubReturn", "Return", "to the Hub", 0)
+		addPrompt(pad, "hubReturn", "prompt.return", "prompt.to_hub", 0)
 
 		-- вывеска
 		local signPost = block(
@@ -947,12 +955,8 @@ function WorldBuilder.build()
 		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
 		gui.MaxDistance = 140
 		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
-		local mult = makeLabel(
-			gui,
-			("x%d coins per collect"):format(zone.Multiplier),
-			UDim2.fromScale(1, 0.38),
-			zone.Accent
-		)
+		local mult =
+			makeLabel(gui, "world.zone_mult", UDim2.fromScale(1, 0.38), zone.Accent, { n = zone.Multiplier })
 		mult.Position = UDim2.fromScale(0, 0.6)
 
 		-- яйца этой зоны
@@ -997,7 +1001,7 @@ end
 -- Обновление табло: entries = { { Name, Value } } (до 10 строк) или nil + статус
 function WorldBuilder.setBoard(entries: { { Name: string, Value: number } }?, status: string?)
 	if boardStatus and status then
-		boardStatus.Text = status
+		Locale.setWorld(boardStatus, status)
 	end
 	for i, row in ipairs(boardRows) do
 		local e = entries and entries[i]

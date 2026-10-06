@@ -4,16 +4,17 @@
 	  * проверяет, что игрок готов (данные загружены);
 	  * ограничивает частоту каждого действия (token bucket на игрока);
 	  * ловит ошибки обработчиков (pcall), чтобы эксплойтер не мог "уронить" сервер;
-	  * возвращает клиенту всегда таблицу { ok = boolean, msg = string? }.
-	Обработчик: function(player, ...) -> (ok: boolean, msg: string?)
+	  * возвращает клиенту всегда таблицу { ok = boolean, msg = string? }; msg уже переведён на язык игрока.
+	Обработчик: function(player, ...) -> (ok: boolean, msg: (ключ | Locale.m(...))?)
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Locale = require(ReplicatedStorage.Shared.Locale)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 
 local Session = require(script.Parent.Session)
 local AntiExploit = require(script.Parent.AntiExploit)
 
-export type Handler = (player: Player, ...any) -> (boolean, string?)
+export type Handler = (player: Player, ...any) -> (boolean, any)
 
 local Router = {}
 
@@ -45,27 +46,27 @@ function Router.init()
 	fn.OnServerInvoke = function(player: Player, action: any, ...)
 		if type(action) ~= "string" then
 			AntiExploit.strike(player, "bad action type", 3)
-			return { ok = false, msg = "Bad request" }
+			return { ok = false, msg = Locale.tp(player, "err.bad_request") }
 		end
 		local entry = handlers[action]
 		if not entry then
 			AntiExploit.strike(player, "unknown action", 3)
-			return { ok = false, msg = "Unknown action" }
+			return { ok = false, msg = Locale.tp(player, "err.unknown_action") }
 		end
 		local session = Session.get(player)
 		if not session or not session.Ready then
-			return { ok = false, msg = "Still loading..." }
+			return { ok = false, msg = Locale.tp(player, "err.loading") }
 		end
 		if not takeToken(session, action, entry.Rate, entry.Burst) then
 			AntiExploit.strike(player, "rate limit " .. action, 1)
-			return { ok = false, msg = "Slow down!" }
+			return { ok = false, msg = Locale.tp(player, "err.slow_down") }
 		end
 		local ok, success, msg = pcall(entry.Fn, player, ...)
 		if not ok then
 			warn("[Router] handler error in", action, success)
-			return { ok = false, msg = "Server error" }
+			return { ok = false, msg = Locale.tp(player, "err.server") }
 		end
-		return { ok = success == true, msg = msg }
+		return { ok = success == true, msg = Locale.render(player, msg) }
 	end
 end
 

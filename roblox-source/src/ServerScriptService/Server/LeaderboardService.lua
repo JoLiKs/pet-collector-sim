@@ -98,14 +98,14 @@ end
 local function refreshBoard()
 	local st = store
 	if not st then
-		WorldBuilder.setBoard(nil, "Leaderboard unavailable")
+		WorldBuilder.setBoard(nil, "board.unavailable")
 		return
 	end
 	local ok, pagesOrErr = pcall(function()
 		return st:GetSortedAsync(false, 10)
 	end)
 	if not ok then
-		WorldBuilder.setBoard(nil, "Enable API Services to see the board")
+		WorldBuilder.setBoard(nil, "board.enable_api")
 		return
 	end
 	local okPage, page = pcall(function()
@@ -122,7 +122,7 @@ local function refreshBoard()
 		end
 	end
 	globalEntries = entries
-	WorldBuilder.setBoard(entries, "Lifetime coins earned")
+	WorldBuilder.setBoard(entries, "board.subtitle")
 end
 
 function LeaderboardService.init()

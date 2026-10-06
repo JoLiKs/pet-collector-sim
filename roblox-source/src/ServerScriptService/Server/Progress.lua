@@ -7,6 +7,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local AchievementData = require(Shared.AchievementData)
 local Config = require(Shared.Config)
 local QuestData = require(Shared.QuestData)
@@ -45,7 +46,7 @@ local function checkAchievements(player: Player, data: DataService.Data, stat: s
 		if ach.Stat == stat and not data.Achievements[ach.Id] and (data.Stats[stat] or 0) >= ach.Goal then
 			data.Achievements[ach.Id] = true
 			Economy.addGems(player, ach.Gems)
-			Notify.send(player, ("Achievement: %s! +%d gems"):format(ach.Name, ach.Gems), "reward")
+			Notify.send(player, Locale.m("ach.unlocked", { name = ach.Name, n = ach.Gems }), "reward")
 			State.markCore(player)
 		end
 	end

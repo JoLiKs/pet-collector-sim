@@ -55,24 +55,24 @@ function TradeLogic.setOffer(
 	maxPets: number
 ): (boolean, string?)
 	if s.Status == "Done" or s.Status == "Cancelled" then
-		return false, "Trade is over"
+		return false, "trade.over"
 	end
 	local side = TradeLogic.side(s, id)
 	if not side then
-		return false, "Not in this trade"
+		return false, "trade.not_in"
 	end
 	if #pets > maxPets then
-		return false, "Too many pets"
+		return false, "trade.too_many"
 	end
 	local seen = {}
 	for _, uid in ipairs(pets) do
 		if type(uid) ~= "string" or seen[uid] then
-			return false, "Bad pet list"
+			return false, "err.bad_request"
 		end
 		seen[uid] = true
 	end
 	if coins ~= coins or coins < 0 or coins ~= math.floor(coins) then
-		return false, "Bad coin amount"
+		return false, "err.bad_request"
 	end
 	side.Pets = table.clone(pets)
 	side.Coins = coins
@@ -89,10 +89,10 @@ function TradeLogic.setReady(
 ): (boolean, string?)
 	local side = TradeLogic.side(s, id)
 	if not side or s.Status == "Done" or s.Status == "Cancelled" then
-		return false, "Trade is over"
+		return false, "trade.over"
 	end
 	if s.Status == "Confirming" then
-		return false, "Already confirming"
+		return false, "trade.confirming"
 	end
 	side.Ready = ready
 	if s.A.Ready and s.B.Ready then
@@ -106,13 +106,13 @@ end
 function TradeLogic.confirm(s: Session, id: any, now: number): (boolean, string?, boolean)
 	local side = TradeLogic.side(s, id)
 	if not side then
-		return false, "Not in this trade", false
+		return false, "trade.not_in", false
 	end
 	if s.Status ~= "Confirming" then
-		return false, "Both players must be ready first", false
+		return false, "trade.both_ready", false
 	end
 	if s.ConfirmAt and now < s.ConfirmAt then
-		return false, "Wait for the countdown", false
+		return false, "trade.wait_countdown", false
 	end
 	side.Confirmed = true
 	if s.A.Confirmed and s.B.Confirmed then

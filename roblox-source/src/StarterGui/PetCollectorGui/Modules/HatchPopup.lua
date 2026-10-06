@@ -2,6 +2,7 @@
 -- Анимация результата открытия яиц: карточки с 3D-превью питомцев (ViewportFrame из примитивов).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local PetData = require(Shared:WaitForChild("PetData"))
 local PetMeta = require(Shared:WaitForChild("PetMeta"))
@@ -53,7 +54,7 @@ function HatchPopup.init(gui: ScreenGui)
 		Parent = gui,
 	})
 	local title = Widgets.label({
-		Text = "You hatched!",
+		Text = L.k("hatch.title"),
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.fromScale(0.5, 0.12),
 		Size = UDim2.fromOffset(360, 56),
@@ -95,7 +96,7 @@ function HatchPopup.init(gui: ScreenGui)
 	})
 	Widgets.button({
 		Name = "Awesome",
-		Text = "Awesome!",
+		Text = L.k("hatch.ok"),
 		Color = Theme.Green,
 		Size = UDim2.fromOffset(160, 46),
 		ZIndex = 52,
@@ -106,7 +107,7 @@ function HatchPopup.init(gui: ScreenGui)
 	})
 	Widgets.button({
 		Name = "EquipBest",
-		Text = "Equip Best",
+		Text = L.k("hatch.equip_best"),
 		Color = Theme.Blue,
 		Size = UDim2.fromOffset(160, 46),
 		ZIndex = 52,
@@ -143,9 +144,13 @@ function HatchPopup.init(gui: ScreenGui)
 				local scale = Widgets.New("UIScale", { Scale = 0.2, Parent = card })
 				petViewport(card, r.Id, r.Variant or (r.Gold and "Golden") or "Normal")
 				Widgets.label({
-					Text = (if r.Variant and r.Variant ~= "Normal"
-						then string.upper(r.Variant) .. " "
-						else "") .. def.Name,
+					Text = PetMeta.displayName({
+						Id = r.Id,
+						Variant = r.Variant or "Normal",
+						Level = 1,
+						Xp = 0,
+						Evo = 0,
+					}),
 					Size = UDim2.new(1, -12, 0, 30),
 					Position = UDim2.new(0, 6, 0.57, 0),
 					TextColor3 = rarity.Color,
@@ -154,7 +159,7 @@ function HatchPopup.init(gui: ScreenGui)
 					Parent = card,
 				})
 				Widgets.label({
-					Text = def.Rarity,
+					Text = L.n(def.Rarity),
 					Size = UDim2.new(1, -12, 0, 20),
 					Position = UDim2.new(0, 6, 0.57, 32),
 					TextColor3 = Theme.TextDim,
@@ -162,9 +167,9 @@ function HatchPopup.init(gui: ScreenGui)
 					Parent = card,
 				})
 				Widgets.label({
-					Text = (if r.Fused then "Fusion  -  " else "") .. "Power x" .. Util.formatNumber(
-						PetMeta.power({ Id = r.Id, Variant = r.Variant, Level = 1 })
-					),
+					Text = L.t(if r.Fused then "hatch.power_fused" else "hatch.power", {
+						x = Util.formatNumber(PetMeta.power({ Id = r.Id, Variant = r.Variant, Level = 1 })),
+					}),
 					Size = UDim2.new(1, -12, 0, 24),
 					Position = UDim2.new(0, 6, 0.57, 56),
 					ZIndex = 53,
@@ -175,11 +180,12 @@ function HatchPopup.init(gui: ScreenGui)
 				end)
 			end
 		end
+		L.unbind(title, "Text")
 		title.Text = if results[1].Fused
-			then "Fusion complete!"
-			elseif best >= 5 then "INCREDIBLE!"
-			elseif best >= 4 then "Great find!"
-			else "You hatched!"
+			then L.t("hatch.fused")
+			elseif best >= 5 then L.t("hatch.incredible")
+			elseif best >= 4 then L.t("hatch.great")
+			else L.t("hatch.title")
 	end)
 end
 

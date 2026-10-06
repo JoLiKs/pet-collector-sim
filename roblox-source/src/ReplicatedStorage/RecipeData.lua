@@ -1,5 +1,7 @@
 --!strict
 -- Предметы и рецепты крафта. Результат — предмет в data.Items; use() применяется в CraftService.
+local ResourceData = require(script.Parent.ResourceData)
+
 local RecipeData = {}
 
 export type Item = { Id: string, Name: string, Desc: string, Kind: string, Value: number?, Seconds: number? }
@@ -120,14 +122,21 @@ for _, r in ipairs(RecipeData.Recipes) do
 end
 
 -- Чистая проверка: хватает ли ресурсов. have — таблица ресурсов, возвращает (ok, missingText)
-function RecipeData.canCraft(recipe: Recipe, have: { [string]: number }, coins: number): (boolean, string?)
+function RecipeData.canCraft(recipe: Recipe, have: { [string]: number }, coins: number): (boolean, any)
 	for res, n in pairs(recipe.Cost) do
 		if (have[res] or 0) < n then
-			return false, "Need " .. tostring(n) .. " " .. res
+			return false,
+				{
+					key = "craft.need_res",
+					args = {
+						n = n,
+						res = ResourceData.Resources[res] and ResourceData.Resources[res].Name or res,
+					},
+				}
 		end
 	end
 	if recipe.Coins and coins < recipe.Coins then
-		return false, "Not enough coins"
+		return false, "err.not_enough_coins"
 	end
 	return true, nil
 end

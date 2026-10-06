@@ -2,6 +2,7 @@
 -- Верстак: ресурсы, рецепты, предметы (применение зелий).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local ResourceData = require(Shared:WaitForChild("ResourceData"))
@@ -58,10 +59,7 @@ function CraftPanel.init(gui: ScreenGui)
 			return
 		end
 		for id, l in pairs(resLabels) do
-			l.Text = ("%s %s"):format(
-				string.sub(ResourceData.Resources[id].Name, 1, 5),
-				Util.formatNumber(core.Resources[id] or 0)
-			)
+			l.Text = L.t("res_short." .. id) .. " " .. Util.formatNumber(core.Resources[id] or 0)
 		end
 		Widgets.clear(scroll)
 		if view == "Recipes" then
@@ -72,7 +70,7 @@ function CraftPanel.init(gui: ScreenGui)
 				card.Name = recipe.Id
 				UiKit.text(
 					card,
-					("%dx %s"):format(recipe.Count, item.Name),
+					L.t("reward.item", { n = recipe.Count, item = item.Name }),
 					UDim2.fromOffset(10, 4),
 					UDim2.new(0.55, 0, 0, 22),
 					{ Font = Theme.Font, MaxSize = 18 }
@@ -81,11 +79,17 @@ function CraftPanel.init(gui: ScreenGui)
 				for _, res in ipairs(ResourceData.Order) do
 					local n = recipe.Cost[res]
 					if n then
-						table.insert(parts, ("%d %s"):format(n, res))
+						table.insert(
+							parts,
+							L.t("reward.res", { n = n, res = ResourceData.Resources[res].Name })
+						)
 					end
 				end
 				if recipe.Coins then
-					table.insert(parts, Util.formatNumber(recipe.Coins) .. " coins")
+					table.insert(
+						parts,
+						L.t("reward.coins_fmt", { price = Util.formatNumber(recipe.Coins), n = recipe.Coins })
+					)
 				end
 				UiKit.text(
 					card,
@@ -96,14 +100,14 @@ function CraftPanel.init(gui: ScreenGui)
 				)
 				UiKit.text(
 					card,
-					item.Desc,
+					L.n(item.Desc),
 					UDim2.new(0.55, 0, 0, 4),
 					UDim2.new(0.25, 0, 1, -8),
 					{ TextColor3 = Theme.Gem, MaxSize = 13 }
 				)
 				local b = Widgets.button({
 					Name = "Make",
-					Text = "Craft",
+					Text = L.t("craft.make"),
 					Color = Theme.Green,
 					Size = UDim2.new(0.16, 0, 0, 38),
 					AnchorPoint = Vector2.new(1, 0.5),
@@ -128,14 +132,14 @@ function CraftPanel.init(gui: ScreenGui)
 					card.Name = id
 					UiKit.text(
 						card,
-						("%s  x%d"):format(item.Name, n),
+						("%s  x%d"):format(L.n(item.Name), n),
 						UDim2.fromOffset(10, 4),
 						UDim2.new(0.6, 0, 0, 22),
 						{ Font = Theme.Font, MaxSize = 18 }
 					)
 					UiKit.text(
 						card,
-						item.Desc,
+						L.n(item.Desc),
 						UDim2.fromOffset(10, 28),
 						UDim2.new(0.62, 0, 0, 20),
 						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
@@ -143,7 +147,7 @@ function CraftPanel.init(gui: ScreenGui)
 					if item.Kind == "BoostLuck" or item.Kind == "BoostCoins" then
 						Widgets.button({
 							Name = "Use",
-							Text = "Use",
+							Text = L.t("craft.use"),
 							Color = Theme.Blue,
 							Size = UDim2.new(0.16, 0, 0, 34),
 							AnchorPoint = Vector2.new(1, 0.5),
@@ -159,10 +163,10 @@ function CraftPanel.init(gui: ScreenGui)
 						UiKit.text(
 							card,
 							if item.Kind == "PetXp"
-								then "Use in Pets"
-								elseif item.Kind == "Catalyst" then "Use in Fusion"
-								elseif item.Kind == "Ticket" then "Use at the egg"
-								else "Passive bonus",
+								then L.t("craft.use_pets")
+								elseif item.Kind == "Catalyst" then L.t("craft.use_fusion")
+								elseif item.Kind == "Ticket" then L.t("craft.use_egg")
+								else L.t("craft.passive"),
 							UDim2.new(0.72, 0, 0, 10),
 							UDim2.new(0.26, 0, 0, 30),
 							{ TextColor3 = Theme.Gold, MaxSize = 13 }
@@ -173,7 +177,7 @@ function CraftPanel.init(gui: ScreenGui)
 			if not any then
 				UiKit.text(
 					scroll,
-					"No items yet — craft something!",
+					L.t("craft.no_items"),
 					UDim2.fromOffset(10, 10),
 					UDim2.new(1, -20, 0, 30),
 					{ TextColor3 = Theme.TextDim }
@@ -197,6 +201,12 @@ function CraftPanel.init(gui: ScreenGui)
 		local s = table.concat(parts, ",")
 		if s ~= sig then
 			sig = s
+			panel.Refresh()
+		end
+	end)
+	L.onChanged(function()
+		sig = ""
+		if panel.IsOpen() then
 			panel.Refresh()
 		end
 	end)

@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local ShopData = require(Shared.ShopData)
 
 local DataService = require(script.Parent.DataService)
@@ -15,13 +16,13 @@ local Stations = require(script.Parent.Stations)
 
 local ShopService = {}
 
-local function buy(player: Player, offerId: any): (boolean, string?)
+local function buy(player: Player, offerId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(offerId) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	if not Stations.inHub(player) then
-		return false, "The market stall is in the Hub"
+		return false, "shop.hub_only"
 	end
 	local slot = ShopLogic.sync(data)
 	local allowed = false
@@ -32,18 +33,18 @@ local function buy(player: Player, offerId: any): (boolean, string?)
 	end
 	local offer = ShopData.ById[offerId]
 	if not allowed or not offer then
-		return false, "This offer is no longer available"
+		return false, "shop.gone"
 	end
 	if (data.Shop.Bought[offerId] or 0) >= offer.Stock then
-		return false, "Sold out until the next rotation"
+		return false, "shop.sold_out"
 	end
 	if not Economy.trySpend(player, offer.Currency, offer.Price) then
-		return false, if offer.Currency == "Gems" then "Not enough gems" else "Not enough coins"
+		return false, if offer.Currency == "Gems" then "err.not_enough_gems" else "err.not_enough_coins"
 	end
 	data.Shop.Bought[offerId] = (data.Shop.Bought[offerId] or 0) + 1
 	Economy.grant(player, offer.Give)
 	State.markCore(player)
-	Notify.send(player, "Purchased: " .. offer.Name, "success")
+	Notify.send(player, Locale.m("shop.purchased", { item = offer.Name }), "success")
 	return true, nil
 end
 

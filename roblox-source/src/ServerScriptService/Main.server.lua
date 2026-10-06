@@ -38,6 +38,7 @@ require(Server.OfflineService).init()
 require(Server.EventService).init()
 require(Server.Monetization).init()
 require(Server.LeaderboardService).init()
+require(Server.LanguageService).init()
 require(Server.PlayerService).init()
 
 print("[PetCollector] Server started. JobId:", game.JobId)

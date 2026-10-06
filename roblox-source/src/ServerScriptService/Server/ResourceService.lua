@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Remotes = require(Shared.Remotes)
 local ResourceData = require(Shared.ResourceData)
 local ZoneData = require(Shared.ZoneData)
@@ -209,7 +210,11 @@ local function harvest(player: Player, node: Node): boolean
 			reward.ItemCount = 1
 		end
 		Economy.grant(player, reward)
-		Notify.send(player, "Chest: " .. Economy.describe(reward), "reward")
+		Notify.send(
+			player,
+			Locale.m("chest.reward", { reward = Economy.describe(reward, Locale.langOf(player)) }),
+			"reward"
+		)
 		respawnLater(node, ResourceData.CHEST_RESPAWN)
 		return true
 	end
@@ -222,13 +227,12 @@ local function harvest(player: Player, node: Node): boolean
 	end
 	Economy.addResource(player, def.Res, amount)
 	Progress.record(player, "gather", def.Res, amount, node.Zone)
-	Remotes.getEvent("Fx")
-		:FireClient(
-			player,
-			"gather",
-			node.Pos + Vector3.new(0, 4, 0),
-			"+" .. tostring(amount) .. " " .. def.Res
-		)
+	Remotes.getEvent("Fx"):FireClient(
+		player,
+		"gather",
+		node.Pos + Vector3.new(0, 4, 0),
+		"+" .. tostring(amount) .. " " .. Locale.np(player, ResourceData.Resources[def.Res].Name)
+	)
 	State.markCore(player)
 	respawnLater(node, def.Respawn)
 	return true
@@ -254,8 +258,8 @@ end
 
 local function attachPrompt(node: Node, main: BasePart, action: string, object: string, hold: number)
 	local prompt = Instance.new("ProximityPrompt")
-	prompt.ActionText = action
-	prompt.ObjectText = object
+	Locale.setWorld(prompt, action, nil, "ActionText")
+	Locale.setWorld(prompt, object, nil, "ObjectText")
 	prompt.HoldDuration = hold
 	prompt.MaxActivationDistance = 12
 	prompt.RequiresLineOfSight = false
@@ -279,7 +283,7 @@ local function spawnNode(parent: Folder, zone: ZoneData.ZoneDef, kindKey: string
 		{ Model = m, Zone = zone.Id, Kind = kindKey, Depleted = false, Chest = false, Pos = pos }
 	table.insert(nodes, node)
 	nodeOf[m] = node
-	attachPrompt(node, main, "Gather", def.Name, def.Hold)
+	attachPrompt(node, main, "prompt.gather", def.Name, def.Hold)
 end
 
 local function spawnChest(parent: Folder, zone: ZoneData.ZoneDef, pos: Vector3, index: number)
@@ -320,7 +324,7 @@ local function spawnChest(parent: Folder, zone: ZoneData.ZoneDef, pos: Vector3, 
 		{ Model = m, Zone = zone.Id, Kind = "Chest", Depleted = false, Chest = true, Pos = pos }
 	table.insert(nodes, node)
 	nodeOf[m] = node
-	attachPrompt(node, body, "Open", "Treasure Chest", 0.6)
+	attachPrompt(node, body, "prompt.open", "Treasure Chest", 0.6)
 end
 
 function ResourceService.init()

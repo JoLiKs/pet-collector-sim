@@ -2,6 +2,7 @@
 -- Дерево талантов (3 ветки) + ссылка на ребёрт.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local TalentData = require(Shared:WaitForChild("TalentData"))
 
@@ -25,14 +26,14 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 	)
 	local info = UiKit.text(
 		body,
-		"Rebirth to earn talent points.",
+		L.k("talents.hint"),
 		UDim2.fromOffset(12, 32),
 		UDim2.new(0.6, 0, 0, 18),
 		{ TextColor3 = Theme.TextDim, MaxSize = 14 }
 	)
 	Widgets.button({
 		Name = "GoRebirth",
-		Text = "Rebirth",
+		Text = L.k("talents.go_rebirth"),
 		Color = Theme.Purple,
 		Size = UDim2.fromOffset(110, 34),
 		AnchorPoint = Vector2.new(1, 0),
@@ -47,7 +48,7 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 	})
 	Widgets.button({
 		Name = "Respec",
-		Text = ("Reset (%d gems)"):format(TalentData.RESPEC_GEMS),
+		Text = L.k("talents.reset", { n = TalentData.RESPEC_GEMS }),
 		Color = Theme.Red,
 		Size = UDim2.fromOffset(120, 34),
 		AnchorPoint = Vector2.new(1, 0),
@@ -78,7 +79,7 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 			Parent = cols,
 		})
 		Widgets.corner(col, 10)
-		UiKit.text(col, branch, UDim2.fromOffset(8, 4), UDim2.new(1, -16, 0, 24), {
+		UiKit.text(col, L.kn(branch), UDim2.fromOffset(8, 4), UDim2.new(1, -16, 0, 24), {
 			Font = Theme.Font,
 			TextColor3 = TalentData.Branches[branch].Color,
 			MaxSize = 20,
@@ -95,8 +96,8 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 		if not core then
 			return
 		end
-		points.Text = ("Talent points: %d"):format(core.TalentPoints)
-		info.Text = ("Rebirths: %d  -  1 point per rebirth"):format(core.Rebirths)
+		points.Text = L.t("talents.points", { n = core.TalentPoints })
+		info.Text = L.t("talents.info", { n = core.Rebirths })
 		for _, branch in ipairs(TalentData.BranchOrder) do
 			Widgets.clear(columns[branch])
 		end
@@ -114,12 +115,12 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 			card.Name = t.Id
 			UiKit.text(
 				card,
-				t.Name,
+				L.n(t.Name),
 				UDim2.fromOffset(6, 2),
 				UDim2.new(1, -12, 0, 18),
 				{ Font = Theme.Font, TextColor3 = if locked then Theme.TextDim else Theme.Text, MaxSize = 15 }
 			)
-			UiKit.text(card, t.Desc, UDim2.fromOffset(6, 20), UDim2.new(1, -12, 0, 30), {
+			UiKit.text(card, L.n(t.Desc), UDim2.fromOffset(6, 20), UDim2.new(1, -12, 0, 30), {
 				TextColor3 = Theme.TextDim,
 				MaxSize = 11,
 				TextWrapped = true,
@@ -134,7 +135,10 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 			)
 			local b = Widgets.button({
 				Name = "Buy",
-				Text = if locked then "Locked" elseif lvl >= t.Max then "Max" else "+1",
+				Text = if locked
+					then L.t("talents.locked")
+					elseif lvl >= t.Max then L.t("talents.max")
+					else "+1",
 				Color = color,
 				Size = UDim2.new(0.5, 0, 0, 24),
 				AnchorPoint = Vector2.new(1, 1),
@@ -155,6 +159,11 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 			panel.Refresh()
 		end
 		local _ = core
+	end)
+	L.onChanged(function()
+		if panel.IsOpen() then
+			panel.Refresh()
+		end
 	end)
 	local open = panel.Open
 	panel.Open = function()

@@ -24,6 +24,16 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Version = 2
 		changed = true
 	end
+	-- настройки: язык "auto" | "en" | "ru" (старые сохранения получают "auto")
+	if type(data.Settings) ~= "table" then
+		data.Settings = { Lang = "auto" }
+		changed = true
+	end
+	local lang = data.Settings.Lang
+	if lang ~= "auto" and lang ~= "en" and lang ~= "ru" then
+		data.Settings.Lang = "auto"
+		changed = true
+	end
 	-- защита от мусора в числовых полях
 	for _, key in ipairs({ "Coins", "Gems", "Rebirths", "TotalCoins" }) do
 		local v = data[key]

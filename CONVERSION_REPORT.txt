@@ -1,14 +1,14 @@
 roblox2web 2.0.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Скрипты: 81/81 транспилированы в JS, 15649 строк Luau
+Скрипты: 87/87 транспилированы в JS, 17881 строк Luau
 
 === Покрытие API (статический анализ исходников) ===
-Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, os, pairs, pcall, print, require, string, table, task, tonumber, tostring, type, typeof, warn
+Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, os, pairs, pcall, print, require, setmetatable, string, table, task, tonumber, tostring, type, typeof, warn
 Глобальные API — НЕ найдены в эмуляторе: —
 Функции библиотек — НЕ поддержаны: —
-Сервисы — поддержаны: DataStoreService, HttpService, Lighting, MarketplaceService, Players, PolicyService, ReplicatedStorage, RunService, TweenService, UserInputService, Workspace
+Сервисы — поддержаны: DataStoreService, HttpService, Lighting, LocalizationService, MarketplaceService, Players, PolicyService, ReplicatedStorage, RunService, TweenService, UserInputService, Workspace
 Сервисы — НЕ поддержаны: —
-Сервисы-заглушки (вызовы логируются, функциональность урезана): —
+Сервисы-заглушки (вызовы логируются, функциональность урезана): LocalizationService
 Instance.new — поддержаны: Atmosphere, BillboardGui, Camera, Folder, Frame, IntValue, Model, Part, ProximityPrompt, RemoteEvent, RemoteFunction, SpawnLocation, StringValue, SurfaceGui, TextLabel
 Instance.new — НЕ поддержаны: —
 Enum — НЕ поддержаны: —

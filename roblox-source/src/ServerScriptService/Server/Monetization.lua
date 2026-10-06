@@ -14,6 +14,7 @@ local PolicyService = game:GetService("PolicyService")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Locale = require(ReplicatedStorage.Shared.Locale)
 local BattlePassData = require(ReplicatedStorage.Shared.BattlePassData)
 local Config = require(ReplicatedStorage.Shared.Config)
 
@@ -88,19 +89,19 @@ end
 local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
 	if def.Kind == "Gems" then
 		Economy.addGems(player, def.Amount)
-		Notify.send(player, ("+%d gems! Thank you!"):format(def.Amount), "reward")
+		Notify.send(player, Locale.m("shop.thanks_gems", { n = def.Amount }), "reward")
 	elseif def.Kind == "Coins" then
 		local amount = math.max(def.Min, Economy.getPerClick(player, data) * def.Clicks)
 		Economy.addCoins(player, amount, false)
-		Notify.send(player, "Coins delivered! Thank you!", "reward")
+		Notify.send(player, "shop.thanks_coins", "reward")
 	elseif def.Kind == "Luck" then
 		local boosts = data.Boosts
 		local base = math.max(boosts[def.Boost] or 0, os.time())
 		boosts[def.Boost] = base + def.Seconds
-		Notify.send(player, ("%s activated!"):format(def.Name), "reward")
+		Notify.send(player, Locale.m("item.activated", { item = def.Name }), "reward")
 	elseif def.Kind == "Res" then
 		Economy.addResource(player, def.Res, def.Amount)
-		Notify.send(player, ("+%d %s! Thank you!"):format(def.Amount, def.Res), "reward")
+		Notify.send(player, Locale.m("shop.thanks_res", { n = def.Amount, res = def.Res }), "reward")
 	elseif def.Kind == "BpLevels" then
 		local bp = data.BattlePass
 		local level = BattlePassData.progress(bp.Xp)
@@ -111,7 +112,7 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 		end
 		local _, into = BattlePassData.progress(bp.Xp)
 		Economy.addBpXp(player, math.max(0, xp - into))
-		Notify.send(player, ("Battle Pass: +%d levels!"):format(def.Levels), "reward")
+		Notify.send(player, Locale.m("shop.thanks_bp", { n = def.Levels }), "reward")
 	end
 end
 
@@ -194,7 +195,11 @@ function Monetization.init()
 			end
 			session.Passes[key] = true
 			local info = Config.GAMEPASSES[key]
-			Notify.send(player, ((info and info.Name) or key) .. " unlocked! Thank you!", "reward")
+			Notify.send(
+				player,
+				Locale.m("shop.thanks_pass", { name = (info and info.Name) or key }),
+				"reward"
+			)
 			fireStatusChanged(player)
 		end
 	)

@@ -2,6 +2,7 @@
 -- Таблицы лидеров: сервер (Live — игроки на сервере) и глобальная по заработанным монетам.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -33,7 +34,7 @@ function BoardsPanel.init(gui: ScreenGui)
 		if not data then
 			UiKit.text(
 				scroll,
-				"Loading...",
+				L.t("common.loading"),
 				UDim2.fromOffset(4, 4),
 				UDim2.new(1, -8, 0, 24),
 				{ TextColor3 = Theme.TextDim }
@@ -44,9 +45,7 @@ function BoardsPanel.init(gui: ScreenGui)
 		if not list or #list == 0 then
 			UiKit.text(
 				scroll,
-				if view == "Global"
-					then "The global board needs API Services (Studio setting) or is empty."
-					else "No data yet.",
+				if view == "Global" then L.t("boards.global_empty") else L.t("boards.no_data"),
 				UDim2.fromOffset(4, 4),
 				UDim2.new(1, -8, 0, 24),
 				{ TextColor3 = Theme.TextDim }
@@ -76,6 +75,11 @@ function BoardsPanel.init(gui: ScreenGui)
 	Remotes.getEvent("Boards").OnClientEvent:Connect(function(d)
 		data = d
 		panel.Refresh()
+	end)
+	L.onChanged(function()
+		if panel.IsOpen() then
+			panel.Refresh()
+		end
 	end)
 	local open = panel.Open
 	panel.Open = function()

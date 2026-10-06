@@ -4,6 +4,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local PetData = require(Shared:WaitForChild("PetData"))
 local PetMeta = require(Shared:WaitForChild("PetMeta"))
+local RecipeData = require(Shared:WaitForChild("RecipeData"))
+local ResourceData = require(Shared:WaitForChild("ResourceData"))
+local Util = require(Shared:WaitForChild("Util"))
+local L = require(Shared:WaitForChild("Locale"))
 
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
@@ -38,7 +42,7 @@ end
 -- Текст с позицией/размером; opts — любые свойства TextLabel
 function UiKit.text(
 	parent: Instance,
-	text: string,
+	text: any, -- строка или маркер L.k(...)
 	pos: UDim2,
 	size: UDim2,
 	opts: { [string]: any }?
@@ -110,7 +114,7 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 	for i, name in ipairs(names) do
 		buttons[name] = Widgets.button({
 			Name = "Tab_" .. name,
-			Text = name,
+			Text = L.k("tab." .. name),
 			Color = Theme.BgLight,
 			Size = UDim2.fromOffset(w, 30),
 			Position = UDim2.fromOffset(10 + (i - 1) * (w + 6), y or 4),
@@ -170,7 +174,7 @@ function UiKit.petIcon(parent: Instance, petId: string, variant: string?, size: 
 	return dot
 end
 
-function UiKit.badge(parent: Instance, text: string, color: Color3, pos: UDim2, w: number?): TextLabel
+function UiKit.badge(parent: Instance, text: any, color: Color3, pos: UDim2, w: number?): TextLabel
 	local b = Widgets.label({
 		Text = text,
 		BackgroundTransparency = 0,
@@ -185,6 +189,47 @@ function UiKit.badge(parent: Instance, text: string, color: Color3, pos: UDim2, 
 	Widgets.corner(b, 5)
 	New("UITextSizeConstraint", { MaxTextSize = 12, MinTextSize = 6, Parent = b })
 	return b
+end
+
+-- Текст награды квеста/предмета на текущем языке
+function UiKit.rewardText(r): string
+	local parts = {}
+	if r.Coins then
+		table.insert(parts, L.t("reward.coins_fmt", { price = Util.formatNumber(r.Coins), n = r.Coins }))
+	end
+	if r.Gems then
+		table.insert(parts, L.t("reward.gems", { n = r.Gems }))
+	end
+	if r.Res then
+		for k, v in pairs(r.Res) do
+			local rd = ResourceData.Resources[k]
+			table.insert(parts, L.t("reward.res", { n = v, res = rd and rd.Name or k }))
+		end
+	end
+	if r.Item then
+		local it = RecipeData.Items[r.Item]
+		table.insert(parts, L.t("reward.item", { n = r.ItemCount or 1, item = it and it.Name or r.Item }))
+	end
+	if r.Pet then
+		local pd = PetData.PetsById[r.Pet]
+		table.insert(parts, L.t("reward.pet_named", { pet = pd and pd.Name or r.Pet }))
+	end
+	if r.BpXp then
+		table.insert(parts, L.t("reward.bpxp", { n = r.BpXp }))
+	end
+	return table.concat(parts, ", ")
+end
+
+-- Текст цели квеста на текущем языке
+function UiKit.objText(obj): string
+	if obj.Kind == "gather" then
+		local rd = obj.Key and ResourceData.Resources[obj.Key]
+		return if rd then L.t("obj.gather_res", { res = rd.Name }) else L.t("obj.gather")
+	elseif obj.Kind == "level" then
+		return L.t("obj.level", { n = obj.Key })
+	end
+	local key = "obj." .. tostring(obj.Kind)
+	return if L.strings.en[key] then L.t(key) else tostring(obj.Kind)
 end
 
 return UiKit

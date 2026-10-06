@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local QuestData = require(Shared.QuestData)
 local Remotes = require(Shared.Remotes)
 
@@ -46,7 +47,7 @@ function QuestService.dialogFor(data: DataService.Data, npcId: string): { [strin
 	}
 	if not step then
 		d.Mode = "finished"
-		d.Lines = { "You've done everything I could ask. Thank you, friend!", npc.Greeting }
+		d.Lines = { "quest.npc_finished", npc.Greeting }
 		return d
 	end
 	d.StepTitle = step.Title
@@ -66,54 +67,54 @@ function QuestService.dialogFor(data: DataService.Data, npcId: string): { [strin
 	return d
 end
 
-local function talk(player: Player, npcId: any): (boolean, string?)
+local function talk(player: Player, npcId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(npcId) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	if not Stations.inHub(player) then
-		return false, "Return to the Hub to talk to quest givers"
+		return false, "quest.return_hub"
 	end
 	local d = QuestService.dialogFor(data, npcId)
 	if not d then
-		return false, "Unknown NPC"
+		return false, "err.unknown"
 	end
 	Remotes.getEvent("Dialog"):FireClient(player, d)
 	return true, nil
 end
 
-local function accept(player: Player, npcId: any): (boolean, string?)
+local function accept(player: Player, npcId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(npcId) ~= "string" or not QuestData.Chains[npcId] then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	local st = chainState(data, npcId)
 	local step = QuestData.Chains[npcId].Steps[st.Step]
 	if not step then
-		return false, "No more quests from this NPC"
+		return false, "quest.no_more"
 	end
 	if st.Accepted then
-		return false, "Already accepted"
+		return false, "quest.already_accepted"
 	end
 	st.Accepted = true
 	st.Progress = 0
 	State.markCore(player)
-	Notify.send(player, "Quest accepted: " .. step.Title, "info")
+	Notify.send(player, Locale.m("quest.accepted", { title = step.Title }), "info")
 	return true, nil
 end
 
-local function claim(player: Player, npcId: any): (boolean, string?)
+local function claim(player: Player, npcId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(npcId) ~= "string" or not QuestData.Chains[npcId] then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	local st = chainState(data, npcId)
 	local step = QuestData.Chains[npcId].Steps[st.Step]
 	if not step or not st.Accepted then
-		return false, "No active quest"
+		return false, "quest.none_active"
 	end
 	if (st.Progress or 0) < step.Obj.Count then
-		return false, "Quest is not complete yet"
+		return false, "quest.not_complete"
 	end
 	-- сначала сдвигаем состояние, потом выдаём награду (защита от двойного клика)
 	st.Step += 1
@@ -123,7 +124,10 @@ local function claim(player: Player, npcId: any): (boolean, string?)
 	Progress.addStat(player, "Quests", 1)
 	Notify.send(
 		player,
-		("Quest complete: %s — %s"):format(step.Title, Economy.describe(step.Reward)),
+		Locale.m(
+			"quest.complete",
+			{ title = step.Title, reward = Economy.describe(step.Reward, Locale.langOf(player)) }
+		),
 		"reward"
 	)
 	State.markPets(player)
@@ -134,29 +138,32 @@ local function claim(player: Player, npcId: any): (boolean, string?)
 	return true, nil
 end
 
-local function claimDaily(player: Player, id: any): (boolean, string?)
+local function claimDaily(player: Player, id: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(id) ~= "string" then
-		return false, "Bad request"
+		return false, "err.bad_request"
 	end
 	Dailies.ensure(data)
 	local entry = data.Quests.Daily.Items[id]
 	local def = QuestData.DailyById[id]
 	if not entry or not def then
-		return false, "Not an active daily quest"
+		return false, "quest.not_daily"
 	end
 	if entry.C then
-		return false, "Already claimed"
+		return false, "err.already_claimed"
 	end
 	if (entry.P or 0) < def.Obj.Count then
-		return false, "Not complete yet"
+		return false, "quest.not_complete"
 	end
 	entry.C = true
 	Economy.grant(player, def.Reward)
 	Progress.addStat(player, "Quests", 1)
 	Notify.send(
 		player,
-		("Daily quest complete: %s — %s"):format(def.Name, Economy.describe(def.Reward)),
+		Locale.m(
+			"quest.daily_complete",
+			{ title = def.Name, reward = Economy.describe(def.Reward, Locale.langOf(player)) }
+		),
 		"reward"
 	)
 	State.markCore(player)

@@ -13,10 +13,13 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local EnemyData = require(Shared.EnemyData)
 local Formulas = require(Shared.Formulas)
 local PetMeta = require(Shared.PetMeta)
+local RecipeData = require(Shared.RecipeData)
+local ResourceData = require(Shared.ResourceData)
 local Remotes = require(Shared.Remotes)
 local ZoneData = require(Shared.ZoneData)
 
@@ -163,7 +166,7 @@ local function buildModel(
 	nameLabel.TextScaled = true
 	nameLabel.TextColor3 = if def.Boss then Color3.fromRGB(255, 190, 90) else Color3.new(1, 1, 1)
 	nameLabel.TextStrokeTransparency = 0.4
-	nameLabel.Text = def.Name
+	Locale.setWorld(nameLabel, def.Name)
 	nameLabel.Parent = gui
 	local back = Instance.new("Frame")
 	back.Name = "Back"
@@ -306,23 +309,29 @@ local function reward(player: Player, e: Enemy)
 	local coins = Formulas.killCoins(Economy.getPerClick(player, data), def.Coins)
 	Economy.addCoins(player, coins)
 	PetService.grantXp(player, def.Xp * 8 * 1.5 ^ (idx - 1))
-	local lootBits = { ("+%d coins"):format(coins) }
+	local lang = Locale.langOf(player)
+	local function resName(id: string): string
+		local r = ResourceData.Resources[id]
+		return Locale.nameIn(lang, r and r.Name or id)
+	end
+	local lootBits = { "+" .. Locale.get(lang, "reward.coins", { n = coins }) }
 	local orbCount = 1
 	for _, drop in ipairs(def.Drops) do
 		if rng:NextNumber() < drop.Chance then
 			local n = rng:NextInteger(drop.Min, drop.Max)
 			if drop.Res then
 				Economy.addResource(player, drop.Res, n)
-				table.insert(lootBits, ("%s x%d"):format(drop.Res, n))
+				table.insert(lootBits, ("%s x%d"):format(resName(drop.Res), n))
 				orbCount += 1
 			elseif drop.Item then
 				Economy.addItem(player, drop.Item, n)
-				table.insert(lootBits, drop.Item)
+				local it = RecipeData.Items[drop.Item]
+				table.insert(lootBits, Locale.nameIn(lang, it and it.Name or drop.Item))
 				orbCount += 1
 			elseif drop.Gems then
 				local g = rng:NextInteger(drop.Min or drop.Gems, drop.Max or drop.Gems)
 				Economy.addGems(player, g)
-				table.insert(lootBits, ("+%d gems"):format(g))
+				table.insert(lootBits, "+" .. Locale.get(lang, "reward.gems", { n = g }))
 				orbCount += 1
 			end
 		end
@@ -334,7 +343,7 @@ local function reward(player: Player, e: Enemy)
 	end
 	if essence > 0 then
 		Economy.addResource(player, "Essence", essence)
-		table.insert(lootBits, ("Essence x%d"):format(essence))
+		table.insert(lootBits, ("%s x%d"):format(resName("Essence"), essence))
 		orbCount += 1
 	end
 	-- Шанс гема (у боссов GemChance обычно 1 → гарантированно)
@@ -342,7 +351,7 @@ local function reward(player: Player, e: Enemy)
 	if e.Special ~= "raid" and rng:NextNumber() < gemChance then
 		local g = if def.Boss then (5 + 3 * idx) else 1
 		Economy.addGems(player, g)
-		table.insert(lootBits, ("+%d gems"):format(g))
+		table.insert(lootBits, "+" .. Locale.get(lang, "reward.gems", { n = g }))
 		orbCount += 1
 	end
 	-- Шанс билета на яйцо зоны (если есть) или Fragment
@@ -350,15 +359,15 @@ local function reward(player: Player, e: Enemy)
 	local ticketChance = def.TicketChance or (if def.Boss then 0.35 else 0.015)
 	if ticket and rng:NextNumber() < ticketChance then
 		Economy.addItem(player, ticket, 1)
-		table.insert(lootBits, "Egg Ticket")
+		table.insert(lootBits, Locale.get(lang, "loot.ticket"))
 		orbCount += 1
 	elseif def.Boss and rng:NextNumber() < 0.6 then
 		Economy.addResource(player, "Fragment", rng:NextInteger(1, 2 + idx // 2))
-		table.insert(lootBits, "Fragment")
+		table.insert(lootBits, resName("Fragment"))
 		orbCount += 1
 	elseif not def.Boss and rng:NextNumber() < 0.03 then
 		Economy.addResource(player, "Fragment", 1)
-		table.insert(lootBits, "Fragment")
+		table.insert(lootBits, resName("Fragment"))
 		orbCount += 1
 	end
 	if def.Boss and e.Special ~= "raid" then
@@ -532,7 +541,13 @@ local function teamTick(player: Player, now: number)
 				end
 				if used then
 					cds[uid] = now + (ab.Cooldown or 8)
-					fx(player, "Ability", root.Position + Vector3.new(0, 4, 0), ab.Name, ab.Id)
+					fx(
+						player,
+						"Ability",
+						root.Position + Vector3.new(0, 4, 0),
+						Locale.np(player, ab.Name),
+						ab.Id
+					)
 				end
 			end
 		end
@@ -718,7 +733,7 @@ end
 -- Действия игрока
 -- ---------------------------------------------------------------------------
 
-local function attack(player: Player, enemyId: any): (boolean, string?)
+local function attack(player: Player, enemyId: any): (boolean, any)
 	local data = DataService.get(player)
 	local root = rootOf(player)
 	local hum = humanoidOf(player)

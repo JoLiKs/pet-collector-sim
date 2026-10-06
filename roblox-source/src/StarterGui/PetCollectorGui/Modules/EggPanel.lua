@@ -2,6 +2,7 @@
 -- Окно яйца: честно показывает шансы выпадения (с учётом удачи игрока) и кнопки открытия.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
 local PetData = require(Shared:WaitForChild("PetData"))
@@ -29,6 +30,7 @@ function EggPanel.init(gui: ScreenGui)
 	local panel = Widgets.panel(gui, "Egg")
 	local body = panel.Body
 	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
+	L.unbind(titleLabel, "Text") -- заголовок — имя яйца (ставится в render)
 
 	local sub = Widgets.label({
 		Size = UDim2.new(1, -24, 0, 24),
@@ -80,7 +82,7 @@ function EggPanel.init(gui: ScreenGui)
 	end
 
 	local ticketBtn = Widgets.button({
-		Text = "Use Ticket",
+		Text = L.k("egg.use_ticket"),
 		Color = Theme.Purple,
 		Size = UDim2.fromOffset(150, 30),
 		AnchorPoint = Vector2.new(1, 0),
@@ -102,22 +104,23 @@ function EggPanel.init(gui: ScreenGui)
 		if not core or not egg then
 			return
 		end
-		titleLabel.Text = egg.Name
-		sub.Text = ("%s each  -  you have %s"):format(
-			Util.formatNumber(egg.Price) .. " " .. egg.Currency,
-			Util.formatNumber(if egg.Currency == "Gems" then core.Gems else core.Coins)
-		)
+		titleLabel.Text = L.n(egg.Name)
+		sub.Text = L.t(if egg.Currency == "Gems" then "egg.sub_gems" else "egg.sub_coins", {
+			price = Util.formatNumber(egg.Price),
+			n = egg.Price,
+			have = Util.formatNumber(if egg.Currency == "Gems" then core.Gems else core.Coins),
+		})
 		for i, count in ipairs(Config.HATCH_COUNTS) do
-			buttons[i].Text = ("Hatch x%d  (%s)"):format(count, Util.formatNumber(egg.Price * count))
+			buttons[i].Text = L.t("egg.hatch", { n = count, price = Util.formatNumber(egg.Price * count) })
 		end
 		local tickets = core.Items and core.Items["ticket_" .. egg.Id] or 0
 		ticketBtn.Visible = tickets > 0
-		ticketBtn.Text = ("Use Ticket (%d)"):format(tickets)
-		note.Text = ("Your luck: x%.2f (already included in the odds above). Any pet can be Golden (%.0f%%, x2 power) or Rainbow (%.1f%%, x5). Rounded."):format(
-			core.Luck,
-			Config.GOLD_CHANCE * 100,
-			Config.RAINBOW_CHANCE * 100
-		)
+		ticketBtn.Text = L.t("egg.use_ticket_n", { n = tickets })
+		note.Text = L.t("egg.note", {
+			luck = string.format("%.2f", core.Luck),
+			gold = string.format("%.0f", Config.GOLD_CHANCE * 100),
+			rainbow = string.format("%.1f", Config.RAINBOW_CHANCE * 100),
+		})
 
 		Widgets.clear(list)
 		local odds = PetData.getOdds(egg.Id, core.Luck)
@@ -145,7 +148,7 @@ function EggPanel.init(gui: ScreenGui)
 			})
 			Widgets.corner(dot, 12)
 			Widgets.label({
-				Text = def.Name,
+				Text = L.n(def.Name),
 				Size = UDim2.new(0.38, 0, 1, -14),
 				Position = UDim2.fromOffset(40, 7),
 				TextXAlignment = Enum.TextXAlignment.Left,
@@ -154,7 +157,7 @@ function EggPanel.init(gui: ScreenGui)
 				Parent = row,
 			})
 			Widgets.label({
-				Text = def.Rarity,
+				Text = L.n(def.Rarity),
 				Size = UDim2.new(0.18, 0, 1, -18),
 				Position = UDim2.new(0.44, 0, 0, 9),
 				TextColor3 = Theme.TextDim,
@@ -180,6 +183,12 @@ function EggPanel.init(gui: ScreenGui)
 	end
 
 	local lastKey = ""
+	L.onChanged(function()
+		lastKey = ""
+		if panel.IsOpen() then
+			render()
+		end
+	end)
 	ClientState.onCore(function(core)
 		if panel.IsOpen() then
 			-- перерисовываем только при смене валюты/удачи (иначе список мигал бы каждую секунду)

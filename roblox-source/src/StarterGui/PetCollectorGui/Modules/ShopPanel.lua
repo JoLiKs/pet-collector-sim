@@ -5,6 +5,7 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -18,7 +19,7 @@ local ShopPanel = {}
 
 local localPlayer = Players.LocalPlayer
 
-local function section(parent: Instance, title: string, order: number): (Frame, TextLabel)
+local function section(parent: Instance, title: any, order: number): (Frame, TextLabel)
 	local header = Widgets.label({
 		Text = title,
 		Size = UDim2.new(1, -8, 0, 30),
@@ -46,7 +47,7 @@ local function section(parent: Instance, title: string, order: number): (Frame, 
 	return grid, header
 end
 
-local function card(parent: Instance, name: string, desc: string, color: Color3): (Frame, TextButton)
+local function card(parent: Instance, name: any, desc: any, color: Color3): (Frame, TextButton)
 	local c = Widgets.New("Frame", { BackgroundColor3 = Theme.BgCard, ZIndex = 23, Parent = parent })
 	Widgets.corner(c, 12)
 	Widgets.stroke(c, color, 2)
@@ -98,7 +99,7 @@ local function fetchPrice(id: number, infoType: Enum.InfoType, fallback: number,
 end
 
 local function notConfigured()
-	Toasts.show("Not available yet: set the ID in ReplicatedStorage/Shared/Config", "error")
+	Toasts.show("shop.not_configured", "error")
 end
 
 function ShopPanel.init(gui: ScreenGui)
@@ -112,14 +113,18 @@ function ShopPanel.init(gui: ScreenGui)
 	Widgets.padding(scroll, 4)
 
 	-- Геймпассы
-	local passGrid = section(scroll, "Game Passes (forever!)", 1)
+	local passGrid = section(scroll, L.k("shop.passes"), 1)
 	local passButtons = {}
 	for _, key in ipairs(Config.GAMEPASS_ORDER) do
 		local info = Config.GAMEPASSES[key]
 		local id = Config.GAMEPASS_IDS[key]
-		local _, buy = card(passGrid, info.Name, info.Description, Theme.Gold)
+		local _, buy = card(passGrid, L.kn(info.Name), L.kn(info.Description), Theme.Gold)
 		passButtons[key] = buy
-		buy.Text = if id == 0 then "Soon" else "R$ ?"
+		if id == 0 then
+			L.bind(buy, "Text", L.k("shop.soon"))
+		else
+			buy.Text = "R$ ?"
+		end
 		fetchPrice(id, Enum.InfoType.GamePass, info.SuggestedPrice, function(price)
 			if passButtons[key] and not (ClientState.Core and ClientState.Core.Passes[key]) then
 				passButtons[key].Text = "R$ " .. tostring(price)
@@ -140,13 +145,13 @@ function ShopPanel.init(gui: ScreenGui)
 	-- Продукты по видам. Валюта и бусты удачи — это "платные случайные предметы" (через яйца),
 	-- поэтому для игроков с PolicyService.ArePaidRandomItemsRestricted эти разделы скрываются.
 	local groups = {
-		{ Title = "Gems", Kind = "Gems", Color = Theme.Gem },
-		{ Title = "Coins", Kind = "Coins", Color = Theme.Gold },
-		{ Title = "Luck Boosts", Kind = "Luck", Color = Theme.Green },
+		{ Title = L.k("shop.group_gems"), Kind = "Gems", Color = Theme.Gem },
+		{ Title = L.k("shop.group_coins"), Kind = "Coins", Color = Theme.Gold },
+		{ Title = L.k("shop.group_luck"), Kind = "Luck", Color = Theme.Green },
 	}
 	local order = 10
 	local restrictedNote = Widgets.label({
-		Text = "Gem, coin and luck packs are not available for your account or region.",
+		Text = L.k("shop.restricted"),
 		Size = UDim2.new(1, -8, 0, 40),
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 9,
@@ -165,21 +170,18 @@ function ShopPanel.init(gui: ScreenGui)
 				local id = Config.PRODUCT_IDS[key]
 				local desc
 				if def.Kind == "Gems" then
-					desc = ("%s gems. Use them for Crystal Eggs and Pet Slots."):format(
-						Util.formatNumber(def.Amount)
-					)
+					desc = L.k("shop.desc_gems", { amount = Util.formatNumber(def.Amount), n = def.Amount })
 				elseif def.Kind == "Coins" then
-					desc = ("Instant coins that scale with your progress (about %s collects)."):format(
-						Util.formatNumber(def.Clicks)
-					)
+					desc = L.k("shop.desc_coins", { n = Util.formatNumber(def.Clicks) })
 				else
-					desc = ("Hatch luck x%d for %d minutes. Better odds for rare pets!"):format(
-						def.Multiplier,
-						def.Seconds // 60
-					)
+					desc = L.k("shop.desc_luck", { x = def.Multiplier, n = def.Seconds // 60 })
 				end
-				local _, buy = card(grid, def.Name, desc, group.Color)
-				buy.Text = if id == 0 then "Soon" else "R$ ?"
+				local _, buy = card(grid, L.kn(def.Name), desc, group.Color)
+				if id == 0 then
+					L.bind(buy, "Text", L.k("shop.soon"))
+				else
+					buy.Text = "R$ ?"
+				end
 				fetchPrice(id, Enum.InfoType.Product, def.SuggestedPrice, function(price)
 					buy.Text = "R$ " .. tostring(price)
 				end)
@@ -195,7 +197,7 @@ function ShopPanel.init(gui: ScreenGui)
 	end
 
 	Widgets.label({
-		Text = "Pets are random. Odds are shown in every egg window. Purchases are processed by Roblox.",
+		Text = L.k("shop.disclaimer"),
 		Size = UDim2.new(1, -8, 0, 36),
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 1000,
@@ -212,7 +214,8 @@ function ShopPanel.init(gui: ScreenGui)
 		end
 		for key, btn in pairs(passButtons) do
 			if core.Passes[key] then
-				btn.Text = "OWNED"
+				L.unbind(btn, "Text")
+				btn.Text = L.t("shop.owned")
 				btn.BackgroundColor3 = Theme.Disabled
 			end
 		end

@@ -2,6 +2,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
 local Util = require(Shared:WaitForChild("Util"))
@@ -42,20 +43,19 @@ function DailyPanel.init(gui: ScreenGui)
 		Widgets.corner(card, 12)
 		local stroke = Widgets.stroke(card, Theme.BgLight, 3)
 		Widgets.label({
-			Text = "Day " .. day,
+			Text = L.k("daily.day", { n = day }),
 			Size = UDim2.new(1, -8, 0.25, 0),
 			Position = UDim2.fromOffset(4, 4),
 			Font = Theme.Font,
 			ZIndex = 24,
 			Parent = card,
 		})
-		local lines =
-			{ ("%d gems"):format(reward.Gems), ("%s clicks"):format(Util.formatNumber(reward.Clicks)) }
-		if reward.Luck2Minutes then
-			table.insert(lines, ("x2 luck %dm"):format(reward.Luck2Minutes))
-		end
 		Widgets.label({
-			Text = table.concat(lines, "\n"),
+			Text = L.k(if reward.Luck2Minutes then "daily.card_luck" else "daily.card", {
+				n = reward.Gems,
+				clicks = Util.formatNumber(reward.Clicks),
+				m = reward.Luck2Minutes,
+			}),
 			Size = UDim2.new(1, -8, 0.6, 0),
 			Position = UDim2.new(0, 4, 0.32, 0),
 			TextColor3 = Theme.Gem,
@@ -77,16 +77,14 @@ function DailyPanel.init(gui: ScreenGui)
 		Size = UDim2.new(1, -24, 0, 20),
 		Position = UDim2.new(0, 12, 1, -98),
 		TextColor3 = Theme.Gold,
-		Text = "VIP: double rewards  |  Roblox Premium: +"
-			.. Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS
-			.. " gems",
+		Text = L.k("daily.bonus", { n = Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS }),
 		ZIndex = 22,
 		Parent = body,
 	})
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 14, Parent = bonusLabel })
 
 	local claim = Widgets.button({
-		Text = "CLAIM",
+		Text = L.k("daily.claim"),
 		Color = Theme.Green,
 		Size = UDim2.new(0.6, 0, 0, 52),
 		AnchorPoint = Vector2.new(0.5, 1),
@@ -112,13 +110,13 @@ function DailyPanel.init(gui: ScreenGui)
 			c.Stroke.Color = if isNext then Theme.Gold else Theme.BgLight
 			c.Card.BackgroundColor3 = if isNext then Theme.BgLight else Theme.BgCard
 		end
-		streakLabel.Text = ("Current streak: %d day(s)"):format(d.Streak)
+		streakLabel.Text = L.t("daily.streak", { n = d.Streak })
 		if d.CanClaim then
-			claim.Text = ("CLAIM DAY %d"):format(d.Day)
+			claim.Text = L.t("daily.claim_day", { n = d.Day })
 			Widgets.setEnabled(claim, true, Theme.Green)
 		else
 			local left = d.SecondsLeft - (os.clock() - ClientState.ReceivedClock)
-			claim.Text = "Next reward in " .. Util.formatTime(left)
+			claim.Text = L.t("daily.next_in", { time = Util.formatTime(left) })
 			Widgets.setEnabled(claim, false)
 		end
 	end

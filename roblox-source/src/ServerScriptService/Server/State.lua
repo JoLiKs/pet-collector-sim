@@ -98,6 +98,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		Zones = data.Zones,
 		CurrentZone = data.CurrentZone,
 		AutoCollect = data.AutoCollect,
+		LangSetting = data.Settings and data.Settings.Lang or "auto",
 		Passes = passes,
 		Premium = session ~= nil and session.Premium,
 		PaidRandomRestricted = session == nil or session.PaidRandomRestricted,

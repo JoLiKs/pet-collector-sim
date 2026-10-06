@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local Locale = require(Shared.Locale)
 local EventData = require(Shared.EventData)
 local Remotes = require(Shared.Remotes)
 local ZoneData = require(Shared.ZoneData)
@@ -118,9 +119,8 @@ end
 
 local function onStart(id: string, left: number)
 	local def = EventData.ById[id]
-	local msg = def.Name .. " has begun! " .. def.Desc
 	for _, player in ipairs(Players:GetPlayers()) do
-		Notify.send(player, msg, "reward")
+		Notify.send(player, Locale.m("event.begun", { name = def.Name, desc = def.Desc }), "reward")
 	end
 	if id == "LunarNight" then
 		Lighting.ClockTime = 0
@@ -136,7 +136,7 @@ local function onStart(id: string, left: number)
 				local def2 = EventData.ById["BossRaid"]
 				if not defeated then
 					for _, player in ipairs(Players:GetPlayers()) do
-						Notify.send(player, "The Stone Colossus escaped... Better luck next time!", "error")
+						Notify.send(player, "event.raid_escaped", "error")
 					end
 					return
 				end
@@ -150,23 +150,19 @@ local function onStart(id: string, left: number)
 						Progress.record(player, "raid", nil, 1, nil)
 						Notify.send(
 							player,
-							("%s defeated! You dealt %d damage: %s"):format(
-								def2.Name,
-								dealt,
-								Economy.describe({
+							Locale.m("event.raid_won", {
+								name = def2.Name,
+								dmg = math.floor(dealt),
+								reward = Economy.describe({
 									Coins = r.Coins,
 									Gems = r.Gems,
 									Res = { Essence = r.Essence },
-								})
-							),
+								}, Locale.langOf(player)),
+							}),
 							"reward"
 						)
 					elseif player.Parent then
-						Notify.send(
-							player,
-							"The Colossus fell, but you did too little damage for a reward.",
-							"info"
-						)
+						Notify.send(player, "event.raid_low", "info")
 					end
 				end
 			end

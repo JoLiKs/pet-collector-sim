@@ -2,6 +2,7 @@
 -- Задания: ежедневные, цепочки NPC, достижения.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
 
 local AchievementData = require(Shared:WaitForChild("AchievementData"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
@@ -15,56 +16,8 @@ local Widgets = require(script.Parent.Widgets)
 
 local QuestsPanel = {}
 
-local function rewardText(r): string
-	local parts = {}
-	if r.Coins then
-		table.insert(parts, Util.formatNumber(r.Coins) .. " coins")
-	end
-	if r.Gems then
-		table.insert(parts, r.Gems .. " gems")
-	end
-	if r.Res then
-		for k, v in pairs(r.Res) do
-			table.insert(parts, v .. " " .. k)
-		end
-	end
-	if r.Item then
-		table.insert(parts, (r.ItemCount or 1) .. "x " .. r.Item)
-	end
-	if r.Pet then
-		table.insert(parts, "pet: " .. r.Pet)
-	end
-	if r.BpXp then
-		table.insert(parts, r.BpXp .. " pass XP")
-	end
-	return table.concat(parts, ", ")
-end
-
-local function objText(obj): string
-	local what = obj.Kind
-	if obj.Kind == "gather" then
-		what = "Gather " .. (obj.Key or "resources")
-	elseif obj.Kind == "kill" then
-		what = "Defeat monsters"
-	elseif obj.Kind == "boss" then
-		what = "Defeat a boss"
-	elseif obj.Kind == "hatch" then
-		what = "Hatch pets"
-	elseif obj.Kind == "craft" then
-		what = "Craft items"
-	elseif obj.Kind == "fuse" then
-		what = "Fuse pets"
-	elseif obj.Kind == "evolve" then
-		what = "Evolve a pet"
-	elseif obj.Kind == "collect" then
-		what = "Collect coins (clicks)"
-	elseif obj.Kind == "level" then
-		what = "Raise a pet to level " .. tostring(obj.Key)
-	elseif obj.Kind == "raid" then
-		what = "Help defeat the Stone Colossus"
-	end
-	return what
-end
+local rewardText = UiKit.rewardText
+local objText = UiKit.objText
 
 function QuestsPanel.init(gui: ScreenGui)
 	local panel = Widgets.panel(gui, "Quests")
@@ -96,14 +49,14 @@ function QuestsPanel.init(gui: ScreenGui)
 					card.Name = id
 					UiKit.text(
 						card,
-						def.Name,
+						L.n(def.Name),
 						UDim2.fromOffset(10, 4),
 						UDim2.new(0.5, 0, 0, 22),
 						{ Font = Theme.Font, MaxSize = 18 }
 					)
 					UiKit.text(
 						card,
-						objText(def.Obj) .. "  -  reward: " .. rewardText(def.Reward),
+						L.t("quests.obj_reward", { obj = objText(def.Obj), reward = rewardText(def.Reward) }),
 						UDim2.fromOffset(10, 26),
 						UDim2.new(0.7, 0, 0, 16),
 						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
@@ -113,7 +66,7 @@ function QuestsPanel.init(gui: ScreenGui)
 					bar.Set(entry.P / def.Obj.Count, ("%d / %d"):format(entry.P, def.Obj.Count))
 					local b = Widgets.button({
 						Name = "Claim",
-						Text = if entry.C then "Claimed" else "Claim",
+						Text = if entry.C then L.t("quests.claimed") else L.t("quests.claim"),
 						Color = Theme.Green,
 						Size = UDim2.new(0.2, 0, 0, 36),
 						AnchorPoint = Vector2.new(1, 0.5),
@@ -130,7 +83,7 @@ function QuestsPanel.init(gui: ScreenGui)
 			end
 			UiKit.text(
 				scroll,
-				"Daily quests refresh at 00:00 UTC.",
+				L.t("quests.refresh_utc"),
 				UDim2.fromOffset(4, 0),
 				UDim2.new(1, -8, 0, 20),
 				{ TextColor3 = Theme.TextDim, MaxSize = 13 }
@@ -146,8 +99,8 @@ function QuestsPanel.init(gui: ScreenGui)
 				UiKit.text(
 					card,
 					("%s - %s (%d/%d)"):format(
-						npc.Name,
-						chain.Name,
+						L.n(npc.Name),
+						L.n(chain.Name),
 						math.min(st.Step - 1, #chain.Steps),
 						#chain.Steps
 					),
@@ -158,12 +111,12 @@ function QuestsPanel.init(gui: ScreenGui)
 				if step then
 					UiKit.text(
 						card,
-						step.Title
+						L.n(step.Title)
 							.. ": "
 							.. (
 								if st.Accepted
 									then objText(step.Obj)
-									else "Talk to " .. npc.Name .. " in the Hub"
+									else L.t("quests.talk_to", { npc = npc.Name })
 							),
 						UDim2.fromOffset(10, 28),
 						UDim2.new(1, -20, 0, 18),
@@ -173,11 +126,13 @@ function QuestsPanel.init(gui: ScreenGui)
 						UiKit.bar(card, UDim2.fromOffset(10, 52), UDim2.new(0.6, 0, 0, 16), Theme.Blue)
 					bar.Set(
 						if st.Accepted then st.Progress / step.Obj.Count else 0,
-						if st.Accepted then ("%d / %d"):format(st.Progress, step.Obj.Count) else "not started"
+						if st.Accepted
+							then ("%d / %d"):format(st.Progress, step.Obj.Count)
+							else L.t("quests.not_started")
 					)
 					UiKit.text(
 						card,
-						"Reward: " .. rewardText(step.Reward),
+						L.t("quests.reward", { reward = rewardText(step.Reward) }),
 						UDim2.new(0.64, 0, 0, 50),
 						UDim2.new(0.34, 0, 0, 22),
 						{ TextColor3 = Theme.Gold, MaxSize = 12 }
@@ -185,7 +140,7 @@ function QuestsPanel.init(gui: ScreenGui)
 				else
 					UiKit.text(
 						card,
-						"All quests completed. Thank you!",
+						L.t("quests.all_done"),
 						UDim2.fromOffset(10, 32),
 						UDim2.new(1, -20, 0, 22),
 						{ TextColor3 = Theme.Green, MaxSize = 15 }
@@ -204,14 +159,14 @@ function QuestsPanel.init(gui: ScreenGui)
 				card.Name = a.Id
 				UiKit.text(
 					card,
-					a.Name .. (if done then "  (done)" else ""),
+					L.n(a.Name) .. (if done then L.t("quests.done_suffix") else ""),
 					UDim2.fromOffset(10, 3),
 					UDim2.new(0.6, 0, 0, 20),
 					{ Font = Theme.Font, TextColor3 = if done then Theme.Gold else Theme.Text, MaxSize = 16 }
 				)
 				UiKit.text(
 					card,
-					a.Desc,
+					L.n(a.Desc),
 					UDim2.fromOffset(10, 22),
 					UDim2.new(0.6, 0, 0, 16),
 					{ TextColor3 = Theme.TextDim, MaxSize = 13 }
@@ -227,7 +182,7 @@ function QuestsPanel.init(gui: ScreenGui)
 				)
 				UiKit.text(
 					card,
-					"+" .. a.Gems .. " gems",
+					"+" .. L.t("reward.gems", { n = a.Gems }),
 					UDim2.new(0.8, 0, 0, 16),
 					UDim2.new(0.18, 0, 0, 22),
 					{ TextColor3 = Theme.Gem, MaxSize = 15, TextXAlignment = Enum.TextXAlignment.Right }
@@ -235,7 +190,7 @@ function QuestsPanel.init(gui: ScreenGui)
 			end
 			UiKit.text(
 				scroll,
-				("Achievements: %d / %d"):format(got, total),
+				L.t("quests.ach_count", { n = got, total = total }),
 				UDim2.fromOffset(4, 0),
 				UDim2.new(1, -8, 0, 20),
 				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
@@ -261,6 +216,12 @@ function QuestsPanel.init(gui: ScreenGui)
 		local s = table.concat(parts, ",")
 		if s ~= sig then
 			sig = s
+			panel.Refresh()
+		end
+	end)
+	L.onChanged(function()
+		sig = ""
+		if panel.IsOpen() then
 			panel.Refresh()
 		end
 	end)
