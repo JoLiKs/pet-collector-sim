@@ -3,6 +3,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
+local Config = require(Shared:WaitForChild("Config"))
 local Formulas = require(Shared:WaitForChild("Formulas"))
 local Util = require(Shared:WaitForChild("Util"))
 
@@ -97,6 +98,14 @@ function RebirthPanel.init(gui: ScreenGui)
 		bar.Size = UDim2.fromScale(ratio, 1)
 		barText.Text = ("%s / %s"):format(Util.formatNumber(core.Coins), Util.formatNumber(core.RebirthCost))
 		btn.BackgroundColor3 = if ratio >= 1 then Theme.Purple else Theme.Disabled
+		if core.Rebirths >= Config.REBIRTH_MAX then
+			-- v2.4 (Г1): честный максимум вместо бесконечной «стены» цены
+			main.Text = L.t("rebirth.max_reached", { cur = string.format("%.1f", cur) })
+			detail.Text = L.t("rebirth.max_detail", { n = Config.REBIRTH_MAX })
+			bar.Size = UDim2.fromScale(1, 1)
+			barText.Text = L.t("common.max")
+			btn.BackgroundColor3 = Theme.Disabled
+		end
 	end)
 	return panel
 end

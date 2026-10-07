@@ -37,6 +37,10 @@ local function buy(player: Player, id: any): (boolean, any)
 	data.Upgrades[id] = level + 1
 	State.markCore(player)
 	Notify.send(player, Locale.m("upg.done", { name = def.Name, level = level + 1 }), "success")
+	if id == "Bag" then
+		Economy.deliverPetMail(player) -- v2.4 (С10): сумка выросла — ждущие награды приходят
+		State.markPets(player)
+	end
 	return true, nil
 end
 

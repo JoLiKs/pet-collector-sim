@@ -1,4 +1,4 @@
-# Архитектура (v2.3)
+# Архитектура (v2.4)
 
 ## 1. Слои
 ```
@@ -59,7 +59,15 @@ Router.register("Craft", 4, 4, function(player, recipeId) ... return ok, msg end
 Сервер не отправляет клиенту готовый английский текст: обработчики `Router` возвращают ключ (`"err.not_enough_coins"`) или `Locale.m(key, args)`, а `Router`/`Notify` рендерят его на языке игрока (атрибут `Lang`, его ставит `LanguageService`). Клиент берёт строки через `Locale.t`, подписи интерфейса создаются маркерами `L.k(...)` и перерисовываются при смене языка (`Locale.onChanged`). Тексты мира (таблички, билборды, `ProximityPrompt`) сервер ставит через `Locale.setWorld` (английский текст + атрибут `Loc_<Свойство>`), а клиентский `WorldLocalizer` переводит их локально — на одном сервере у каждого игрока свой язык. Подробно и «как добавить язык» — `MECHANICS.md` §13.
 
 ## 5. Веб-версия и эмулятор
-Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов и `DEMO_BOTS = true` regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.
+Тот же код Luau превращается в JS транспилятором **roblox2web** ([репозиторий](https://github.com/JoLiKs/roblox2web)) и работает в браузере поверх эмулятора Roblox API (Instance, сервисы, Remotes с задержкой, DataStore в памяти, UI → DOM, 3D → three.js). Для тестов в сборку подмешивается `UiDriver.server.lua` (команды через атрибут `Workspace.UiCmd`). `roblox2web.config.json` подставляет демо-ID геймпассов/продуктов, `DEMO_BOTS = true` и `DEMO_BOT_ENABLED = true` regex-патчами `Shared.Config` и описывает каталог цен. Код, проходящий в эмуляторе, не использует ничего, чего нет в настоящем Roblox.
 
 ## 6. Инструменты
 `tools/build_rbxlx.py` (сборка `.rbxlx` без Rojo), `tools/validate_rbxlx.py` (проверка + сверка с `rojo build`), `tools/check_all.sh` (все проверки), `tools/publish_web.sh` (веб-сборка для Pages). Стиль: stylua, selene, luau-lsp (strict-типы).
+
+## Новое в v2.4
+* `Router` перед обработчиком отсекает NaN/inf во всех аргументах (`Util.argsFinite`), количества проверяются `Util.validInt`.
+* `Knockback` (сервер) — безопасная дистанция отбрасывания: рейкаст до стены и проверка опоры под ногами; используют `SuperpowerService` и `SuperBots`.
+* `TutorialService` + `TutorialData` (чистая логика шагов) — обучение первой сессии; события приходят из `Progress.record` и `ClickService`; клиент — `TutorialHud`.
+* `Economy.givePetReward` / `deliverPetMail` — питомцы-награды через очередь `PetMail`; `Economy.addLuckBoost` — очередь бустов удачи.
+* `DataService`: ожидание чужой блокировки до её истечения; повтор неудачного финального сохранения в фоне и в `BindToClose`.
+* Клиент: `Layout` — режим экрана (wide / portrait / landscape) и подписка `Layout.onChanged`, через которую HUD и панели перестраиваются под телефон.

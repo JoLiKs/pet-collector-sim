@@ -79,6 +79,9 @@ Config.PRODUCTS = {
 		SuggestedPrice = 199,
 	},
 }
+-- v2.4 (аудит В3): компенсация за уровни BP_SKIP, которые не поместились до максимума пропуска
+-- (100 гемов ≈ 79 R$, 5 уровней ≈ 129 R$ → ~30 гемов за уровень)
+Config.BP_SKIP_FALLBACK_GEMS = 30
 
 -- Описание геймпассов для магазина (ключи совпадают с GAMEPASS_IDS)
 Config.GAMEPASSES = {
@@ -160,7 +163,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.3.0"
+Config.VERSION = "2.4.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -177,9 +180,15 @@ Config.MAX_GEMS = 1e9
 Config.EGG_MAX_DISTANCE = 45 -- студов: насколько близко нужно стоять к яйцу
 Config.HATCH_COUNTS = { 1, 3 } -- разрешённые количества за раз
 
+-- v2.4 (аудит Г1, BALANCE.md §2): цена ×3 за ребёрт (было ×4); множитель первые 4 ребёрта растёт
+-- линейно (+0.5), дальше — ×1.3 за ребёрт (было +0.5 навсегда). Потолок REBIRTH_MAX = 21: цена 21-го
+-- ребёрта (~5.2e14) ещё ниже MAX_COINS, поэтому «стены на 1e15» больше нет — есть честный максимум.
 Config.REBIRTH_BASE_COST = 50000
-Config.REBIRTH_COST_GROWTH = 4
-Config.REBIRTH_MULT_PER = 0.5 -- +50% монет за каждый ребёрт
+Config.REBIRTH_COST_GROWTH = 3
+Config.REBIRTH_MULT_PER = 0.5 -- +50% монет за каждый из первых REBIRTH_MULT_LINEAR_UNTIL ребёртов
+Config.REBIRTH_MULT_LINEAR_UNTIL = 4
+Config.REBIRTH_MULT_GROWTH = 1.3 -- дальше множитель ×1.3 за каждый ребёрт
+Config.REBIRTH_MAX = 21
 Config.REBIRTH_GEMS_BASE = 20
 Config.REBIRTH_GEMS_PER = 5
 
@@ -201,7 +210,9 @@ Config.TEAM_SLOTS_MAX = 8 -- жёсткий потолок слотов кома
 Config.DISABLE_STATION_CHECK = false -- true: можно крафтить/торговать/покупать везде (для отладки)
 Config.FRIEND_BONUS_PER = 0.05 -- +5% монет за каждого друга на сервере
 Config.FRIEND_BONUS_MAX_FRIENDS = 5
-Config.DEMO_BOT_ENABLED = true -- NPC «Trader Tom»: партнёр по обмену и «друг» для демо (в живой игре друзья настоящие)
+-- NPC «Trader Tom»: партнёр по обмену и «друг» только для веб-демо. В живой игре — false
+-- (v2.4, аудит В1); в демо включается патчем roblox2web.config.json, как DEMO_BOTS.
+Config.DEMO_BOT_ENABLED = false
 Config.DEMO_BOT_NAME = "Trader Tom"
 Config.OFFLINE_MAX_SECONDS = 8 * 3600
 Config.OFFLINE_RATE = 0.15 -- доля «активного» дохода в секунду, начисляемая оффлайн
@@ -217,6 +228,8 @@ Config.ENEMY_SPEED = 9
 Config.PLAYER_ATTACK_RANGE = 22
 Config.PLAYER_ATTACK_COOLDOWN = 0.35
 Config.KILL_COIN_BASE_CLICKS = 1 -- награда за убийство = Coins * PerClick зоны
+-- Награда за убийство только тем, кто нанёс заметную долю урона (v2.4, аудит К2). Если таких нет — лучшему по урону.
+Config.KILL_MIN_SHARE = 0.1
 Config.TELEPORT_COOLDOWN = 3
 Config.BP_XP_PER_KILL = 3
 Config.BP_XP_PER_GATHER = 1
@@ -224,7 +237,7 @@ Config.BP_XP_PER_CRAFT = 6
 Config.REBIRTH_TALENT_POINTS = 1 -- очков талантов за ребёрт (+1 за каждый 5-й)
 
 -- ============================================================================
--- 6c. СОБЫТИЕ «СУПЕРСИЛА / ОХОТА» (SuperpowerService, баланс — docs/BALANCE.md §9)
+-- 6c. СОБЫТИЕ «СУПЕРСИЛА / ОХОТА» (SuperpowerService, баланс — docs/BALANCE.md §6)
 --     Раз в INTERVAL секунд случайный подходящий игрок получает суперсилу на DURATION секунд,
 --     остальные получают задание «Останови его!». Урон и награды считает только сервер.
 -- ============================================================================
@@ -268,6 +281,13 @@ Config.SUPERPOWER = {
 	LAST_HIT_BONUS = { Clicks = 150, Gems = 5, Essence = 2 },
 	SURVIVE_REWARD = { Clicks = 800, Gems = 25, Essence = 6, BpXp = 60 },
 	CONSOLATION = { Clicks = 60, Gems = 2 },
+	-- анти-AFK (v2.4, аудит К1)
+	HUNTER_MIN_HITS = 3, -- охотнику нужны ручные удары: урон одних питомцев награды не даёт
+	SURVIVE_MIN_MOVE = 40, -- суперигрок должен пройти столько студов за раунд …
+	SURVIVE_MIN_SLAMS = 2, -- … или сделать столько ударных волн; иначе награды за «продержался» нет
+	-- никто не охотился (ни один охотник не бил вручную, боты не в счёт в живой игре) — малая награда вместо крупной
+	SURVIVE_UNCONTESTED = { Clicks = 200, Gems = 3, Essence = 1, BpXp = 15 },
+	DAILY_GEM_CAP = 150, -- не больше N гемов в сутки (UTC) из этого события на игрока
 	-- боты (только при DEMO_BOTS)
 	BOT_COUNT = 3,
 	BOT_NAMES = { "Max", "Lina", "Rex" },
@@ -283,7 +303,11 @@ Config.SUPERPOWER = {
 Config.ANTICHEAT = {
 	STRIKE_WINDOW = 60, -- секунд, за которые считаются нарушения
 	STRIKE_KICK_THRESHOLD = 60, -- сколько "страйков" за окно до кика
-	MAX_HORIZONTAL_SPEED = 220, -- studs/sec; больше = подозрение на телепорт/спидхак
+	MAX_HORIZONTAL_SPEED = 220, -- studs/sec; абсолютный потолок (на случай очень больших бонусов скорости)
+	-- v2.4 (аудит С4): реальный порог — от легальной скорости игрока: скорость × TOLERANCE + SLACK
+	-- (запас на рывки сети и физику). База 16 → 36 студ/с, максимум (56 × 1.45 супер ≈ 81) → ~134.
+	SPEED_TOLERANCE = 1.5,
+	SPEED_SLACK = 12,
 	TELEPORT_GRACE = 2.5, -- секунд после серверного телепорта, когда проверка выключена
 }
 

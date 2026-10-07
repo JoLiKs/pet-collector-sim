@@ -229,9 +229,11 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				cell("Free", fr, 0.08)
 				cell("Premium", pr, 0.4)
 			end
-			-- докупка уровней продуктом
+			-- докупка уровней продуктом (v2.4, аудит В3: на максимальном уровне строка скрыта —
+			-- покупать уже нечего; при покупке «впритык» сервер компенсирует недостающие уровни гемами)
 			local id = Config.PRODUCT_IDS.BP_SKIP
 			local row = UiKit.card(scroll, 44, nil, 1000)
+			row.Visible = bp.Level < BattlePassData.MaxLevel
 			row.Name = "SkipLevels"
 			UiKit.text(
 				row,

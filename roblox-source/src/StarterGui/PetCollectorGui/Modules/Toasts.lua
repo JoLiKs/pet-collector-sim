@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
@@ -131,12 +132,26 @@ function Toasts.init(gui: ScreenGui)
 		Parent = gui,
 	})
 	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(460, 300), Parent = container })
-	Widgets.New("UIListLayout", {
+	local list = Widgets.New("UIListLayout", {
 		Padding = UDim.new(0, 6),
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = container,
 	})
+	-- телефон вертикально (v2.4): тосты снизу над кнопкой сбора, чтобы не закрывать шапку открытой панели
+	Layout.onChanged(function(lay)
+		if lay.Mode == "portrait" then
+			container.AnchorPoint = Vector2.new(0.5, 1)
+			container.Position = UDim2.new(0.5, 0, 1, -100)
+			container.Size = UDim2.new(1, -24, 0, 160)
+			list.VerticalAlignment = Enum.VerticalAlignment.Bottom
+		else
+			container.AnchorPoint = Vector2.new(0.5, 0)
+			container.Position = UDim2.new(0.5, 0, 0, if lay.Mode == "landscape" then 120 else 140)
+			container.Size = UDim2.new(0.5, 0, 0, 260)
+			list.VerticalAlignment = Enum.VerticalAlignment.Top
+		end
+	end)
 	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
 		if type(text) == "string" or type(text) == "table" then
 			Toasts.show(text, if type(kind) == "string" then kind else "info")

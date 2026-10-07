@@ -1,17 +1,17 @@
 roblox2web 2.2.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Скрипты: 92/92 транспилированы в JS, 20246 строк Luau
+Скрипты: 97/97 транспилированы в JS, 21587 строк Luau
 
 === Покрытие API (статический анализ исходников) ===
-Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, os, pairs, pcall, print, require, setmetatable, string, table, task, tonumber, tostring, type, typeof, warn
+Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, RaycastParams, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, next, os, pairs, pcall, print, require, select, setmetatable, string, table, task, tonumber, tostring, type, typeof, warn
 Глобальные API — НЕ найдены в эмуляторе: —
 Функции библиотек — НЕ поддержаны: —
 Сервисы — поддержаны: DataStoreService, HttpService, Lighting, LocalizationService, MarketplaceService, Players, PolicyService, ReplicatedStorage, RunService, TweenService, UserInputService, Workspace
-Сервисы — НЕ поддержаны: —
+Сервисы — НЕ поддержаны: UserService
 Сервисы-заглушки (вызовы логируются, функциональность урезана): LocalizationService
 Instance.new — поддержаны: Atmosphere, BillboardGui, Camera, Folder, Frame, Humanoid, IntValue, Model, Motor6D, Part, PointLight, ProximityPrompt, RemoteEvent, RemoteFunction, SpawnLocation, StringValue, SurfaceGui, TextLabel
 Instance.new — НЕ поддержаны: —
 Enum — НЕ поддержаны: —
-Методы вызываются, но не найдены ни в эмуляторе, ни в проекте: —
+Методы вызываются, но не найдены ни в эмуляторе, ни в проекте: GetUserInfosByUserIdsAsync
 
 Во время работы страницы неподдержанные обращения (свойства/методы/классы) попадают в консоль страницы: [r2w][unsupported] …

@@ -2,6 +2,7 @@
 --[[
 	Router — единая точка входа для действий клиента (RemoteFunction "Action").
 	  * проверяет, что игрок готов (данные загружены);
+	  * отсекает NaN/±inf в аргументах (Util.argsFinite, v2.4);
 	  * ограничивает частоту каждого действия (token bucket на игрока);
 	  * ловит ошибки обработчиков (pcall), чтобы эксплойтер не мог "уронить" сервер;
 	  * возвращает клиенту всегда таблицу { ok = boolean, msg = string? }; msg уже переведён на язык игрока.
@@ -10,6 +11,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Locale = require(ReplicatedStorage.Shared.Locale)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
+local Util = require(ReplicatedStorage.Shared.Util)
 
 local Session = require(script.Parent.Session)
 local AntiExploit = require(script.Parent.AntiExploit)
@@ -52,6 +54,12 @@ function Router.init()
 		if not entry then
 			AntiExploit.strike(player, "unknown action", 3)
 			return { ok = false, msg = Locale.tp(player, "err.unknown_action") }
+		end
+		-- v2.4 (аудит В2): общий фильтр числовых аргументов — NaN/±inf (и слишком большие таблицы)
+		-- не доходят ни до одного обработчика
+		if not Util.argsFinite(...) then
+			AntiExploit.strike(player, "non-finite argument " .. action, 3)
+			return { ok = false, msg = Locale.tp(player, "err.bad_request") }
 		end
 		local session = Session.get(player)
 		if not session or not session.Ready then

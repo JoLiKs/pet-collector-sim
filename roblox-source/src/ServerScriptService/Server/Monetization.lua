@@ -95,9 +95,7 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 		Economy.addCoins(player, amount, false)
 		Notify.send(player, "shop.thanks_coins", "reward")
 	elseif def.Kind == "Luck" then
-		local boosts = data.Boosts
-		local base = math.max(boosts[def.Boost] or 0, os.time())
-		boosts[def.Boost] = base + def.Seconds
+		Economy.addLuckBoost(data, def.Boost, def.Seconds)
 		Notify.send(player, Locale.m("item.activated", { item = def.Name }), "reward")
 	elseif def.Kind == "Res" then
 		Economy.addResource(player, def.Res, def.Amount)
@@ -112,7 +110,16 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 		end
 		local _, into = BattlePassData.progress(bp.Xp)
 		Economy.addBpXp(player, math.max(0, xp - into))
-		Notify.send(player, Locale.m("shop.thanks_bp", { n = def.Levels }), "reward")
+		-- v2.4 (аудит В3): платёж нельзя отменить, поэтому уровни сверх максимума не «сгорают»,
+		-- а компенсируются гемами (BP_SKIP_FALLBACK_GEMS за каждый недоданный уровень)
+		local missing = def.Levels - (target - level)
+		if missing > 0 then
+			local gems = missing * Config.BP_SKIP_FALLBACK_GEMS
+			Economy.addGems(player, gems)
+			Notify.send(player, Locale.m("shop.bp_fallback", { n = missing, gems = gems }), "reward")
+		else
+			Notify.send(player, Locale.m("shop.thanks_bp", { n = def.Levels }), "reward")
+		end
 	end
 end
 

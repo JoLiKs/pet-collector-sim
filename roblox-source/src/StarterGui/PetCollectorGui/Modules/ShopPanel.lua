@@ -11,6 +11,7 @@ local Config = require(Shared:WaitForChild("Config"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
@@ -38,12 +39,16 @@ local function section(parent: Instance, title: any, order: number): (Frame, Tex
 		ZIndex = 22,
 		Parent = parent,
 	})
-	Widgets.New("UIGridLayout", {
+	local gl = Widgets.New("UIGridLayout", {
 		CellSize = UDim2.fromOffset(150, 150),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
 	})
+	-- Портрет телефона: две карточки на всю ширину панели (текст описаний крупнее)
+	Layout.onChanged(function(li)
+		gl.CellSize = if li.Mode == "portrait" then UDim2.new(0.5, -4, 0, 150) else UDim2.fromOffset(150, 150)
+	end)
 	return grid, header
 end
 
@@ -68,7 +73,11 @@ local function card(parent: Instance, name: any, desc: any, color: Color3): (Fra
 		ZIndex = 24,
 		Parent = c,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = d })
+	local tsc = Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = d })
+	-- v2.4 (М6): на телефоне (портрет и ландшафт) описание не мельче 10 px
+	Layout.onChanged(function(li)
+		tsc.MinTextSize = if li.Mode ~= "wide" then 10 else 8
+	end)
 	local buy = Widgets.button({
 		Text = "...",
 		Color = Theme.Green,

@@ -68,10 +68,8 @@ local function claim(player: Player): (boolean, any)
 
 	local text = Locale.tp(player, "daily.reward", { day = day, n = gems })
 	if reward.Luck2Minutes then
-		local now = os.time()
-		data.Boosts.Luck2 = math.max(data.Boosts.Luck2, now) + reward.Luck2Minutes * 60
+		Economy.addLuckBoost(data, "Luck2", reward.Luck2Minutes * 60 * mult)
 		text ..= Locale.tp(player, "daily.reward_luck", { n = reward.Luck2Minutes * mult })
-		data.Boosts.Luck2 += reward.Luck2Minutes * 60 * (mult - 1)
 	end
 	Economy.addBpXp(player, 40 + 10 * math.min(streak, 7))
 	Notify.send(player, text, "reward")

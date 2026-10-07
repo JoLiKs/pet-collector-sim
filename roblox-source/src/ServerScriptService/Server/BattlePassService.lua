@@ -17,13 +17,7 @@ local BattlePassService = {}
 
 -- Сбрасывает прогресс при смене сезона
 function BattlePassService.sync(data: DataService.Data)
-	local bp = data.BattlePass
-	if bp.Season ~= BattlePassData.Season then
-		bp.Season = BattlePassData.Season
-		bp.Xp = 0
-		bp.ClaimedFree = {}
-		bp.ClaimedPremium = {}
-	end
+	BattlePassData.syncSeason(data.BattlePass)
 end
 
 local function claim(player: Player, track: any, level: any): (boolean, any)

@@ -41,6 +41,7 @@ require(Server.EventService).init()
 require(Server.Monetization).init()
 require(Server.LeaderboardService).init()
 require(Server.LanguageService).init()
+require(Server.TutorialService).init()
 require(Server.PlayerService).init()
 
 print("[PetCollector] Server started. JobId:", game.JobId)

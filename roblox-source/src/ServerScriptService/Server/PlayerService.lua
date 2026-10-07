@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
 local Locale = require(Shared.Locale)
+local BattlePassData = require(Shared.BattlePassData)
 local Config = require(Shared.Config)
 local Util = require(Shared.Util)
 
@@ -159,6 +160,9 @@ local function onCharacterAdded(player: Player, character: Model)
 	end)
 end
 
+-- Кэш дружбы пар игроков на время сессии сервера (IsFriendsWithAsync — сетевой вызов)
+local friendCache: { [string]: boolean } = {}
+
 local function onPlayerAdded(player: Player)
 	local session = Session.create(player)
 
@@ -183,9 +187,16 @@ local function onPlayerAdded(player: Player)
 	LanguageService.apply(player)
 	createLeaderstats(player)
 	Dailies.ensure(data)
+	BattlePassData.syncSeason(data.BattlePass) -- v2.4 (М1): сезон пропуска сверяется при входе
 	PlayerService.refreshFriends(player)
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player then
+			task.spawn(PlayerService.refreshFriends, other)
+		end
+	end
 	session.Ready = true
 	OfflineService.onJoin(player)
+	Economy.deliverPetMail(player) -- v2.4 (С10): место могло освободиться (например, куплен слот)
 
 	player.CharacterAdded:Connect(function(character)
 		onCharacterAdded(player, character)
@@ -209,19 +220,46 @@ local function onPlayerRemoving(player: Player)
 	DataService.release(player)
 	Session.destroy(player)
 	WorldBuilder.clearPlayer(player)
-end
-
--- Считает друзей на сервере (yield: IsFriendsWith — сетевой вызов). Бот «Trader Tom» в демо считается другом.
-function PlayerService.refreshFriends(player: Player)
-	local n = 0
+	-- бонус друзей у оставшихся (v2.4, С2) и очистка кэша пар уходящего
 	for _, other in ipairs(Players:GetPlayers()) do
 		if other ~= player then
-			local ok, result = pcall(function()
-				return player:IsFriendsWithAsync(other.UserId)
-			end)
-			if ok and result == true then
-				n += 1
-			end
+			task.spawn(PlayerService.refreshFriends, other, player)
+		end
+	end
+	local id = tostring(player.UserId)
+	for key in pairs(friendCache) do
+		local a, b = string.match(key, "^(%d+):(%d+)$")
+		if a == id or b == id then
+			friendCache[key] = nil
+		end
+	end
+end
+
+local function pairKey(a: number, b: number): string
+	return if a < b then a .. ":" .. b else b .. ":" .. a
+end
+local function areFriends(player: Player, other: Player): boolean
+	local key = pairKey(player.UserId, other.UserId)
+	local cached = friendCache[key]
+	if cached ~= nil then
+		return cached
+	end
+	local ok, result = pcall(function()
+		return player:IsFriendsWithAsync(other.UserId)
+	end)
+	if ok then
+		friendCache[key] = result == true -- ошибки сети не кэшируем
+	end
+	return ok and result == true
+end
+
+-- Считает друзей на сервере (yield при первом запросе пары). Бот «Trader Tom» считается другом только в демо.
+-- v2.4 (аудит С2): пересчитывается у всех игроков при каждом входе и выходе; `leaving` — уходящий игрок.
+function PlayerService.refreshFriends(player: Player, leaving: Player?)
+	local n = 0
+	for _, other in ipairs(Players:GetPlayers()) do
+		if other ~= player and other ~= leaving and areFriends(player, other) then
+			n += 1
 		end
 	end
 	if Config.DEMO_BOT_ENABLED then

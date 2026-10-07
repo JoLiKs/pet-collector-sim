@@ -14,6 +14,7 @@ local ZoneData = require(Shared:WaitForChild("ZoneData"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
@@ -59,6 +60,7 @@ local function statPill(parent: Instance, order: number, icon: string, color: Co
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = badge })
 	local value = Widgets.label({
 		Name = "Value",
+		Text = "…", -- v2.4 (аудит М5): плейсхолдер до первого снимка состояния
 		Size = UDim2.new(1, -46, 1, -10),
 		Position = UDim2.fromOffset(40, 5),
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -109,6 +111,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 	Widgets.corner(zoneBox, 14)
 	Widgets.stroke(zoneBox, Theme.BgLight, 2)
 	local zoneLabel = Widgets.label({
+		Text = "…",
 		Size = UDim2.new(1, -12, 0.55, -2),
 		Position = UDim2.fromOffset(6, 3),
 		Font = Theme.Font,
@@ -236,7 +239,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 		BackgroundTransparency = 1,
 		Parent = gui,
 	})
-	Widgets.New("UIGridLayout", {
+	local grid = Widgets.New("UIGridLayout", {
 		CellPadding = UDim2.fromOffset(6, 5),
 		CellSize = UDim2.fromOffset(103, 39),
 		SortOrder = Enum.SortOrder.LayoutOrder,
@@ -273,6 +276,63 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 			dots[item.Id] = dot
 		end
 	end
+
+	-- Раскладка под экран (v2.4): десктоп — как раньше; телефон — компактные плашки, меню и кнопки у краёв
+	local pills = { coinsLabel.Parent, gemsLabel.Parent, rebirthLabel.Parent }
+	Layout.onChanged(function(lay)
+		local wide = lay.Mode == "wide"
+		local pillW, pillH, step = if wide then 190 else 150, if wide then 38 else 32, if wide then 44 else 36
+		for i, pill in ipairs(pills) do
+			pill.Size = UDim2.fromOffset(pillW, pillH)
+			pill.Position = UDim2.fromOffset(12, 12 + (i - 1) * step)
+		end
+		settingsBtn.Size = UDim2.fromOffset(pillW, if wide then 30 else 26)
+		settingsBtn.Position = UDim2.fromOffset(12, 12 + 3 * step)
+		if wide then
+			zoneBox.AnchorPoint = Vector2.new(0.5, 0)
+			zoneBox.Position = UDim2.new(0.5, 0, 0, 10)
+			zoneBox.Size = UDim2.fromOffset(300, 54)
+			perClickLabel.Position = UDim2.new(0.5, 0, 1, -104)
+			perClickLabel.Size = UDim2.fromOffset(260, 24)
+			collect.Position = UDim2.new(0.5, 0, 1, -24)
+			collect.Size = UDim2.fromOffset(250, 76)
+			autoBtn.AnchorPoint = Vector2.new(0, 1)
+			autoBtn.Position = UDim2.new(0.5, 140, 1, -24)
+			autoBtn.Size = UDim2.fromOffset(110, 40)
+			menu.AnchorPoint = Vector2.new(0, 0.5)
+			menu.Position = UDim2.new(0, 12, 0.5, 60)
+			menu.Size = UDim2.fromOffset(212, (#MENU // 2) * 44)
+			grid.CellSize = UDim2.fromOffset(103, 39)
+			grid.CellPadding = UDim2.fromOffset(6, 5)
+			return
+		end
+		local rightW = Layout.rightWidth(lay)
+		zoneBox.AnchorPoint = Vector2.new(1, 0)
+		zoneBox.Position = UDim2.new(1, -8, 0, 10)
+		zoneBox.Size = UDim2.fromOffset(rightW, if lay.Mode == "portrait" then 50 else 46)
+		perClickLabel.Position = UDim2.new(0.5, 0, 1, -80)
+		perClickLabel.Size = UDim2.fromOffset(220, 22)
+		collect.Position = UDim2.new(0.5, 0, 1, -16)
+		collect.Size = UDim2.fromOffset(170, 60)
+		autoBtn.AnchorPoint = Vector2.new(1, 1)
+		autoBtn.Size = UDim2.fromOffset(104, 34)
+		menu.AnchorPoint = Vector2.new(0, 0)
+		if lay.Mode == "portrait" then
+			-- меню двумя колонками под валютами; правая колонка экрана — мир и события
+			autoBtn.Position = UDim2.new(1, -12, 1, -184)
+			menu.Position = UDim2.fromOffset(12, 154)
+			grid.CellSize = UDim2.fromOffset(86, 32)
+			grid.CellPadding = UDim2.fromOffset(6, 4)
+			menu.Size = UDim2.fromOffset(178, (#MENU // 2) * 36)
+		else
+			-- горизонтально: меню 4×3 сверху между валютами и плашкой мира, низ экрана свободен для джойстика
+			autoBtn.Position = UDim2.new(1, -130, 1, -76)
+			menu.Position = UDim2.fromOffset(172, 10)
+			grid.CellSize = UDim2.fromOffset(80, 30)
+			grid.CellPadding = UDim2.fromOffset(4, 4)
+			menu.Size = UDim2.fromOffset(4 * 84, (#MENU // 4) * 34)
+		end
+	end)
 
 	-- Обновление при каждом снимке состояния
 	ClientState.onCore(function(core)

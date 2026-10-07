@@ -4,6 +4,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
 local Locale = require(Shared.Locale)
+local Config = require(Shared.Config)
 local Formulas = require(Shared.Formulas)
 local TalentData = require(Shared.TalentData)
 
@@ -25,6 +26,9 @@ local function rebirth(player: Player): (boolean, any)
 	local data = DataService.get(player)
 	if not data then
 		return false, "err.not_loaded"
+	end
+	if data.Rebirths >= Config.REBIRTH_MAX then
+		return false, "rebirth.max"
 	end
 	local cost = Formulas.rebirthCost(data.Rebirths)
 	if data.Coins < cost then

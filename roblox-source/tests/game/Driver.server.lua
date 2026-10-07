@@ -74,6 +74,15 @@ local function call(action, ...)
 	task.wait(if action == "Teleport" then 1.5 else 0.35) -- лимиты частоты Router
 	return res
 end
+local function solidParts(model)
+	local n = 0
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") and d.CanCollide then
+			n += 1
+		end
+	end
+	return n
+end
 local function moveTo(pos)
 	AntiExploit.markTeleport(player)
 	player.Character:PivotTo(CFrame.new(pos + Vector3.new(0, 4, 0)))
@@ -157,6 +166,7 @@ task.wait(0.3)
 check("gather wood", (data.Resources.Wood or 0) > before, data.Resources.Wood)
 check("gather stat", (data.Stats.Gathered or 0) >= 1)
 check("node depleted", node:GetAttribute("Depleted") == true)
+check("v2.4 С6: depleted node is not solid", solidParts(node) == 0, solidParts(node))
 local chest
 for _, m in ipairs(Workspace.Nodes.Meadow:GetChildren()) do
 	if m.Name:sub(1, 5) == "Chest" then
@@ -177,6 +187,7 @@ check(
 )
 task.wait(25)
 check("node respawns", node:GetAttribute("Depleted") == false)
+check("v2.4 С6: respawned node is solid again", solidParts(node) > 0, solidParts(node))
 
 -- ===== 4. Бой =============================================================
 local function nearestEnemy(zone)
@@ -693,6 +704,10 @@ check(
 	(near.Root.Position - before).Magnitude
 )
 check("super: slam does not heal or steal progress", r2.Hp <= hpBefore and (r2.Damage[near.Key] or 0) >= 0)
+-- v2.4 (аудит К1): награда за «продержался» — только активному суперигроку: вторая ударная волна
+task.wait(SC.SLAM_COOLDOWN + 0.1)
+call("Attack")
+check("super: active super (slams counted)", (r2.Slams or 0) >= SC.SURVIVE_MIN_SLAMS, r2.Slams)
 -- держимся до конца (сокращаем таймер для теста) — крупная награда
 local gemsS = data.Gems
 r2.Ends = os.clock() + 0.3

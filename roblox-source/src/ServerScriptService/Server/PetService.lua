@@ -15,6 +15,7 @@ local Economy = require(script.Parent.Economy)
 local EventState = require(script.Parent.EventState)
 local Notify = require(script.Parent.Notify)
 local Progress = require(script.Parent.Progress)
+local TutorialService = require(script.Parent.TutorialService)
 local Router = require(script.Parent.Router)
 local State = require(script.Parent.State)
 local WorldBuilder = require(script.Parent.WorldBuilder)
@@ -107,9 +108,8 @@ local function hatch(player: Player, eggId: any, count: any, useTicket: any): (b
 			local uid = Economy.addPet(player, petId, variant)
 			data.TotalHatched += 1
 			table.insert(results, { Uid = uid, Id = petId, Variant = variant, Gold = variant == "Golden" })
-			if variant == "Shiny" then
-				Progress.addStat(player, "Shiny", 1)
-			end
+			-- v2.4 (аудит М7): «Shiny» из яйца не выпадает (rollVariant — только Normal/Golden/Rainbow),
+			-- статистика сияющих пополняется только слиянием (PetService.fuse)
 		end
 	end
 	Progress.record(player, "hatch", eggId, #results, egg.Zone)
@@ -140,6 +140,7 @@ local function equip(player: Player, uid: any): (boolean, any)
 	end
 	table.insert(data.Equipped, uid)
 	State.markPets(player)
+	TutorialService.onEvent(player, "equip", 1)
 	return true, nil
 end
 
@@ -179,6 +180,9 @@ local function equipBest(player: Player): (boolean, any)
 	end
 	data.Equipped = equipped
 	State.markPets(player)
+	if #equipped > 0 then
+		TutorialService.onEvent(player, "equip", 1)
+	end
 	return true, nil
 end
 
@@ -202,6 +206,7 @@ local function sell(player: Player, uid: any): (boolean, any)
 	Economy.addCoins(player, value, false)
 	State.markPets(player)
 	Notify.send(player, Locale.m("pet.sold", { n = value }), "success")
+	Economy.deliverPetMail(player) -- v2.4 (С10): освободилось место — выдаём ждущие награды
 	return true, nil
 end
 
@@ -285,6 +290,7 @@ local function fuse(player: Player, uids: any, useCatalyst: any): (boolean, any)
 		player,
 		{ { Uid = newUid, Id = pets[1].Id, Variant = result, Gold = result == "Golden", Fused = true } }
 	)
+	Economy.deliverPetMail(player) -- v2.4 (С10)
 	return true, nil
 end
 

@@ -21,6 +21,19 @@ function BattlePassData.xpForLevel(level: number): number
 end
 
 -- Накопленный опыт -> (уровень, опыт внутри уровня, нужно до следующего)
+-- v2.4 (аудит М1): сброс прогресса при смене сезона — общий для начисления XP, клейма и входа в игру.
+-- Возвращает true, если сезон сменился.
+function BattlePassData.syncSeason(bp: { [string]: any }): boolean
+	if bp.Season == BattlePassData.Season then
+		return false
+	end
+	bp.Season = BattlePassData.Season
+	bp.Xp = 0
+	bp.ClaimedFree = {}
+	bp.ClaimedPremium = {}
+	return true
+end
+
 function BattlePassData.progress(totalXp: number): (number, number, number)
 	local level = 0
 	local xp = math.max(0, totalXp)

@@ -24,6 +24,7 @@ local Remotes = require(Shared.Remotes)
 local Logic = require(Shared.SuperpowerLogic)
 
 local AntiExploit = require(script.Parent.AntiExploit)
+local Knockback = require(script.Parent.Knockback)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
@@ -64,6 +65,10 @@ export type Round = {
 	Duration: number,
 	Damage: { [string]: number },
 	LastHitKey: string?,
+	Hits: { [string]: number }, -- ручные удары охотников (игроки — Attack, боты — botHit); питомцы не считаются
+	Slams: number, -- ударные волны суперигрока
+	Moved: number, -- студов пройдено суперигроком (по горизонтали)
+	LastPos: Vector3?,
 	Tag: BillboardGui?,
 	Fill: Frame?,
 }
@@ -136,7 +141,8 @@ end
 function SuperpowerService.removeUnit(key: string)
 	local r = round
 	if r and r.TargetKey == key and not r.Done then
-		SuperpowerService.finish("cancel")
+		-- суперигрок вышел: охотники с вкладом получают награду как за остановку (аудит В5)
+		SuperpowerService.finish("fled")
 	end
 	units[key] = nil
 end
@@ -179,8 +185,14 @@ local function playerUnit(player: Player): Unit
 			return
 		end
 		AntiExploit.markTeleport(player)
+		-- v2.4 (аудит С3): не сквозь стены и не в пропасть
+		local ignore: { Instance } = {}
+		if player.Character then
+			table.insert(ignore, player.Character)
+		end
+		local shift = Knockback.offset(root.Position, dir, dist, ignore)
 		pcall(function()
-			root.CFrame = root.CFrame + dir * dist + Vector3.new(0, 1.5, 0)
+			root.CFrame = root.CFrame + shift + Vector3.new(0, 1.5, 0)
 		end)
 		s.StunnedUntil = os.clock() + stun
 		refreshMovement(player)
@@ -315,6 +327,7 @@ local function setPower(u: Unit, on: boolean, r: Round?)
 	if player then
 		local s = Session.get(player)
 		if s then
+			s.IsSuper = on
 			s.SuperSpeed = if on then C.SPEED_MULT else 1
 			s.SuperJump = if on then C.JUMP_MULT else 1
 			s.SuperCoin = if on then C.COIN_MULT else 1
@@ -362,6 +375,8 @@ local function broadcast(now: number)
 				v.Duration = r.Duration
 				v.YourDamage = math.floor(r.Damage[key] or 0)
 				v.MinDamage = Logic.minDamage(C, r.MaxHp)
+				v.YourHits = r.Hits[key] or 0
+				v.MinHits = C.HUNTER_MIN_HITS
 			end
 			ev:FireClient(player, v)
 		end
@@ -425,7 +440,13 @@ function SuperpowerService.start(forcedKey: string?): string?
 		Duration = duration,
 		Damage = {},
 		LastHitKey = nil,
+		Hits = {},
+		Slams = 0,
+		Moved = 0,
+		LastPos = nil,
 	}
+	local startRoot = rootOf(u)
+	r.LastPos = if startRoot then startRoot.Position else nil
 	round = r
 	lastKey = key
 	nextPickAt = now + interval
@@ -446,9 +467,18 @@ local function grant(player: Player, rw: Logic.Reward, msgKey: string, args: { [
 	if not data or player.Parent == nil then
 		return
 	end
+	-- дневной потолок гемов из события (UTC-сутки)
+	local today = os.time() // 86400
+	local eg = data.EventGems
+	if type(eg) ~= "table" or eg.Day ~= today then
+		eg = { Day = today, Gems = 0 }
+		data.EventGems = eg
+	end
+	local gems = Logic.capGems(C, eg.Gems, rw.Gems)
+	eg.Gems += gems
 	local reward: { [string]: any } = {
 		Coins = Economy.getPerClick(player, data) * rw.Clicks,
-		Gems = if rw.Gems > 0 then rw.Gems else nil,
+		Gems = if gems > 0 then gems else nil,
 		Res = if rw.Essence > 0 then { Essence = rw.Essence } else nil,
 		BpXp = rw.BpXp,
 	}
@@ -461,7 +491,8 @@ local function grant(player: Player, rw: Logic.Reward, msgKey: string, args: { [
 	Notify.send(player, Locale.m(msgKey, a), "reward")
 end
 
--- Завершить раунд: "stopped" | "survived" | "cancel". Награды — ровно один раз (r.Done ставится до выдачи).
+-- Завершить раунд: "stopped" | "survived" | "fled" | "cancel". Награды — ровно один раз (r.Done ставится до выдачи).
+-- "fled" — суперигрок вышел из игры: охотникам награда как за остановку (без бонуса последнего удара).
 function SuperpowerService.finish(outcome: string)
 	local r = round
 	if not r or r.Done then
@@ -488,11 +519,25 @@ function SuperpowerService.finish(outcome: string)
 		end
 	end
 	local who = { player = r.TargetName }
-	if outcome == "stopped" then
+	-- анти-AFK: охотнику нужны ручные удары; «продержался» — только если суперигрок двигался или бил
+	local active: { [string]: boolean } = {}
+	local contested = false
+	for k, n in pairs(r.Hits) do
+		local u = units[k]
+		if humans[k] and n >= C.HUNTER_MIN_HITS then
+			active[k] = true
+			contested = true
+		elseif u and u.IsBot and n > 0 then
+			contested = true -- боты есть только в демо (Config.DEMO_BOTS)
+		end
+	end
+	local superActive = r.Moved >= C.SURVIVE_MIN_MOVE or r.Slams >= C.SURVIVE_MIN_SLAMS
+	if outcome == "stopped" or outcome == "fled" then
 		local hunters = table.clone(humans)
 		hunters[r.TargetKey] = nil
 		local frac = math.clamp((r.Ends - now) / math.max(1, r.Duration), 0, 1)
-		local rewards, afk = Logic.stopRewards(C, r.Damage, r.MaxHp, r.LastHitKey, frac, hunters)
+		local lastHit = if outcome == "stopped" then r.LastHitKey else nil
+		local rewards, afk = Logic.stopRewards(C, r.Damage, r.MaxHp, lastHit, frac, hunters, active)
 		for k, rw in pairs(rewards) do
 			local p = byKey[k]
 			grant(p, rw, if rw.LastHit then "super.reward_last" else "super.reward_stop", who)
@@ -502,11 +547,16 @@ function SuperpowerService.finish(outcome: string)
 			Notify.send(byKey[k], Locale.m("super.too_little", who), "info")
 		end
 		local sp = byKey[r.TargetKey]
-		if sp then
+		if sp and outcome == "stopped" then
 			Notify.send(sp, "super.you_stopped", "info")
 		end
 	elseif outcome == "survived" then
-		local rewards, afk = Logic.surviveRewards(C, r.TargetKey, r.Damage, r.MaxHp, humans)
+		local rewards, afk =
+			Logic.surviveRewards(C, r.TargetKey, r.Damage, r.MaxHp, humans, active, superActive, contested)
+		local sp = byKey[r.TargetKey]
+		if sp and not superActive then
+			Notify.send(sp, "super.idle", "info")
+		end
 		for k, rw in pairs(rewards) do
 			local p = byKey[k]
 			if k == r.TargetKey then
@@ -643,6 +693,7 @@ function SuperpowerService.tryPlayerHit(player: Player): boolean
 	end
 	local data = DataService.get(player)
 	local power = if data then Economy.getPetPower(data) else 0
+	r.Hits[u.Key] = (r.Hits[u.Key] or 0) + 1
 	applyDamage(r, u, Logic.hunterHit(C, power, r.MaxHp), "player")
 	return true
 end
@@ -673,6 +724,7 @@ function SuperpowerService.botHit(key: string): boolean
 	if not ok then
 		return false
 	end
+	r.Hits[u.Key] = (r.Hits[u.Key] or 0) + 1
 	applyDamage(r, u, math.min(C.BOT_DAMAGE, math.floor(C.MAX_HIT_SHARE * r.MaxHp)), "bot")
 	return true
 end
@@ -690,6 +742,7 @@ function SuperpowerService.superSlam(key: string): boolean
 	if not root then
 		return false
 	end
+	r.Slams += 1
 	local range = C.SLAM_RANGE * C.SCALE / 1.6
 	combatFx(root.Position, "Shockwave", root.Position, range)
 	for k, other in pairs(units) do
@@ -737,6 +790,18 @@ function SuperpowerService.step(now: number)
 		local target = units[r.TargetKey]
 		local model = target and target.GetModel()
 		local hum = model and model:FindFirstChildOfClass("Humanoid")
+		local tRoot = rootOf(target)
+		if tRoot then
+			local pos = tRoot.Position
+			local last = r.LastPos
+			if last then
+				local d = Vector3.new(pos.X - last.X, 0, pos.Z - last.Z).Magnitude
+				if d <= 60 then -- телепорты не считаем ходьбой
+					r.Moved += d
+				end
+			end
+			r.LastPos = pos
+		end
 		if not target or not model then
 			SuperpowerService.finish("cancel")
 		elseif hum and hum.Health <= 0 then

@@ -17,6 +17,7 @@ local Util = require(Shared:WaitForChild("Util"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local HuntHud = require(script.Parent.HuntHud)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
@@ -218,15 +219,19 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	)
 
 	-- трекер — сразу под карточками событий/охоты (колонка справа не перекрывается)
+	-- колонка справа: ширина и верх зависят от раскладки (Layout, v2.4)
+	local colW, colTop, colRight = 250, 12, -12
 	local function relayout()
-		local y = 12
+		local y = colTop
 		for _, c in ipairs(events:GetChildren()) do
 			if c:IsA("GuiObject") and c.Visible then
 				y += c.Size.Y.Offset + 4
 			end
 		end
-		events.Size = UDim2.fromOffset(250, math.max(1, y - 12))
-		tracker.Position = UDim2.new(1, -12, 0, y + 4)
+		events.Position = UDim2.new(1, colRight, 0, colTop)
+		events.Size = UDim2.fromOffset(colW, math.max(1, y - colTop))
+		tracker.Position = UDim2.new(1, colRight, 0, y + 4)
+		tracker.Size = UDim2.fromOffset(colW, tracker.Size.Y.Offset)
 	end
 	local _ = huntCard
 
@@ -241,7 +246,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		AttackFx.swing(Players.LocalPlayer, true)
 		Actions.call("Attack")
 	end
-	Widgets.button({
+	local attackBtn = Widgets.button({
 		Name = "Attack",
 		Text = L.k("hud.attack"),
 		Color = Theme.Red,
@@ -258,6 +263,41 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 	end)
 
+	-- ---------- раскладка под экран (v2.4, аудит В6) ----------
+	-- десктоп: как раньше; телефон: кнопка удара у правого края над прыжком, колонка справа под плашкой мира
+	Layout.onChanged(function(lay)
+		L.bind(attackBtn, "Text", L.k(if lay.Touch then "hud.attack_touch" else "hud.attack"))
+		if lay.Mode == "wide" then
+			attackBtn.AnchorPoint = Vector2.new(0, 1)
+			attackBtn.Position = UDim2.new(0.5, -380, 1, -24)
+			attackBtn.Size = UDim2.fromOffset(120, 56)
+			status.AnchorPoint = Vector2.new(0, 0)
+			status.Position = UDim2.new(0.5, -150, 0, 67)
+			status.Size = UDim2.fromOffset(300, 19)
+			bossBox.Position = UDim2.new(0.5, 0, 0, 90)
+			bossBox.Size = UDim2.fromOffset(420, 44)
+			colW, colTop, colRight = 250, 12, -12
+		else
+			local rightW = Layout.rightWidth(lay)
+			attackBtn.AnchorPoint = Vector2.new(1, 1)
+			attackBtn.Size = UDim2.fromOffset(104, 52)
+			if lay.Mode == "portrait" then
+				attackBtn.Position = UDim2.new(1, -12, 1, -124)
+				bossBox.Position = UDim2.new(0.5, 0, 0, 376)
+				bossBox.Size = UDim2.fromOffset(math.min(420, lay.W - 24), 44)
+			else
+				attackBtn.Position = UDim2.new(1, -130, 1, -16)
+				bossBox.Position = UDim2.new(0.5, 0, 0, 114)
+				bossBox.Size = UDim2.fromOffset(320, 44)
+			end
+			status.AnchorPoint = Vector2.new(1, 0)
+			status.Position = UDim2.new(1, -8, 0, if lay.Mode == "portrait" then 62 else 58)
+			status.Size = UDim2.fromOffset(rightW, 18)
+			colW, colTop, colRight = rightW, Layout.eventsTop(lay), -8
+		end
+		relayout()
+	end)
+
 	-- ---------- оффлайн-награда ----------
 	local offline = Widgets.New("Frame", {
 		Name = "OfflinePopup",
@@ -269,6 +309,9 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		ZIndex = 50,
 		Parent = gui,
 	})
+	Layout.onChanged(function(lay)
+		offline.Size = UDim2.fromOffset(math.min(420, lay.W - 24), 190)
+	end)
 	Widgets.corner(offline, 16)
 	Widgets.stroke(offline, Theme.Gold, 3)
 	UiKit.text(offline, L.k("offline.title"), UDim2.fromOffset(16, 10), UDim2.new(1, -32, 0, 36), {
@@ -344,7 +387,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		tracker.Visible = #lines > 0
 		trackerText.Text = table.concat(lines, "\n")
-		tracker.Size = UDim2.fromOffset(250, 12 + #lines * 18)
+		tracker.Size = UDim2.fromOffset(colW, 12 + #lines * 18)
 	end)
 
 	-- ---------- станции хаба ----------

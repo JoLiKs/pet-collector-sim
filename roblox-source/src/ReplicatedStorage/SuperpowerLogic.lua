@@ -6,7 +6,9 @@
 	  * pick        — выбор суперигрока: только подходящие, не тот же, что в прошлый раз (если есть выбор);
 	  * maxHp, hunterHit, petHit — PvP-HP цели и урон охотников (с потолком доли HP за удар);
 	  * canHit      — проверки удара (охота идёт, не по себе, дистанция, кулдаун);
-	  * stopRewards / surviveRewards — распределение наград по вкладу (анти-AFK: минимум урона).
+	  * stopRewards / surviveRewards — распределение наград по вкладу (анти-AFK: минимум урона, ручные удары,
+	                  активность суперигрока; v2.4);
+	  * capGems     — дневной потолок гемов из события.
 ]]
 local SuperpowerLogic = {}
 
@@ -161,7 +163,8 @@ function SuperpowerLogic.stopRewards(
 	maxHp: number,
 	lastHitKey: string?,
 	timeLeftFrac: number,
-	humans: { [string]: boolean }
+	humans: { [string]: boolean },
+	active: { [string]: boolean }? -- охотники с ручными ударами (nil — все); без них урон питомцев не награждается
 ): ({ [string]: Reward }, { [string]: boolean })
 	local sum, hunters = total(damage)
 	local out: { [string]: Reward } = {}
@@ -171,7 +174,7 @@ function SuperpowerLogic.stopRewards(
 	local base = cfg.STOP_REWARD
 	for key in pairs(humans) do
 		local d = damage[key] or 0
-		if d < minDmg or sum <= 0 then
+		if d < minDmg or sum <= 0 or (active ~= nil and not active[key]) then
 			afk[key] = true
 		else
 			local share = d / sum
@@ -203,14 +206,22 @@ function SuperpowerLogic.surviveRewards(
 	superKey: string,
 	damage: { [string]: number },
 	maxHp: number,
-	humans: { [string]: boolean }
+	humans: { [string]: boolean },
+	active: { [string]: boolean }?, -- охотники с ручными ударами (nil — все)
+	superActive: boolean?, -- false: суперигрок стоял (AFK) — награды нет
+	contested: boolean? -- false: никто не охотился — малая награда SURVIVE_UNCONTESTED
 ): ({ [string]: Reward }, { [string]: boolean })
 	local out: { [string]: Reward } = {}
 	local afk: { [string]: boolean } = {}
 	local minDmg = SuperpowerLogic.minDamage(cfg, maxHp)
 	for key in pairs(humans) do
 		if key == superKey then
-			local s = cfg.SURVIVE_REWARD
+			if superActive == false then
+				continue
+			end
+			local s = if contested == false and cfg.SURVIVE_UNCONTESTED
+				then cfg.SURVIVE_UNCONTESTED
+				else cfg.SURVIVE_REWARD
 			out[key] = {
 				Clicks = s.Clicks,
 				Gems = s.Gems,
@@ -221,7 +232,7 @@ function SuperpowerLogic.surviveRewards(
 				K = 1,
 				LastHit = false,
 			}
-		elseif (damage[key] or 0) >= minDmg then
+		elseif (damage[key] or 0) >= minDmg and (active == nil or active[key] == true) then
 			local c = cfg.CONSOLATION
 			out[key] = {
 				Clicks = c.Clicks,
@@ -237,6 +248,15 @@ function SuperpowerLogic.surviveRewards(
 		end
 	end
 	return out, afk
+end
+
+-- Дневной потолок гемов из события: сколько из want можно выдать, если сегодня уже выдано already
+function SuperpowerLogic.capGems(cfg: any, already: number, want: number): number
+	local cap = cfg.DAILY_GEM_CAP
+	if type(cap) ~= "number" then
+		return want
+	end
+	return math.max(0, math.min(want, cap - math.max(0, already)))
 end
 
 return SuperpowerLogic

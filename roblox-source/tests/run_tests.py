@@ -16,6 +16,8 @@ MODULE_DIRS = [
     ("ReplicatedStorage", os.path.join(SRC, "ReplicatedStorage")),
     ("ServerScriptService/Server", os.path.join(SRC, "ServerScriptService", "Server")),
 ]
+CLIENT_DIR = os.path.join(SRC, "StarterGui", "PetCollectorGui", "Modules")
+CLIENT_PURE = ["Layout"]
 
 
 def collect():
@@ -31,6 +33,11 @@ def collect():
                 src = f.read()
             src = re.sub(r"^export type", "type", src, flags=re.M)
             items.append((path_key, src))
+    # Чистые клиентские модули без зависимостей от GUI (v2.4: раскладка HUD)
+    for name in CLIENT_PURE:
+        with open(os.path.join(CLIENT_DIR, name + ".lua"), encoding="utf-8") as f:
+            src = re.sub(r"^export type", "type", f.read(), flags=re.M)
+        items.append(("ReplicatedStorage/Client/" + name, src))
     return items
 
 

@@ -5,6 +5,7 @@ local Shared = ReplicatedStorage.Shared
 
 local Locale = require(Shared.Locale)
 local RecipeData = require(Shared.RecipeData)
+local Util = require(Shared.Util)
 
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
@@ -20,8 +21,8 @@ local function craft(player: Player, recipeId: any, times: any): (boolean, any)
 	if not data or type(recipeId) ~= "string" then
 		return false, "err.bad_request"
 	end
-	local n = if type(times) == "number" then math.floor(times) else 1
-	if n < 1 or n > 10 then
+	local n = if times == nil then 1 else Util.validInt(times, 1, 10)
+	if not n then
 		return false, "err.bad_request"
 	end
 	local recipe = RecipeData.ById[recipeId]
@@ -75,7 +76,7 @@ local function use(player: Player, itemId: any): (boolean, any)
 	if item.Kind == "BoostLuck" then
 		local key = if (item.Value or 2) >= 5 then "Luck5" else "Luck2"
 		Economy.takeItem(player, itemId, 1)
-		data.Boosts[key] = math.max(data.Boosts[key] or 0, now) + (item.Seconds or 300)
+		Economy.addLuckBoost(data, key, item.Seconds or 300)
 	elseif item.Kind == "BoostCoins" then
 		Economy.takeItem(player, itemId, 1)
 		data.Boosts.Coins2 = math.max(data.Boosts.Coins2 or 0, now) + (item.Seconds or 300)

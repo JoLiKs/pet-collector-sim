@@ -5,19 +5,20 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 92,
-    "transpiled": 92,
+    "total": 97,
+    "transpiled": 97,
     "failed": [],
-    "lines": 20246
+    "lines": 21587
   },
   "globals": {
-    "used": 28,
+    "used": 31,
     "supported": [
       "CFrame",
       "Color3",
       "Enum",
       "Instance",
       "Random",
+      "RaycastParams",
       "TweenInfo",
       "UDim",
       "UDim2",
@@ -27,11 +28,13 @@
       "game",
       "ipairs",
       "math",
+      "next",
       "os",
       "pairs",
       "pcall",
       "print",
       "require",
+      "select",
       "setmetatable",
       "string",
       "table",
@@ -54,6 +57,7 @@
       "Color3.new",
       "Instance.new",
       "Random.new",
+      "RaycastParams.new",
       "TweenInfo.new",
       "UDim.new",
       "UDim2.fromOffset",
@@ -92,6 +96,7 @@
       "string.upper",
       "table.clone",
       "table.concat",
+      "table.find",
       "table.insert",
       "table.remove",
       "table.sort",
@@ -119,7 +124,9 @@
       "UserInputService",
       "Workspace"
     ],
-    "unsupported": []
+    "unsupported": [
+      "UserService"
+    ]
   },
   "instanceClasses": {
     "supported": [
@@ -188,6 +195,7 @@
       "ProductPurchaseDecision",
       "ProductPurchaseDecision.NotProcessedYet",
       "ProductPurchaseDecision.PurchaseGranted",
+      "RaycastFilterType.Exclude",
       "ScrollingDirection.X",
       "SortOrder.LayoutOrder",
       "SurfaceGuiSizingMode.PixelsPerStud",
@@ -198,11 +206,15 @@
       "TextYAlignment.Top",
       "UserInputType.MouseButton1",
       "UserInputType.Touch",
-      "VerticalAlignment.Center"
+      "VerticalAlignment.Bottom",
+      "VerticalAlignment.Center",
+      "VerticalAlignment.Top"
     ],
     "unsupported": []
   },
-  "methodsNotFound": [],
+  "methodsNotFound": [
+    "GetUserInfosByUserIdsAsync"
+  ],
   "warnings": [],
   "stubbedServices": [
     "LocalizationService"

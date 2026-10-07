@@ -48,6 +48,7 @@ function TradePanel.init(gui: ScreenGui)
 		Position = UDim2.fromOffset(12, 34),
 		ZIndex = 23,
 		MaxTextSize = 20,
+		Visible = Config.DEMO_BOT_ENABLED, -- v2.4 (аудит В1): NPC-партнёр только в веб-демо
 		OnClick = function()
 			Actions.call("TradeStartBot")
 		end,

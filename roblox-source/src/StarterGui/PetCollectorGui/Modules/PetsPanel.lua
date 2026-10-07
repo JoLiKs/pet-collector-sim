@@ -14,6 +14,7 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -140,6 +141,18 @@ function PetsPanel.init(gui: ScreenGui)
 		Parent = scroll,
 	})
 	Widgets.padding(scroll, 4)
+	-- v2.4 (аудит М5): пустое состояние сетки
+	local emptyLabel = UiKit.text(body, "", UDim2.fromOffset(20, 0), UDim2.new(1, -40, 0, 110), {
+		TextColor3 = Theme.TextDim,
+		NoLimit = true,
+		TextScaled = false,
+		TextSize = 16,
+		TextWrapped = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	emptyLabel.Name = "EmptyHint"
+	emptyLabel.ZIndex = 24
+	emptyLabel.Visible = false
 
 	-- Нижняя панель: сведения и действия
 	local footer = Widgets.New("Frame", {
@@ -283,6 +296,138 @@ function PetsPanel.init(gui: ScreenGui)
 	end)
 	autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 88)
 
+	-- Компактная раскладка для узких экранов (портрет телефона): шапка в три ряда,
+	-- кнопки действий — сеткой 3 колонки под описанием питомца.
+	local grid = scroll:FindFirstChildOfClass("UIGridLayout")
+	local GRID_COMPACT = {
+		Equip = { 1, 1 },
+		Fav = { 2, 1 },
+		Sell = { 3, 1 },
+		Feed = { 1, 2 },
+		Evolve = { 2, 2 },
+		Catalyst = { 1, 1 },
+		AutoPick = { 2, 1 },
+		FuseGo = { 3, 1 },
+	}
+	local GRID_WIDE = {
+		Equip = { 1, 1 },
+		Fav = { 2, 1 },
+		Sell = { 3, 1 },
+		Feed = { 1, 2 },
+		Evolve = { 2, 2 },
+		FuseGo = { 3, 2 },
+	}
+	local filterOrder = { "Element", "Role", "Rarity", "Sort" }
+	Layout.onChanged(function(li)
+		local narrow = li.Mode == "portrait"
+		if narrow then
+			info.Size = UDim2.new(1, -24, 0, 20)
+			modeBtn.AnchorPoint = Vector2.new(0, 0)
+			modeBtn.Position = UDim2.fromOffset(10, 28)
+			modeBtn.Size = UDim2.new(0.5, -14, 0, 28)
+			local best = body:FindFirstChild("EquipBest") :: GuiObject
+			best.Position = UDim2.new(1, -10, 0, 28)
+			best.Size = UDim2.new(0.5, -14, 0, 28)
+			for i, key in ipairs(filterOrder) do
+				local b = filterBtns[key]
+				if i <= 3 then
+					b.Size = UDim2.new(1 / 3, -8, 0, 26)
+					b.Position = UDim2.new((i - 1) / 3, 10 - (i - 1) * 2, 0, 62)
+				else
+					b.Size = UDim2.new(0.5, -14, 0, 26)
+					b.Position = UDim2.fromOffset(10, 92)
+				end
+			end
+			favBtn.Size = UDim2.new(0.5, -14, 0, 26)
+			favBtn.Position = UDim2.new(0.5, 4, 0, 92)
+			scroll.Position = UDim2.fromOffset(10, 124)
+			scroll.Size = UDim2.new(1, -20, 1, -124 - 180)
+			if grid then
+				grid.CellSize = UDim2.fromOffset(98, 108)
+				grid.CellPadding = UDim2.fromOffset(6, 6)
+			end
+			footer.Position = UDim2.new(0, 10, 1, -176)
+			footer.Size = UDim2.new(1, -20, 0, 172)
+			detailName.Size = UDim2.new(1, -24, 0, 22)
+			detailLine.Position = UDim2.fromOffset(12, 30)
+			detailLine.Size = UDim2.new(1, -24, 0, 16)
+			detailAbility.Position = UDim2.fromOffset(12, 48)
+			detailAbility.Size = UDim2.new(1, -24, 0, 28)
+			xpBar.Back.Position = UDim2.fromOffset(12, 80)
+			xpBar.Back.Size = UDim2.new(1, -24, 0, 14)
+			for name, b in pairs(buttons) do
+				local cr = GRID_COMPACT[name]
+				b.Size = UDim2.new(1 / 3, -8, 0, 32)
+				b.Position = UDim2.new((cr[1] - 1) / 3, 10 - (cr[1] - 1) * 2, 0, 100 + (cr[2] - 1) * 36)
+			end
+		else
+			info.Size = UDim2.new(1, -330, 0, 24)
+			modeBtn.AnchorPoint = Vector2.new(1, 0)
+			modeBtn.Position = UDim2.new(1, -150, 0, 4)
+			modeBtn.Size = UDim2.fromOffset(120, 26)
+			local best = body:FindFirstChild("EquipBest") :: GuiObject
+			best.Position = UDim2.new(1, -12, 0, 4)
+			best.Size = UDim2.fromOffset(130, 26)
+			for i, key in ipairs(filterOrder) do
+				local b = filterBtns[key]
+				b.Size = UDim2.new(0.2, -6, 0, 26)
+				b.Position = UDim2.new((i - 1) * 0.2, 10, 0, 34)
+			end
+			favBtn.Size = UDim2.new(0.2, -6, 0, 26)
+			favBtn.Position = UDim2.new(0.8, 10, 0, 34)
+			scroll.Position = UDim2.fromOffset(10, 66)
+			scroll.Size = UDim2.new(1, -20, 1, -66 - 134)
+			if grid then
+				grid.CellSize = UDim2.fromOffset(104, 112)
+				grid.CellPadding = UDim2.fromOffset(8, 8)
+			end
+			footer.Position = UDim2.new(0, 10, 1, -128)
+			footer.Size = UDim2.new(1, -20, 0, 124)
+			detailName.Size = UDim2.new(0.5, 0, 0, 24)
+			detailLine.Position = UDim2.fromOffset(12, 32)
+			detailLine.Size = UDim2.new(0.55, 0, 0, 18)
+			detailAbility.Position = UDim2.fromOffset(12, 52)
+			detailAbility.Size = UDim2.new(0.53, 0, 0, 34)
+			xpBar.Back.Position = UDim2.fromOffset(12, 90)
+			xpBar.Back.Size = UDim2.new(0.5, 0, 0, 20)
+			for name, b in pairs(buttons) do
+				local cr = GRID_WIDE[name]
+				if cr then
+					b.Size = UDim2.new(0.14, -4, 0, 34)
+					b.Position = UDim2.new(0.55 + (cr[1] - 1) * 0.15, 4, 0, 8 + (cr[2] - 1) * 40)
+				end
+			end
+			cataBtn.Size = UDim2.new(0.29, -4, 0, 34)
+			cataBtn.Position = UDim2.new(0.55, 4, 0, 88)
+			autoBtn.Size = UDim2.new(0.14, -4, 0, 34)
+			autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 88)
+			if li.Mode == "landscape" then
+				-- Низкий экран: нижняя панель ужимается, чтобы под карточки остался хотя бы ряд
+				scroll.Size = UDim2.new(1, -20, 1, -66 - 98)
+				footer.Position = UDim2.new(0, 10, 1, -94)
+				footer.Size = UDim2.new(1, -20, 0, 90)
+				detailName.Position = UDim2.fromOffset(12, 4)
+				detailName.Size = UDim2.new(0.5, 0, 0, 20)
+				detailLine.Position = UDim2.fromOffset(12, 26)
+				detailLine.Size = UDim2.new(0.53, 0, 0, 16)
+				detailAbility.Position = UDim2.fromOffset(12, 44)
+				detailAbility.Size = UDim2.new(0.53, 0, 0, 22)
+				xpBar.Back.Position = UDim2.fromOffset(12, 70)
+				xpBar.Back.Size = UDim2.new(0.5, 0, 0, 14)
+				for name, b in pairs(buttons) do
+					local cr = GRID_WIDE[name]
+					if cr then
+						b.Size = UDim2.new(0.14, -4, 0, 36)
+						b.Position = UDim2.new(0.55 + (cr[1] - 1) * 0.15, 4, 0, 6 + (cr[2] - 1) * 42)
+					end
+				end
+				-- в режиме слияния: катализатор и автоподбор в первый ряд, кнопка слияния — во второй
+				cataBtn.Position = UDim2.new(0.55, 4, 0, 6)
+				autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 6)
+			end
+		end
+	end)
+
 	local function equippedIndex(core, uid: string): number?
 		for i, v in ipairs(core.Equipped) do
 			if v == uid then
@@ -314,17 +459,25 @@ function PetsPanel.init(gui: ScreenGui)
 			end
 			detailName.Text = L.t("pets.fusion_selected", { n = n })
 			detailLine.Text = L.t("pets.fusion_hint")
-			local chance = 0
+			-- v2.4 (аудит С13): те же шансы, что считает сервер (PetMeta.fuseOdds), с учётом катализатора
+			local variant = "Normal"
 			for uid in pairs(fuseSet) do
 				local p = ClientState.Pets[uid]
-				chance = (PetMeta.FUSE_CHANCE[p.Variant] or 0)
-					+ (if useCatalyst then PetMeta.CATALYST_BONUS else 0)
+				variant = if p then p.Variant else variant
 				break
 			end
-			detailAbility.Text = L.t("pets.fusion_chance", {
-				n = math.floor(chance * 100 + 0.5),
-				shiny = math.floor(PetMeta.FUSE_SHINY_BONUS * 100 + 0.5),
-			})
+			local odds = PetMeta.fuseOdds(variant, useCatalyst)
+			local function pct(x: number): string
+				return string.format("%.1f", x * 100)
+			end
+			detailAbility.Text = if odds.Next == "Shiny" or odds.Upgrade == 0
+				then L.t("pets.fusion_odds_shiny", { shiny = pct(odds.Shiny), same = pct(odds.Same) })
+				else L.t("pets.fusion_odds", {
+					next = L.t("variant." .. odds.Next),
+					up = pct(odds.Upgrade),
+					shiny = pct(odds.Shiny),
+					same = pct(odds.Same),
+				})
 			xpBar.Set(n / 3, ("%d/3"):format(n))
 			Widgets.setEnabled(buttons.FuseGo, n == 3, Theme.Blue)
 			local have = core.Items and core.Items.catalyst or 0
@@ -382,6 +535,8 @@ function PetsPanel.init(gui: ScreenGui)
 			.. core.Slots
 			.. "|"
 			.. core.BagSize
+			.. "|"
+			.. (core.PetMail or 0)
 	end
 
 	local function passes(pet): boolean
@@ -415,7 +570,7 @@ function PetsPanel.init(gui: ScreenGui)
 		info.Text = L.t(
 			"pets.info",
 			{ n = core.PetCount, bag = core.BagSize, team = #core.Equipped, slots = core.Slots }
-		)
+		) .. (if (core.PetMail or 0) > 0 then L.t("pets.mail_suffix", { n = core.PetMail }) else "")
 		modeBtn.Text = if mode == "Fusion" then L.t("pets.back") else L.t("pets.fusion_mode")
 		Widgets.clear(scroll)
 
@@ -453,6 +608,9 @@ function PetsPanel.init(gui: ScreenGui)
 			return a.Uid < b.Uid
 		end)
 
+		emptyLabel.Visible = #list == 0
+		emptyLabel.Text = if core.PetCount == 0 then L.t("pets.empty") else L.t("pets.empty_filter")
+		emptyLabel.Position = UDim2.fromOffset(20, scroll.Position.Y.Offset + 30)
 		for i, entry in ipairs(list) do
 			local pet = entry.Pet
 			local def = PetData.PetsById[pet.Id]

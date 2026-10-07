@@ -11,6 +11,7 @@ local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
 local Router = require(script.Parent.Router)
+local Session = require(script.Parent.Session)
 local State = require(script.Parent.State)
 local WorldBuilder = require(script.Parent.WorldBuilder)
 
@@ -58,6 +59,10 @@ local function teleport(player: Player, zoneId: any): (boolean, any)
 	local data = DataService.get(player)
 	if not data or type(zoneId) ~= "string" then
 		return false, "err.bad_request"
+	end
+	local session = Session.get(player)
+	if session and session.IsSuper then
+		return false, "super.no_teleport" -- суперигрок не может сбежать телепортом (аудит В4)
 	end
 	if zoneId == ZoneData.HUB then
 		ZoneService.moveToZone(player, ZoneData.HUB)

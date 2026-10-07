@@ -9,6 +9,7 @@ local BattlePassData = require(Shared.BattlePassData)
 local Config = require(Shared.Config)
 local EventData = require(Shared.EventData)
 local Formulas = require(Shared.Formulas)
+local PetData = require(Shared.PetData)
 local PetMeta = require(Shared.PetMeta)
 local RecipeData = require(Shared.RecipeData)
 local ResourceData = require(Shared.ResourceData)
@@ -16,6 +17,7 @@ local TalentData = require(Shared.TalentData)
 local ZoneData = require(Shared.ZoneData)
 local DataService = require(script.Parent.DataService)
 local EventState = require(script.Parent.EventState)
+local Notify = require(script.Parent.Notify)
 local Session = require(script.Parent.Session)
 
 local Economy = {}
@@ -163,6 +165,28 @@ function Economy.getLuckBoost(data: DataService.Data): (number, number)
 	return 1, 0
 end
 
+-- v2.4 (аудит С1): единая выдача бустов удачи. Действует только старший буст (x5 важнее x2),
+-- поэтому время x2 «стоит в очереди» за x5 и не сгорает под ним:
+--   * x2: продлевается от max(конец x2, конец x5, сейчас);
+--   * x5: если x2 сейчас ждёт за x5 (или идёт), его окончание сдвигается на добавленное время x5.
+function Economy.addLuckBoost(data: DataService.Data, kind: string, seconds: number)
+	if not (seconds == seconds and seconds > 0 and seconds < math.huge) then
+		return
+	end
+	local now = os.time()
+	local boosts = data.Boosts
+	local l2, l5 = boosts.Luck2 or 0, boosts.Luck5 or 0
+	if kind == "Luck5" then
+		local start5 = math.max(l5, now)
+		if l2 > start5 then
+			boosts.Luck2 = l2 + seconds
+		end
+		boosts.Luck5 = start5 + seconds
+	else
+		boosts.Luck2 = math.max(l2, l5, now) + seconds
+	end
+end
+
 function Economy.getLuck(player: Player, data: DataService.Data): number
 	local luck = Formulas.upgradeLuck(data.Upgrades.Luck)
 		+ Economy.talent(data, "Luck")
@@ -268,7 +292,12 @@ end
 
 function Economy.takeItem(player: Player, itemId: string, amount: number): boolean
 	local data = DataService.get(player)
-	if not data or (data.Items[itemId] or 0) < amount then
+	-- v2.4 (аудит В2): количество — конечное положительное число
+	if
+		not data
+		or not (amount == amount and amount > 0 and amount < math.huge)
+		or (data.Items[itemId] or 0) < amount
+	then
 		return false
 	end
 	data.Items[itemId] -= amount
@@ -286,7 +315,7 @@ function Economy.trySpendResources(player: Player, cost: { [string]: number }): 
 		return false
 	end
 	for res, n in pairs(cost) do
-		if (data.Resources[res] or 0) < n then
+		if not (n == n and n >= 0 and n < math.huge) or (data.Resources[res] or 0) < n then
 			return false
 		end
 	end
@@ -314,6 +343,41 @@ function Economy.addPet(player: Player, petId: string, variant: string?): string
 	return uid
 end
 
+-- v2.4 (аудит С10): питомец-награда не превышает лимит инвентаря — при полной сумке ждёт в «почте»
+-- (data.PetMail) и выдаётся автоматически, когда освободится место (продажа, слияние, вход в игру)
+function Economy.givePetReward(player: Player, petId: string, variant: string?): string?
+	local data = DataService.get(player)
+	if not data then
+		return nil
+	end
+	if Economy.countPets(data) >= Economy.getBagSize(data) then
+		table.insert(data.PetMail, { Id = petId, Variant = variant or "Normal" })
+		Notify.send(player, Locale.m("pets.mail_queued", { n = #data.PetMail }), "info")
+		changed(player)
+		return nil
+	end
+	return Economy.addPet(player, petId, variant)
+end
+
+function Economy.deliverPetMail(player: Player): number
+	local data = DataService.get(player)
+	if not data or #data.PetMail == 0 then
+		return 0
+	end
+	local n = 0
+	while #data.PetMail > 0 and Economy.countPets(data) < Economy.getBagSize(data) do
+		local m = table.remove(data.PetMail, 1)
+		if type(m) == "table" and PetData.PetsById[m.Id] ~= nil then
+			Economy.addPet(player, m.Id, m.Variant)
+			n += 1
+		end
+	end
+	if n > 0 then
+		Notify.send(player, Locale.m("pets.mail_delivered", { n = n, left = #data.PetMail }), "reward")
+	end
+	return n
+end
+
 -- Опыт батл-пасса (сезонный прогресс); уровень вычисляется из накопленного опыта
 function Economy.addBpXp(player: Player, amount: number)
 	local data = DataService.get(player)
@@ -321,6 +385,7 @@ function Economy.addBpXp(player: Player, amount: number)
 		return
 	end
 	local bp = data.BattlePass
+	BattlePassData.syncSeason(bp) -- v2.4 (М1): XP нового сезона не «сгорает» при первом клейме
 	local before = BattlePassData.progress(bp.Xp)
 	bp.Xp += math.floor(amount)
 	local after = BattlePassData.progress(bp.Xp)
@@ -347,7 +412,7 @@ function Economy.grant(player: Player, reward: { [string]: any })
 		Economy.addItem(player, reward.Item, reward.ItemCount or 1)
 	end
 	if reward.Pet then
-		Economy.addPet(player, reward.Pet, "Normal")
+		Economy.givePetReward(player, reward.Pet, "Normal")
 	end
 	if reward.BpXp then
 		Economy.addBpXp(player, reward.BpXp)

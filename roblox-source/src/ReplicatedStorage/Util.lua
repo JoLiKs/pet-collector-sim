@@ -76,4 +76,46 @@ function Util.isFiniteNumber(v: any): boolean
 	return type(v) == "number" and v == v and v > -math.huge and v < math.huge
 end
 
+-- v2.4 (аудит В2): целое число в диапазоне [min, max] или nil (NaN, ±inf, дроби и не-числа отсекаются)
+function Util.validInt(v: any, min: number, max: number): number?
+	if not Util.isFiniteNumber(v) or math.floor(v) ~= v or v < min or v > max then
+		return nil
+	end
+	return v
+end
+
+-- v2.4 (аудит В2): все числа в аргументах remote конечны (на верхнем уровне и внутри таблиц
+-- до глубины 3); заодно ограничивает размер присланных таблиц
+local MAX_ARG_ENTRIES = 256
+local function finiteValue(v: any, depth: number, budget: { n: number }): boolean
+	local t = type(v)
+	if t == "number" then
+		return Util.isFiniteNumber(v)
+	elseif t == "table" then
+		if depth >= 3 then
+			return false
+		end
+		for k, x in pairs(v) do
+			budget.n += 1
+			if budget.n > MAX_ARG_ENTRIES then
+				return false
+			end
+			if not finiteValue(k, depth + 1, budget) or not finiteValue(x, depth + 1, budget) then
+				return false
+			end
+		end
+	end
+	return true
+end
+
+function Util.argsFinite(...: any): boolean
+	local budget = { n = 0 }
+	for i = 1, select("#", ...) do
+		if not finiteValue((select(i, ...)), 0, budget) then
+			return false
+		end
+	end
+	return true
+end
+
 return Util

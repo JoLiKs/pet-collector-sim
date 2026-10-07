@@ -13,7 +13,11 @@ function Formulas.rebirthCost(rebirths: number): number
 end
 
 function Formulas.rebirthMultiplier(rebirths: number): number
-	return 1 + Config.REBIRTH_MULT_PER * rebirths
+	local lin = Config.REBIRTH_MULT_LINEAR_UNTIL
+	if rebirths <= lin then
+		return 1 + Config.REBIRTH_MULT_PER * rebirths
+	end
+	return (1 + Config.REBIRTH_MULT_PER * lin) * Config.REBIRTH_MULT_GROWTH ^ (rebirths - lin)
 end
 
 function Formulas.rebirthGems(rebirths: number): number

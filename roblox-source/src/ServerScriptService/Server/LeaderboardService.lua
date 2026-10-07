@@ -34,10 +34,24 @@ local function nameFor(userId: number): string
 	if cached then
 		return cached
 	end
+	-- v2.4 (аудит М3): в таблице лидеров — DisplayName, как во всей игре
 	local player = Players:GetPlayerByUserId(userId)
 	if player then
-		nameCache[userId] = player.Name
-		return player.Name
+		nameCache[userId] = player.DisplayName
+		return player.DisplayName
+	end
+	local okInfo, infos = pcall(function()
+		-- сервис берётся лениво: в эмуляторах/тестах его может не быть
+		return (game:GetService("UserService") :: any):GetUserInfosByUserIdsAsync({ userId })
+	end)
+	if
+		okInfo
+		and type(infos) == "table"
+		and type(infos[1]) == "table"
+		and type(infos[1].DisplayName) == "string"
+	then
+		nameCache[userId] = infos[1].DisplayName
+		return infos[1].DisplayName
 	end
 	local ok, name = pcall(function()
 		return Players:GetNameFromUserIdAsync(userId)

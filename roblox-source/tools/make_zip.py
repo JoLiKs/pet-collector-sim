@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Собирает dist/PetCollectorSimulator_v2.3.zip (и копию в корне): исходники, .rbxlx, документация, тесты, скриншоты."""
+"""Собирает dist/PetCollectorSimulator_vX.Y.zip (и копию в корне; версия из Config.VERSION): исходники, .rbxlx, .rbxl, документация, тесты, скриншоты."""
 import os, sys, zipfile
 root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 EXCL_DIRS = {'.git', 'tools_dl', 'build', 'dist', 'node_modules', '__pycache__'}
 EXCL_FILES = {'sourcemap.json'}
-name = 'PetCollectorSimulator_v2.3.zip'
+import re
+_ver = re.search(r'Config\.VERSION = "(\d+)\.(\d+)', open(os.path.join(root, 'src', 'ReplicatedStorage', 'Config.lua'), encoding='utf-8').read())
+name = 'PetCollectorSimulator_v%s.%s.zip' % (_ver.group(1), _ver.group(2))
 out = os.path.join(root, 'dist', name)
 os.makedirs(os.path.dirname(out), exist_ok=True)
 n = 0

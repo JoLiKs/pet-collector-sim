@@ -74,6 +74,9 @@ local function makeTemplate(): Data
 		AutoCollect = true,
 		Settings = { Lang = "auto" }, -- "auto" | "en" | "ru" (см. LanguageService)
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
+		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
+		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено
+		PetMail = {}, -- v2.4: питомцы-награды, не поместившиеся в инвентарь ({ Id, Variant }), выдаются при освобождении места
 		Joined = os.time(),
 	}
 end
@@ -157,7 +160,12 @@ function DataService.load(player: Player): (Data?, string?)
 	end
 
 	local lastError = "unknown"
-	for attempt = 1, Config.LOAD_ATTEMPTS do
+	-- v2.4 (аудит С5): ожидание чужой блокировки не тратит попытки LOAD_ATTEMPTS — ждём, пока блокировка
+	-- упавшего сервера не протухнет (SESSION_LOCK_TIMEOUT), а не кикаем через ~30 с
+	local attempt = 0
+	local lockWaitStart: number? = nil
+	while attempt < Config.LOAD_ATTEMPTS do
+		attempt += 1
 		if not player.Parent then
 			return nil, "player left" -- l10n-ok: технический код ошибки загрузки
 		end
@@ -213,6 +221,11 @@ function DataService.load(player: Player): (Data?, string?)
 			return data, nil
 		elseif ok and wasLocked then
 			lastError = "session locked by another server" -- l10n-ok: технический код (в логах и в скобках сообщения кика)
+			local started = lockWaitStart or os.clock()
+			lockWaitStart = started
+			if os.clock() - started < Config.SESSION_LOCK_TIMEOUT + Config.LOAD_LOCK_RETRY_DELAY then
+				attempt -= 1 -- ожидание блокировки — не неудачная попытка
+			end
 			task.wait(Config.LOAD_LOCK_RETRY_DELAY)
 		else
 			lastError = tostring(result)
@@ -336,6 +349,36 @@ function DataService.saveNow(player: Player): boolean
 	return ok
 end
 
+-- Профили, финальное сохранение которых не удалось: повторяем в фоне и при закрытии сервера (v2.4, С5)
+local failedReleases: { Profile } = {}
+DataService._failedReleases = failedReleases
+local RELEASE_RETRIES = 3
+local RELEASE_RETRY_DELAY = 15
+
+local function retryRelease(p: Profile, triesLeft: number)
+	if write(p, true) then
+		local i = table.find(failedReleases, p)
+		if i then
+			table.remove(failedReleases, i)
+		end
+		return
+	end
+	if not table.find(failedReleases, p) then
+		table.insert(failedReleases, p)
+	end
+	if triesLeft > 0 and not isShuttingDown then
+		warn(
+			("[DataService] final save failed for %s, retrying in %ds"):format(
+				p.Player.Name,
+				RELEASE_RETRY_DELAY
+			)
+		)
+		task.delay(RELEASE_RETRY_DELAY, retryRelease, p, triesLeft - 1)
+	else
+		warn("[DataService] final save failed for", p.Player.Name, "- data of this session may be lost")
+	end
+end
+
 -- Финальное сохранение + снятие блокировки при выходе игрока
 function DataService.release(player: Player)
 	local p = profiles[player]
@@ -344,7 +387,7 @@ function DataService.release(player: Player)
 	end
 	p.Released = true
 	profiles[player] = nil
-	write(p, true)
+	retryRelease(p, RELEASE_RETRIES)
 end
 
 -- Подтверждение того, что у игрока есть живой профиль (для проверок в других сервисах)
@@ -404,6 +447,19 @@ function DataService.init()
 			pending += 1
 			task.spawn(function()
 				DataService.release(player)
+				pending -= 1
+			end)
+		end
+		-- последняя попытка для ранее не сохранившихся профилей
+		for _, p in ipairs(table.clone(failedReleases)) do
+			pending += 1
+			task.spawn(function()
+				if write(p, true) then
+					local i = table.find(failedReleases, p)
+					if i then
+						table.remove(failedReleases, i)
+					end
+				end
 				pending -= 1
 			end)
 		end

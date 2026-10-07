@@ -120,6 +120,8 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
         if t and t['hp'] < t['max']: break
         g.vwait(1.0); t = page.evaluate(TARGET)
     check('боты-охотники бьют суперигрока', t and t['hp'] < t['max'], t)
+    # v2.4 (аудит К1): награда за удержание — только активному суперигроку (≥ 2 ударных волн или движение)
+    g.vwait(2.4); g.click('[data-n="Attack"]'); g.vwait(0.5)
     g.cmd('super:end')
     g.wait(lambda: 'ПОБЕДА' in toasts(page) or 'ТЕБЯ ОСТАНОВИЛИ' in toasts(page), timeout=15, what='end banner')
     tt = toasts(page)

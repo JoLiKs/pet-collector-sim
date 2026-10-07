@@ -34,13 +34,37 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Settings.Lang = "auto"
 		changed = true
 	end
-	-- защита от мусора в числовых полях
+	-- v2.4 (Г3): профили до обучения — ветеранам с питомцами обучение не показываем
+	if type(data.Tutorial) ~= "table" then
+		local veteran = (data.TotalHatched or 0) > 0
+			or (type(data.Pets) == "table" and next(data.Pets) ~= nil)
+		data.Tutorial = { Step = if veteran then 99 else 1, P = 0 }
+		changed = true
+	end
+	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
+	local function bad(v: any): boolean
+		return type(v) ~= "number" or v ~= v or v < 0 or v == math.huge
+	end
 	for _, key in ipairs({ "Coins", "Gems", "Rebirths", "TotalCoins" }) do
-		local v = data[key]
-		if type(v) ~= "number" or v ~= v or v < 0 then
+		if bad(data[key]) then
 			data[key] = 0
 			changed = true
 		end
+	end
+	for _, key in ipairs({ "Resources", "Items" }) do
+		local map = data[key]
+		if type(map) == "table" then
+			for k, v in pairs(map) do
+				if bad(v) then
+					map[k] = 0
+					changed = true
+				end
+			end
+		end
+	end
+	if type(data.BattlePass) == "table" and data.BattlePass.Xp ~= nil and bad(data.BattlePass.Xp) then
+		data.BattlePass.Xp = 0
+		changed = true
 	end
 	return changed
 end

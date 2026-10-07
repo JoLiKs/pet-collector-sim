@@ -391,6 +391,32 @@ local function reward(player: Player, e: Enemy)
 	State.markPets(player)
 end
 
+-- Кто получает награду за убийство: доля урона ≥ Config.KILL_MIN_SHARE; если таких нет — лучший по урону (аудит К2)
+function CombatService.rewardees(damage: { [Player]: number }): { Player }
+	local total, best, bestDmg = 0, nil, -1
+	for player, d in pairs(damage) do
+		if d > 0 then
+			total += d
+			if d > bestDmg then
+				best, bestDmg = player, d
+			end
+		end
+	end
+	local out = {}
+	if total <= 0 then
+		return out
+	end
+	for player, d in pairs(damage) do
+		if d > 0 and d / total >= Config.KILL_MIN_SHARE then
+			table.insert(out, player)
+		end
+	end
+	if #out == 0 and best then
+		table.insert(out, best)
+	end
+	return out
+end
+
 local function die(e: Enemy)
 	if e.Dead then
 		return
@@ -410,7 +436,7 @@ local function die(e: Enemy)
 			task.spawn(cb, true, e.Damage, total)
 		end
 	else
-		for player in pairs(e.Damage) do
+		for _, player in ipairs(CombatService.rewardees(e.Damage)) do
 			if player.Parent then
 				reward(player, e)
 			end

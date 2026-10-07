@@ -17,6 +17,7 @@ local Dailies = require(script.Parent.Dailies)
 local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
 local State = require(script.Parent.State)
+local TutorialService = require(script.Parent.TutorialService)
 
 local Progress = {}
 
@@ -99,6 +100,7 @@ function Progress.record(player: Player, kind: string, key: string?, amount: num
 	end
 	local n = amount or 1
 	Dailies.ensure(data)
+	TutorialService.onEvent(player, kind, n)
 	local stat = STAT_OF_KIND[kind]
 	if stat then
 		Progress.addStat(player, stat, n)

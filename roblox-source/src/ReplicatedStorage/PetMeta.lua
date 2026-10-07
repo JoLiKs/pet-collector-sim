@@ -263,15 +263,45 @@ end
 -- ---------------------------------------------------------------------------------------------
 PetMeta.FUSE_COUNT = 3
 PetMeta.FUSE_CHANCE = { Normal = 0.30, Golden = 0.20, Rainbow = 0.12, Shiny = 0 }
-PetMeta.FUSE_SHINY_BONUS = 0.03 -- шанс сразу «Shiny» при любом слиянии (кроме Shiny)
-PetMeta.CATALYST_BONUS = 0.15
+-- v2.4 (аудит Г4): шанс сразу получить «Shiny» зависит от входного варианта — дешёвые обычные питомцы
+-- больше не самый выгодный путь к сиянию (раньше было 3% при любом варианте). См. docs/BALANCE.md §4.
+PetMeta.FUSE_SHINY = { Normal = 0.005, Golden = 0.01, Rainbow = 0.03, Shiny = 0 }
+PetMeta.CATALYST_BONUS = 0.15 -- +15 п.п. к шансу улучшения на ступень
+PetMeta.CATALYST_SHINY_MULT = 1.5 -- катализатор умножает шанс сразу-сияния в 1.5 раза
 
--- roll1, roll2 ∈ [0,1). Возвращает вариант результата.
+-- v2.4 (аудит С13): итоговые шансы слияния — одна функция для сервера и для UI (раскрытие шансов
+-- платного случайного механизма: катализатор продаётся за гемы, гемы — за Robux).
+-- Возвращает доли: Shiny — сразу «сияние», Upgrade — на ступень выше (Next), Same — без изменений.
+-- Если следующая ступень сама «Shiny» (Rainbow), Upgrade уже включён в Shiny.
+export type FuseOdds = { Shiny: number, Upgrade: number, Same: number, Next: string }
+function PetMeta.fuseOdds(inputVariant: string, catalyst: boolean): FuseOdds
+	if inputVariant == "Shiny" or PetMeta.Variants[inputVariant] == nil then
+		return { Shiny = 0, Upgrade = 0, Same = 1, Next = inputVariant }
+	end
+	local shiny = (PetMeta.FUSE_SHINY[inputVariant] or 0)
+		* (if catalyst then PetMeta.CATALYST_SHINY_MULT else 1)
+	local up = math.min(
+		1,
+		(PetMeta.FUSE_CHANCE[inputVariant] or 0) + (if catalyst then PetMeta.CATALYST_BONUS else 0)
+	)
+	local order = PetMeta.Variants[inputVariant].Order
+	local nextV = PetMeta.VariantOrder[math.min(order + 1, #PetMeta.VariantOrder)]
+	local upgrade = (1 - shiny) * up
+	if nextV == "Shiny" then
+		return { Shiny = shiny + upgrade, Upgrade = 0, Same = 1 - shiny - upgrade, Next = nextV }
+	end
+	return { Shiny = shiny, Upgrade = upgrade, Same = 1 - shiny - upgrade, Next = nextV }
+end
+
+-- roll1, roll2 ∈ [0,1). Возвращает вариант результата. bonus > 0 — использован катализатор.
 function PetMeta.fuseVariant(inputVariant: string, roll1: number, roll2: number, bonus: number?): string
 	if inputVariant == "Shiny" then
 		return "Shiny"
 	end
-	if roll1 < PetMeta.FUSE_SHINY_BONUS + (bonus or 0) * 0.1 then
+	local catalyst = (bonus or 0) > 0
+	local shiny = (PetMeta.FUSE_SHINY[inputVariant] or 0)
+		* (if catalyst then PetMeta.CATALYST_SHINY_MULT else 1)
+	if roll1 < shiny then
 		return "Shiny"
 	end
 	local chance = (PetMeta.FUSE_CHANCE[inputVariant] or 0) + (bonus or 0)

@@ -60,6 +60,7 @@ require(Modules:WaitForChild("Fx")).init(gui, function(name: string)
 end)
 
 Hud.init(gui, openPanel)
+require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)
 
 -- Смена языка: привязанные тексты (L.k) перерисовывает сам Locale, остальное — повторный снимок состояния

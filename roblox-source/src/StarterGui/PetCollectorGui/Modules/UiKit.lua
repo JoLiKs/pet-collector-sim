@@ -9,6 +9,7 @@ local ResourceData = require(Shared:WaitForChild("ResourceData"))
 local Util = require(Shared:WaitForChild("Util"))
 local L = require(Shared:WaitForChild("Locale"))
 
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
@@ -129,6 +130,21 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 		})
 	end
 	paint()
+	-- На узком экране вкладки делят ширину родителя поровну, а не по фиксированной ширине.
+	local n = #names
+	Layout.onChanged(function(li)
+		local c = (20 + 6 * (n - 1)) / n
+		for i, name in ipairs(names) do
+			local b = buttons[name]
+			if li.Mode == "portrait" and (10 + n * (w + 6)) > li.W - 40 then
+				b.Size = UDim2.new(1 / n, -c, 0, 30)
+				b.Position = UDim2.new((i - 1) / n, 10 + (i - 1) * (6 - c), 0, y or 4)
+			else
+				b.Size = UDim2.fromOffset(w, 30)
+				b.Position = UDim2.fromOffset(10 + (i - 1) * (w + 6), y or 4)
+			end
+		end
+	end)
 	return {
 		Select = function(name: string)
 			current = name

@@ -18,4 +18,5 @@ mkdir -p "$OUT/roblox-source"
 (cd "$G" && tar --exclude=.git --exclude=tools_dl --exclude=build --exclude=dist --exclude=node_modules --exclude=sourcemap.json --exclude='*.zip' -cf - .) | (cd "$OUT/roblox-source" && tar xf -)
 for z in "$G"/PetCollectorSimulator_v*.zip; do [ -f "$z" ] && cp "$z" "$OUT/"; done
 [ -f "$G/PetCollectorSimulator.rbxlx" ] && cp "$G/PetCollectorSimulator.rbxlx" "$OUT/"
+[ -f "$G/PetCollectorSimulator.rbxl" ] && cp "$G/PetCollectorSimulator.rbxl" "$OUT/"
 echo "web build: $OUT"

@@ -12,6 +12,7 @@ local Economy = require(script.Parent.Economy)
 local Router = require(script.Parent.Router)
 local State = require(script.Parent.State)
 local Session = require(script.Parent.Session)
+local TutorialService = require(script.Parent.TutorialService)
 
 local ClickService = {}
 
@@ -42,6 +43,7 @@ function ClickService.init()
 		end
 		s.ClickTokens -= 1
 		ClickService.award(player, 1)
+		TutorialService.onEvent(player, "click", 1)
 	end)
 
 	-- Автосбор (геймпасс Auto Collect)

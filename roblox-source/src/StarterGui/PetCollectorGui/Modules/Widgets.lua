@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 
 local Widgets = {}
@@ -151,6 +152,19 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 		{ MaxSize = Vector2.new(760, 540), MinSize = Vector2.new(300, 240), Parent = root }
 	)
 	local scale = New("UIScale", { Parent = root })
+	-- телефон (v2.4): панель почти во всю ширину; вертикально — чуть выше центра, снизу место для тостов
+	Layout.onChanged(function(lay)
+		if lay.Mode == "portrait" then
+			root.Size = UDim2.new(1, -16, 0.68, 0)
+			root.Position = UDim2.fromScale(0.5, 0.46)
+		elseif lay.Mode == "landscape" then
+			root.Size = UDim2.new(0.84, 0, 1, -24)
+			root.Position = UDim2.fromScale(0.5, 0.5)
+		else
+			root.Size = UDim2.fromScale(0.62, 0.72)
+			root.Position = UDim2.fromScale(0.5, 0.5)
+		end
+	end)
 
 	local header = New("Frame", {
 		Name = "Header",

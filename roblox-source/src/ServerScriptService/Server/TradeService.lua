@@ -300,6 +300,8 @@ local function finishIfDone(t: Trade)
 		closeTrade(t, Locale.m("trade.done"))
 		for _, p in ipairs(participants(t)) do
 			Notify.send(p, Locale.m("trade.done"), "reward")
+			-- v2.4 (аудит С12): сразу сохраняем обоих, чтобы падение сервера не откатило одну сторону (дюп)
+			task.spawn(DataService.saveNow, p)
 		end
 	else
 		closeTrade(t, Locale.m("trade.failed", { why = why }))

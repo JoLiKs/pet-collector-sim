@@ -292,8 +292,23 @@ local function newNode(class, name)
 		rawget(n, "_props").OnServerEvent = makeSignal()
 		rawget(n, "_props").OnClientEvent = makeSignal()
 		rawset(n, "_fired", {})
+	elseif class == "ProximityPrompt" then
+		rawget(n, "_props").Triggered = makeSignal()
 	end
 	return n
+end
+function Methods.GetDescendants(self)
+	local out = {}
+	local function walk(n)
+		for _, c in ipairs(rawget(n, "_list")) do
+			if rawget(c, "_parent") == n then
+				table.insert(out, c)
+				walk(c)
+			end
+		end
+	end
+	walk(self)
+	return out
 end
 function Methods.FindFirstChild(self, name)
 	return rawget(self, "_children")[name]

@@ -19,6 +19,7 @@ local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local Theme = require(script.Parent.Theme)
+local Layout = require(script.Parent.Layout)
 local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -246,8 +247,12 @@ function HuntHud.init(gui: ScreenGui, events: Frame)
 			py = cy + math.sin(ang) * vp.Y * 0.34
 		end
 		-- не залезаем на HUD: меню слева, карточки справа, панели сверху и кнопки снизу
-		px = math.clamp(px, 215, math.max(216, vp.X - 215))
-		py = math.clamp(py, 125, math.max(126, vp.Y - 140))
+		local lay = Layout.get()
+		local mx = if lay.Mode == "wide" then 215 else math.floor(vp.X * 0.22)
+		local top = if lay.Mode == "portrait" then 390 elseif lay.Mode == "landscape" then 120 else 125
+		local bottom = if lay.Mode == "wide" then 140 else 150
+		px = math.clamp(px, mx, math.max(mx + 1, vp.X - mx))
+		py = math.clamp(py, top, math.max(top + 1, vp.Y - bottom))
 		px -= off.X
 		py -= off.Y
 		local dirX, dirY = math.cos(ang), math.sin(ang)
@@ -303,7 +308,8 @@ function HuntHud.init(gui: ScreenGui, events: Frame)
 				stroke.Color = Theme.Gold
 				title.TextColor3 = Theme.Gold
 				title.Text = L.t("hunt.you_title")
-				objective.Text = L.t("hunt.you_objective")
+				objective.Text =
+					L.t(if Layout.isTouch() then "hunt.you_objective_touch" else "hunt.you_objective")
 				damage.Text = ""
 				extra.Text = ""
 			else
@@ -312,10 +318,13 @@ function HuntHud.init(gui: ScreenGui, events: Frame)
 				title.Text = L.t("hunt.card_title", { player = displayName(st) })
 				objective.Text = L.t("hunt.objective", { player = displayName(st) })
 				local n, min = st.YourDamage or 0, st.MinDamage or 0
-				damage.Text = if n >= min
+				local hits, minHits = st.YourHits or 0, st.MinHits or 0
+				local ok = n >= min and hits >= minHits
+				damage.Text = if ok
 					then L.t("hunt.damage_ok", { n = n })
+					elseif n >= min then L.t("hunt.need_hits", { n = hits, min = minHits })
 					else L.t("hunt.damage", { n = n, min = min })
-				damage.TextColor3 = if n >= min then Theme.Green else Theme.TextDim
+				damage.TextColor3 = if ok then Theme.Green else Theme.TextDim
 				if st.Stunned then
 					extra.Text = L.t("hunt.stunned")
 					extra.TextColor3 = Theme.Red

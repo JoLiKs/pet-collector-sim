@@ -1,5 +1,5 @@
 {
-  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов и DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) подставляются патчами при конвертации.",
+  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов, DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) и DEMO_BOT_ENABLED=true (NPC Trader Tom) подставляются патчами при конвертации.",
   "placeKey": "pet-collector-sim-v2",
   "patches": [
     { "script": "Shared.Config", "regex": "(\\bDOUBLE_COINS\\s*=\\s*)0,", "replace": "$1900001," },
@@ -16,7 +16,8 @@
     { "script": "Shared.Config", "regex": "(\\bLUCK_5X_10M\\s*=\\s*)0,", "replace": "$1910007," },
     { "script": "Shared.Config", "regex": "(\\bBP_SKIP\\s*=\\s*)0,", "replace": "$1910008," },
     { "script": "Shared.Config", "regex": "(\\bESSENCE_PACK\\s*=\\s*)0,", "replace": "$1910009," },
-    { "script": "Shared.Config", "regex": "(\\bDEMO_BOTS\\s*=\\s*)false", "replace": "$1true" }
+    { "script": "Shared.Config", "regex": "(\\bDEMO_BOTS\\s*=\\s*)false", "replace": "$1true" },
+    { "script": "Shared.Config", "regex": "(\\bDEMO_BOT_ENABLED\\s*=\\s*)false", "replace": "$1true" }
   ],
   "catalog": {
     "gamepasses": {

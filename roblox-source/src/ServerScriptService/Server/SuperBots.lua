@@ -15,6 +15,7 @@ local Locale = require(Shared.Locale)
 local Remotes = require(Shared.Remotes)
 local ZoneData = require(Shared.ZoneData)
 
+local Knockback = require(script.Parent.Knockback)
 local SuperpowerService = require(script.Parent.SuperpowerService)
 
 local C = Config.SUPERPOWER
@@ -241,8 +242,10 @@ function SuperBots.spawn()
 				return m.Parent ~= nil and hum.Health > 0
 			end,
 			Knock = function(dir: Vector3, dist: number, _stun: number)
+				-- v2.4 (аудит С3): дистанция ограничена препятствиями и опорой под ногами
+				local shift = Knockback.offset(m:GetPivot().Position, dir, dist, { m })
 				pcall(function()
-					m:PivotTo(m:GetPivot() + dir * dist + Vector3.new(0, 1, 0))
+					m:PivotTo(m:GetPivot() + shift + Vector3.new(0, 1, 0))
 				end)
 			end,
 			StunnedUntil = 0,

@@ -10,6 +10,7 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -44,8 +45,13 @@ function QuestsPanel.init(gui: ScreenGui)
 				if def then
 					order += 1
 					local done = entry.P >= def.Obj.Count
-					local card =
-						UiKit.card(scroll, 64, if done and not entry.C then Theme.Green else nil, order)
+					local narrow = Layout.compact()
+					local card = UiKit.card(
+						scroll,
+						if narrow then 84 else 64,
+						if done and not entry.C then Theme.Green else nil,
+						order
+					)
 					card.Name = id
 					UiKit.text(
 						card,
@@ -58,11 +64,20 @@ function QuestsPanel.init(gui: ScreenGui)
 						card,
 						L.t("quests.obj_reward", { obj = objText(def.Obj), reward = rewardText(def.Reward) }),
 						UDim2.fromOffset(10, 26),
-						UDim2.new(0.7, 0, 0, 16),
-						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
+						UDim2.new(0.7, 0, 0, if narrow then 34 else 16),
+						{
+							TextColor3 = Theme.TextDim,
+							MaxSize = 13,
+							TextWrapped = narrow,
+							TextYAlignment = Enum.TextYAlignment.Top,
+						}
 					)
-					local bar =
-						UiKit.bar(card, UDim2.fromOffset(10, 45), UDim2.new(0.65, 0, 0, 14), Theme.Green)
+					local bar = UiKit.bar(
+						card,
+						UDim2.fromOffset(10, if narrow then 64 else 45),
+						UDim2.new(0.65, 0, 0, 14),
+						Theme.Green
+					)
 					bar.Set(entry.P / def.Obj.Count, ("%d / %d"):format(entry.P, def.Obj.Count))
 					local b = Widgets.button({
 						Name = "Claim",

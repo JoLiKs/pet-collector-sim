@@ -147,7 +147,21 @@ end
 local function setVisible(node: Node, visible: boolean)
 	for _, d in ipairs(node.Model:GetDescendants()) do
 		if d:IsA("BasePart") then
-			d.Transparency = if visible then 0 else 1
+			-- v2.4 (аудит С6): истощённый узел не только прозрачный, но и не твёрдый;
+			-- исходные значения запоминаются в атрибутах и восстанавливаются при респауне
+			if d:GetAttribute("BaseT") == nil then
+				d:SetAttribute("BaseT", d.Transparency)
+				d:SetAttribute("BaseC", d.CanCollide)
+			end
+			if visible then
+				d.Transparency = d:GetAttribute("BaseT") :: number
+				d.CanCollide = d:GetAttribute("BaseC") == true
+				d.CanQuery = true
+			else
+				d.Transparency = 1
+				d.CanCollide = false
+				d.CanQuery = false
+			end
 		elseif d:IsA("ProximityPrompt") then
 			d.Enabled = visible
 		end
@@ -176,6 +190,11 @@ end
 local function harvest(player: Player, node: Node): boolean
 	local data = DataService.get(player)
 	if not data or node.Depleted then
+		return false
+	end
+	-- v2.4 (аудит С7, частично): собирать можно только в открытом мире (хаб открыт всем)
+	if ZoneData.ById[node.Zone] and node.Zone ~= ZoneData.HUB and not data.Zones[node.Zone] then
+		Notify.send(player, "zone.locked_gather", "info")
 		return false
 	end
 	node.Depleted = true

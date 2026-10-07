@@ -270,8 +270,24 @@ test(
 		local pa = MAKE_PLAYER(A.U, 3, "Carol")
 		local da = A.Data.load(pa)
 		da.Coins = 777
+		-- A жив: автосейв обновляет блокировку (v2.4: B ждёт до SESSION_LOCK_TIMEOUT, а не 3 попытки)
+		local alive = true
+		task.spawn(function()
+			while alive do
+				task.wait(60)
+				if alive then
+					A.Data.saveNow(pa)
+				end
+			end
+		end)
 		local pb = MAKE_PLAYER(B.U, 3, "Carol")
+		local t0 = os.clock()
 		local db, err = B.Data.load(pb)
+		alive = false
+		check(
+			os.clock() - t0 >= B.Config.SESSION_LOCK_TIMEOUT,
+			"B ждал снятия блокировки весь таймаут"
+		)
 		check(db == nil, "server B cannot load while A holds lock")
 		check(err ~= nil and string.find(err, "locked") ~= nil, "reason mentions lock: " .. tostring(err))
 		A.Data.release(pa)
@@ -641,6 +657,7 @@ test("Клики: серверный лимит частоты, начислен
 	BACKEND.Stores = {}
 	local S = boot("A")
 	local data, _, p = S.join(40, "Orb")
+	data.Tutorial.Step = 99 -- v2.4: награда шага обучения не мешает считать монеты
 	for _ = 1, 500 do
 		S.click(p)
 	end
@@ -947,8 +964,9 @@ test(
 				shiny += 1
 			end
 		end
-		check(math.abs(up / N - 0.97 * 0.30) < 0.02, ("доля Golden ≈ 29%% (%.3f)"):format(up / N))
-		check(math.abs(shiny / N - 0.03) < 0.01, ("доля Shiny ≈ 3%% (%.3f)"):format(shiny / N))
+		-- v2.4 (Г4): сияние из обычных — 0.5%
+		check(math.abs(up / N - 0.995 * 0.30) < 0.02, ("доля Golden ≈ 30%% (%.3f)"):format(up / N))
+		check(math.abs(shiny / N - 0.005) < 0.004, ("доля Shiny ≈ 0.5%% (%.3f)"):format(shiny / N))
 	end
 )
 
@@ -2017,8 +2035,16 @@ test(
 		setPos(p1, Vector3.new(8, 3, 5))
 		setPos(p2, Vector3.new(5, 3, 5))
 		ADVANCE(5)
-		SP.tryPlayerHit(p1)
+		-- v2.4: охотнику нужны ручные удары (HUNTER_MIN_HITS), суперигроку — активность (волны/движение)
 		local gemsA, gemsB = d1.Gems, d2.Gems
+		for _ = 1, C.HUNTER_MIN_HITS do
+			SP.tryPlayerHit(p1)
+			ADVANCE(C.HIT_COOLDOWN + 0.01)
+		end
+		for _ = 1, C.SURVIVE_MIN_SLAMS do
+			SP.superSlam(k2)
+			ADVANCE(C.SLAM_COOLDOWN + 0.1)
+		end
 		local cur = SP.current()
 		ADVANCE(cur.Duration + 0.5)
 		SP.step(os.clock())
@@ -2034,13 +2060,13 @@ test(
 		else
 			check(d1.Gems == gemsA, "без минимума урона утешительной нет")
 		end
-		-- выход цели — отмена без наград
+		-- выход цели без вклада охотников — раунд закрыт, наград нет
 		SP.start(k1)
 		local gb = d2.Gems
 		SP.removeUnit(k1)
 		check(
 			not SP.isActive() and d2.Gems == gb,
-			"цель вышла — раунд отменён без наград"
+			"цель вышла, охотник не бил — наград нет"
 		)
 	end
 )
@@ -2131,6 +2157,839 @@ test(
 			check(true, "раунд у игрока (выбор случайный)")
 		end
 		WS:SetAttribute("SuperpowerPaused", true)
+	end
+)
+
+-- ============================================================================
+-- v2.4: исправления по аудиту docs/AUDIT_v2.3.md (негативные тесты эксплойтов)
+-- ============================================================================
+local function initWith(S, path)
+	local prev = game
+	game = S.U.Game
+	local m = S.U.require(path)
+	if m.init then
+		m.init()
+	end
+	game = prev
+	return m
+end
+
+local function givePets(d)
+	d.Pets = {
+		a = { Id = "bunbun", Variant = "Normal", Level = 1, Xp = 0, Evo = 0 },
+		b = { Id = "chirpy", Variant = "Normal", Level = 1, Xp = 0, Evo = 0 },
+		c = { Id = "mossy", Variant = "Normal", Level = 1, Xp = 0, Evo = 0 },
+	}
+	d.Equipped = { "a", "b", "c" }
+end
+
+test(
+	"v2.4 К1: два AFK-аккаунта с питомцами не фармят гемы на «Суперсиле»",
+	function()
+		local S = bootSuper("A24K1")
+		local SP, C = S.SP, S.C
+		local d1, _, p1 = S.join(9401, "AfkA")
+		local d2, _, p2 = S.join(9402, "AfkB")
+		givePets(d1)
+		givePets(d2)
+		SP.init()
+		local g1, g2, rounds = d1.Gems, d2.Gems, 0
+		for _ = 1, 6 do
+			if not SP.start(nil) then
+				break
+			end
+			rounds += 1
+			local guard = 0
+			while SP.isActive() and guard < 200 do
+				guard += 1
+				ADVANCE(1)
+				for _, pl in ipairs({ p1, p2 }) do
+					SP.petTick(pl, S.Data.get(pl), pl.Character:FindFirstChild("HumanoidRootPart").Position)
+				end
+				SP.step(os.clock())
+			end
+			ADVANCE(C.GAP)
+		end
+		check(rounds == 6, "раунды шли")
+		check(
+			d1.Gems == g1 and d2.Gems == g2,
+			"AFK: ни суперигрок, ни охотник-питомцы гемов не получают"
+		)
+		check(SP.current() == nil, "раундов не осталось")
+	end
+)
+
+test(
+	"v2.4 К1: активный суперигрок без охотников — малая награда; дневной потолок гемов",
+	function()
+		local S = bootSuper("A24K1b")
+		local SP, C, Lg = S.SP, S.C, S.Lg
+		local d1, _, p1 = S.join(9411, "Runner")
+		local _, _, p2 = S.join(9412, "Idle")
+		for _, a in ipairs(S.AchievementData.List) do
+			d1.Achievements[a.Id] = true -- гемы достижений не мешают считать награду события
+		end
+		SP.init()
+		check(SP.start(SP.keyOf(p1)) ~= nil, "раунд у Runner")
+		-- бежит по кругу
+		for i = 1, 30 do
+			ADVANCE(1)
+			p1.Character:FindFirstChild("HumanoidRootPart").Position = Vector3.new(5 + (i % 2) * 6, 3, 5 + i)
+			SP.step(os.clock())
+		end
+		local g = d1.Gems
+		ADVANCE(SP.current().Duration)
+		SP.step(os.clock())
+		check(not SP.isActive(), "раунд закончился")
+		check(
+			d1.Gems - g == C.SURVIVE_UNCONTESTED.Gems,
+			"без охоты — SURVIVE_UNCONTESTED, а не крупная награда"
+		)
+		check(
+			Lg.capGems(C, C.DAILY_GEM_CAP - 5, 25) == 5 and Lg.capGems(C, C.DAILY_GEM_CAP, 25) == 0,
+			"capGems"
+		)
+		d1.EventGems = { Day = os.time() // 86400, Gems = C.DAILY_GEM_CAP }
+		SP.start(SP.keyOf(p1))
+		local g2 = d1.Gems
+		SP.finish("survived")
+		check(
+			d1.Gems == g2,
+			"дневной потолок: сверх DAILY_GEM_CAP гемы не выдаются"
+		)
+		check(p2 ~= nil, "второй участник был")
+	end
+)
+
+test(
+	"v2.4 К2: награда за убийство — только с заметной долей урона",
+	function()
+		local S = boot("A24K2")
+		local CS = initWith(S, "ServerScriptService/Server/CombatService")
+		local d1, _, p1 = S.join(9421, "Tank")
+		local d2, _, p2 = S.join(9422, "Leech")
+		local folder = S.U.Workspace:FindFirstChild("Enemies")
+		local bossId, maxHp
+		for _, m in ipairs(folder:GetChildren()) do
+			if m:GetAttribute("IsBoss") then
+				bossId = m:GetAttribute("Id")
+				maxHp = m:GetAttribute("MaxHp")
+				break
+			end
+		end
+		check(bossId ~= nil, "босс найден")
+		local c1, c2, g2 = d1.Coins, d2.Coins, d2.Gems
+		CS.debugDamage(p2, bossId, 1)
+		CS.debugDamage(p1, bossId, maxHp)
+		DRIVE_UNTIL_IDLE(5)
+		check(d1.Coins > c1, "основной боец награждён")
+		check(
+			d2.Coins == c2 and d2.Gems == g2,
+			"1 урона из " .. tostring(maxHp) .. " — без награды"
+		)
+		-- чистая функция: порог доли и «лучший», если порог не прошёл никто
+		local a, b, c = {}, {}, {}
+		local list = CS.rewardees({ [a] = 50, [b] = 50, [c] = 2 })
+		check(#list == 2, "двое по 49% — награда обоим, 2% — нет")
+		local many = {}
+		for i = 1, 20 do
+			many[{ i = i }] = if i == 1 then 6 else 5
+		end
+		check(#CS.rewardees(many) == 1, "все ниже порога — награда лучшему")
+		check(#CS.rewardees({}) == 0, "без урона — никому")
+	end
+)
+
+test(
+	"v2.4 В4/В5: суперигрок не телепортируется; уход суперигрока не лишает охотников награды",
+	function()
+		local S = bootSuper("A24B45")
+		local SP, C = S.SP, S.C
+		local d1, _, p1 = S.join(9431, "Super")
+		local d2, _, p2 = S.join(9432, "Hunter")
+		SP.init()
+		SP.start(SP.keyOf(p1))
+		local r = S.invoke(p1, "Teleport", "Hub")
+		check(r.ok == false, "суперигрок не может телепортироваться")
+		-- площадка «В хаб» в биоме — тот же телепорт
+		local St = S.U.require("ServerScriptService/Server/StationService")
+		local ZS = S.U.require("ServerScriptService/Server/ZoneService")
+		local moved = {}
+		local origMove = ZS.moveToZone
+		ZS.moveToZone = function(pl, z)
+			moved[pl] = z
+		end
+		St._onPrompt(p1, "hubReturn")
+		St._onPrompt(p2, "hubReturn")
+		ZS.moveToZone = origMove
+		check(moved[p1] == nil, "площадка «В хаб» не уносит суперигрока")
+		check(moved[p2] ~= nil, "охотника площадка переносит как обычно")
+		ADVANCE(5)
+		local r2 = S.invoke(p2, "Teleport", "Hub")
+		check(r2.ok == true, "охотник телепортируется как обычно")
+		p2.Character:FindFirstChild("HumanoidRootPart").Position = Vector3.new(8, 3, 5)
+		p1.Character:FindFirstChild("HumanoidRootPart").Position = Vector3.new(5, 3, 5)
+		for _ = 1, C.HUNTER_MIN_HITS + 2 do
+			SP.tryPlayerHit(p2)
+			ADVANCE(C.HIT_COOLDOWN + 0.01)
+		end
+		check((SP.current().Damage[SP.keyOf(p2)] or 0) > 0, "охотник нанёс урон")
+		local g = d2.Gems
+		SP.removeUnit(SP.keyOf(p1))
+		check(not SP.isActive(), "раунд закрыт")
+		check(
+			d2.Gems > g,
+			"суперигрок вышел — охотник с вкладом получил награду"
+		)
+		check(d1.Gems >= 0, "суперигрок ничего не потерял")
+		check(S.Session.get(p1).IsSuper == false, "флаг суперигрока снят")
+	end
+)
+
+test("v2.4 В6: Layout.modeFor — портрет/ландшафт/широкий экран", function()
+	local S = boot("layout")
+	local Layout = S.U.require("ReplicatedStorage/Client/Layout")
+	check(Layout.modeFor(390, 844) == "portrait", "390x844 — портрет")
+	check(Layout.modeFor(844, 390) == "landscape", "844x390 — ландшафт")
+	check(Layout.modeFor(667, 375) == "landscape", "667x375 — ландшафт")
+	check(Layout.modeFor(1280, 720) == "wide", "1280x720 — широкий")
+	check(Layout.modeFor(1024, 768) == "wide", "1024x768 (планшет) — широкий")
+	check(Layout.get().Mode == "wide", "без камеры — исходная раскладка")
+	local seen
+	Layout.onChanged(function(li)
+		seen = li.Mode
+	end)
+	check(seen == "wide", "onChanged сразу вызывает подписчика")
+	check(
+		Layout.rightWidth({ Mode = "portrait", W = 390, H = 844, Touch = true }) == 194,
+		"ширина правой колонки"
+	)
+end)
+
+test(
+	"v2.4 В3: BP_SKIP на максимуме пропуска — компенсация гемами, а не пустая покупка",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("bpskip")
+		S.Config.PRODUCT_IDS.BP_SKIP = 1009
+		local data, _, p = S.join(31, "Max")
+		local fn = S.U.Game:GetService("MarketplaceService").ProcessReceipt
+		local GRANTED = "Enum.ProductPurchaseDecision.PurchaseGranted"
+		-- почти максимум: до конца остаётся 2 уровня из 5 купленных
+		local xp = 0
+		for lv = 1, S.BattlePassData.MaxLevel - 2 do
+			xp += S.BattlePassData.xpForLevel(lv)
+		end
+		data.BattlePass.Xp = xp
+		local gems0 = data.Gems
+		check(fn(receipt(p, 7001, 1009)) == GRANTED, "покупка проведена")
+		check(
+			S.BattlePassData.progress(data.BattlePass.Xp) == S.BattlePassData.MaxLevel,
+			"уровень дошёл до максимума"
+		)
+		local per = S.Config.BP_SKIP_FALLBACK_GEMS
+		check(
+			data.Gems - gems0 == 3 * per,
+			"3 недоданных уровня → гемы: " .. (data.Gems - gems0)
+		)
+		-- на максимуме: вся покупка уходит в компенсацию
+		local gems1 = data.Gems
+		check(fn(receipt(p, 7002, 1009)) == GRANTED, "вторая покупка проведена")
+		check(data.Gems - gems1 == 5 * per, "все 5 уровней компенсированы")
+		-- повтор того же чека ничего не даёт
+		check(
+			fn(receipt(p, 7002, 1009)) == GRANTED and data.Gems - gems1 == 5 * per,
+			"идемпотентность"
+		)
+	end
+)
+
+test(
+	"v2.4 В2: NaN/inf в аргументах remote отсекаются; Craft — только целое 1..10; миграция лечит ресурсы",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("nan")
+		S.U.require("ServerScriptService/Server/CraftService").init()
+		local data, _, p = S.join(41, "Nan")
+		local rec = S.RecipeData.Recipes[1]
+		data.Rebirths = 99
+		data.Coins = 1e9
+		for res, c in pairs(rec.Cost) do
+			data.Resources[res] = c * 20
+		end
+		local before = {}
+		for res, v in pairs(data.Resources) do
+			before[res] = v
+		end
+		local function same()
+			for res, v in pairs(before) do
+				if data.Resources[res] ~= v then
+					return false
+				end
+			end
+			return true
+		end
+		for _, bad in ipairs({ 0 / 0, math.huge, -math.huge, 2.5, 0, 11 }) do
+			local r = S.invoke(p, "Craft", rec.Id, bad)
+			check(r.ok == false, "Craft отклоняет " .. tostring(bad))
+			check(same(), "ресурсы не тронуты после " .. tostring(bad))
+		end
+		-- NaN в любом действии и внутри таблицы аргумента — общий фильтр Router
+		check(S.invoke(p, "Hatch", "BasicEgg", 0 / 0).ok == false, "NaN в Hatch")
+		check(S.invoke(p, "Fuse", { "a", 0 / 0 }, false).ok == false, "NaN внутри таблицы")
+		check(
+			S.invoke(p, "Fuse", { x = { y = { z = { 1 } } } }, false).ok == false,
+			"слишком глубокая таблица"
+		)
+		check(
+			S.Util.argsFinite("a", 1, { 2, { k = 3 } }, nil, true) == true,
+			"обычные аргументы проходят"
+		)
+		check(S.Util.validInt(3, 1, 10) == 3 and S.Util.validInt(0 / 0, 1, 10) == nil, "validInt")
+		-- легальный крафт работает
+		local r = S.invoke(p, "Craft", rec.Id, 2)
+		check(r.ok == true, "Craft x2 проходит: " .. tostring(r.msg))
+		for res, c in pairs(rec.Cost) do
+			check(data.Resources[res] == before[res] - c * 2, "списано " .. res)
+			check(data.Resources[res] == data.Resources[res], res .. " не NaN")
+		end
+		-- старый испорченный профиль лечится при загрузке
+		local broken = {
+			Version = 2,
+			Coins = 1,
+			Gems = math.huge,
+			Rebirths = 0,
+			TotalCoins = 0,
+			Settings = { Lang = "ru" },
+			Resources = { Crystal = 0 / 0, Ore = 5, Wood = -3 },
+			Items = { catalyst = 0 / 0 },
+			BattlePass = { Xp = 0 / 0 },
+		}
+		check(S.Migrations.run(broken) == true, "миграция сообщила об изменениях")
+		check(
+			broken.Resources.Crystal == 0 and broken.Resources.Ore == 5 and broken.Resources.Wood == 0,
+			"Resources вылечены"
+		)
+		check(
+			broken.Items.catalyst == 0 and broken.BattlePass.Xp == 0 and broken.Gems == 0,
+			"Items/BP/Gems вылечены"
+		)
+	end
+)
+
+test(
+	"v2.4 В1/С2: в боевом Config нет демо-бота; бонус друзей пересчитывается при входе и выходе",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("friends")
+		check(S.Config.DEMO_BOT_ENABLED == false, "DEMO_BOT_ENABLED = false в боевом Config")
+		check(S.Config.DEMO_BOTS == false, "DEMO_BOTS = false в боевом Config")
+		S.State.init()
+		S.PlayerService.init()
+		S.U.require("ServerScriptService/Server/TradeService").init()
+		local FRIENDS = { ["80:81"] = true }
+		local function mk(id, name)
+			local p = MAKE_PLAYER(S.U, id, name)
+			p.IsFriendsWithAsync = function(self, other)
+				local a, b = math.min(self.UserId, other), math.max(self.UserId, other)
+				return FRIENDS[a .. ":" .. b] == true
+			end
+			return p
+		end
+		local a = mk(80, "Ann")
+		S.U.Players.PlayerAdded:Fire(a)
+		DRIVE_UNTIL_IDLE(30)
+		check(
+			S.Session.get(a).Friends == 0,
+			"одиночка: друзей 0 (бот не считается)"
+		)
+		local r = S.invoke(a, "TradeStartBot")
+		check(r.ok == false, "сделка с NPC недоступна в живой игре")
+		local b = mk(81, "Ben")
+		S.U.Players.PlayerAdded:Fire(b)
+		DRIVE_UNTIL_IDLE(30)
+		check(S.Session.get(b).Friends == 1, "вошедший видит друга")
+		check(
+			S.Session.get(a).Friends == 1,
+			"у вошедшего раньше бонус тоже появился"
+		)
+		S.U.Players.PlayerRemoving:Fire(b)
+		b.Parent = nil
+		DRIVE_UNTIL_IDLE(30)
+		check(S.Session.get(a).Friends == 0, "после ухода друга бонус снят")
+	end
+)
+
+test(
+	"v2.4 С1: буст удачи x2 не сгорает под x5 — его время встаёт в очередь",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("luck")
+		S.Config.PRODUCT_IDS.LUCK_2X_15M = 1003
+		S.Config.PRODUCT_IDS.LUCK_5X_10M = 1004
+		local data, _, p = S.join(51, "Lucky")
+		local fn = S.U.Game:GetService("MarketplaceService").ProcessReceipt
+		local now = os.time()
+		-- x5, затем x2: x2 начинается после x5
+		fn(receipt(p, 8001, 1004))
+		fn(receipt(p, 8002, 1003))
+		check(data.Boosts.Luck5 - now >= 600 and data.Boosts.Luck5 - now <= 601, "x5 на 10 мин")
+		local tail2 = data.Boosts.Luck2 - data.Boosts.Luck5
+		check(tail2 == 900, "x2 целиком после x5: " .. tail2)
+		local m, ends = S.Economy.getLuckBoost(data)
+		check(m == 5 and ends == data.Boosts.Luck5, "сейчас действует x5")
+		-- x2 идёт, затем покупают x5: остаток x2 сдвигается
+		data.Boosts.Luck2, data.Boosts.Luck5 = now + 300, 0
+		fn(receipt(p, 8003, 1004))
+		check(data.Boosts.Luck2 - data.Boosts.Luck5 == 300, "остаток x2 (300 с) после x5")
+		-- продление x5 при ждущем x2 тоже сдвигает x2
+		fn(receipt(p, 8004, 1004))
+		check(data.Boosts.Luck2 - data.Boosts.Luck5 == 300, "повторный x5 не съедает x2")
+		-- всё оплаченное время суммарно сохраняется: 300 (x2) + 600 + 600 (x5)
+		check(
+			data.Boosts.Luck2 - now >= 1500 and data.Boosts.Luck2 - now <= 1501,
+			"общая длительность сохранена"
+		)
+		-- зелье удачи и ежедневная награда идут через ту же функцию
+		S.Economy.addLuckBoost(data, "Luck2", 0 / 0)
+		check(data.Boosts.Luck2 == data.Boosts.Luck2, "NaN-длительность игнорируется")
+	end
+)
+
+test(
+	"v2.4 С12: после обмена оба профиля сразу сохраняются в DataStore",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("trade")
+		S.U.require("ServerScriptService/Server/TradeService").init()
+		local dA, _, a = S.join(61, "Ann")
+		local dB, _, b = S.join(62, "Bob")
+		dA.Coins, dB.Coins = 1000, 50
+		S.Data.saveNow(a)
+		S.Data.saveNow(b)
+		local function stored(id)
+			return BACKEND.Stores[S.Config.DATASTORE_NAME]["Player_" .. id].Data
+		end
+		check(stored(61).Coins == 1000, "исходное сохранение")
+		check(S.invoke(a, "TradeInvite", 62).ok, "приглашение")
+		check(S.invoke(b, "TradeRespond", true).ok, "принято")
+		check(S.invoke(a, "TradeOffer", {}, 300).ok, "оффер монет")
+		check(
+			S.invoke(a, "TradeReady", true).ok and S.invoke(b, "TradeReady", true).ok,
+			"оба готовы"
+		)
+		ADVANCE(S.Config.TRADE_CONFIRM_SECONDS + 1)
+		S.invoke(a, "TradeConfirm")
+		S.invoke(b, "TradeConfirm")
+		DRIVE_UNTIL_IDLE(30)
+		check(dA.Coins == 700 and dB.Coins == 350, "обмен прошёл: " .. dA.Coins .. "/" .. dB.Coins)
+		check(
+			stored(61).Coins == 700,
+			"отдающий сохранён сразу: " .. tostring(stored(61).Coins)
+		)
+		check(
+			stored(62).Coins == 350,
+			"получатель сохранён сразу: " .. tostring(stored(62).Coins)
+		)
+	end
+)
+
+test(
+	"v2.4 С5: после краша сервера вход ждёт протухания блокировки (без кика); неудачное финальное сохранение повторяется",
+	function()
+		BACKEND.Stores = {}
+		local A = boot("A")
+		local B = boot("B")
+		local pa = MAKE_PLAYER(A.U, 91, "Kai")
+		local da = A.Data.load(pa)
+		da.Coins = 4242
+		A.Data.saveNow(pa) -- A «упал»: блокировка осталась, автосейва больше нет
+		local t0 = os.clock()
+		local db, err = B.Data.load(MAKE_PLAYER(B.U, 91, "Kai")) -- игрок сразу перезаходит
+		check(
+			db ~= nil and db.Coins == 4242,
+			"вход после ожидания, а не кик: " .. tostring(err)
+		)
+		check(
+			os.clock() - t0 <= B.Config.SESSION_LOCK_TIMEOUT + 2 * B.Config.LOAD_LOCK_RETRY_DELAY,
+			"ждали не дольше таймаута"
+		)
+
+		-- финальное сохранение при выходе не удалось — повтор в фоне
+		BACKEND.Stores = {}
+		local C = boot("C")
+		C.Config.SAVE_ATTEMPTS = 1
+		local pc = MAKE_PLAYER(C.U, 92, "Liv")
+		local dc = C.Data.load(pc)
+		dc.Coins = 999
+		BACKEND.FailAlways = true
+		C.Data.release(pc)
+		BACKEND.FailAlways = false
+		check(
+			#C.Data._failedReleases == 1,
+			"профиль в очереди повторного сохранения"
+		)
+		DRIVE_UNTIL_IDLE(120)
+		local rec = BACKEND.Stores[C.Config.DATASTORE_NAME]["Player_92"]
+		check(
+			rec.Data and rec.Data.Coins == 999 and rec.Lock == nil,
+			"повтор сохранил данные и снял блокировку"
+		)
+		check(#C.Data._failedReleases == 0, "очередь пуста")
+	end
+)
+
+test(
+	"v2.4 С3: отбрасывание не проходит сквозь стену и не сбрасывает в пропасть",
+	function()
+		local S = boot("knock")
+		local K = S.U.require("ServerScriptService/Server/Knockback")
+		local prevParams = RaycastParams
+		RaycastParams = {
+			new = function()
+				return {}
+			end,
+		}
+		local WS = S.U.Game:GetService("Workspace")
+		local wallX, edgeX = 1e9, 1e9
+		WS.Raycast = function(_, origin, dir)
+			if dir.Y < 0 then -- луч вниз: земля есть только до края
+				return if origin.X <= edgeX then { Position = Vector3.new(origin.X, 0, origin.Z) } else nil
+			end
+			local reach = origin.X + dir.X
+			if reach >= wallX then
+				return { Position = Vector3.new(wallX, origin.Y, origin.Z) }
+			end
+			return nil
+		end
+		K.groundCheckAvailable = true
+		local o = Vector3.new(0, 3, 0)
+		check(
+			K.safeDistance(o, Vector3.new(1, 0, 0), 18, {}) == 18,
+			"открытое место — полная дистанция"
+		)
+		wallX = 6
+		local d = K.safeDistance(o, Vector3.new(1, 0, 0), 18, {})
+		check(d == 6 - 2.5, "стена в 6 студах — остановка перед ней: " .. d)
+		wallX, edgeX = 1e9, 10
+		d = K.safeDistance(o, Vector3.new(1, 0, 0), 18, {})
+		check(
+			d > 0 and d <= 10,
+			"обрыв в 10 студах — приземление на опору: " .. d
+		)
+		check(
+			K.offset(o, Vector3.new(0, 1, 0), 18, {}).Magnitude == 0,
+			"вертикальное направление — без сдвига (без NaN)"
+		)
+		RaycastParams = prevParams
+		K.groundCheckAvailable = false
+	end
+)
+
+test(
+	"v2.4 С4: спидхак ×2 ловится по перемещению; легальное движение — нет",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("speed")
+		local AE = S.U.require("ServerScriptService/Server/AntiExploit")
+		local data, _, p = S.join(71, "Zoom")
+		local s = S.Session.get(p)
+		local root = p.Character.HumanoidRootPart
+		p.Character.Humanoid.WalkSpeed = 16
+		local legal = S.Economy.getWalkSpeed(p, data)
+		local limit = AE.speedLimit(legal)
+		check(
+			limit < 60,
+			"порог для базовой скорости заметно ниже старых 220: "
+				.. limit
+		)
+		ADVANCE(5)
+		AE._check(p)
+		-- легально: скорость персонажа
+		ADVANCE(1)
+		root.Position = root.Position + Vector3.new(legal, 0, 0)
+		AE._check(p)
+		check(#s.Strikes == 0, "легальное движение без страйков")
+		-- спидхак ×2.5 (раньше не ловился)
+		ADVANCE(1)
+		root.Position = root.Position + Vector3.new(legal * 2.5, 0, 0)
+		AE._check(p)
+		check(#s.Strikes > 0, "спидхак ×2.5 замечен")
+		-- после серверного телепорта проверка выключена
+		local n = #s.Strikes
+		AE.markTeleport(p)
+		ADVANCE(1)
+		root.Position = root.Position + Vector3.new(500, 0, 0)
+		AE._check(p)
+		check(#s.Strikes == n, "серверный телепорт не наказывается")
+		-- суперсила: порог растёт вместе со скоростью
+		check(AE.speedLimit(legal * 1.45) > limit, "порог учитывает суперскорость")
+	end
+)
+
+test(
+	"v2.4 С10: питомец-награда при полной сумке ждёт в почте и приходит после освобождения места",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("mail")
+		local data, _, p = S.join(81, "Full")
+		local bag = S.Economy.getBagSize(data)
+		local petId = S.PetData.Pets[1].Id
+		for _ = 1, bag do
+			S.Economy.addPet(p, petId, "Normal")
+		end
+		check(S.Economy.countPets(data) == bag, "сумка полна")
+		S.Economy.grant(p, { Pet = petId })
+		check(S.Economy.countPets(data) == bag, "награда не превысила лимит")
+		check(#data.PetMail == 1, "питомец ждёт в почте")
+		-- продажа освобождает место — награда приходит
+		local uid = next(data.Pets)
+		check(S.invoke(p, "Sell", uid).ok, "продажа")
+		check(
+			#data.PetMail == 0 and S.Economy.countPets(data) == bag,
+			"почта доставлена после продажи"
+		)
+		-- при свободном месте награда выдаётся сразу
+		uid = next(data.Pets)
+		S.invoke(p, "Sell", uid)
+		S.Economy.grant(p, { Pet = petId })
+		check(
+			#data.PetMail == 0 and S.Economy.countPets(data) == bag,
+			"свободное место — сразу в инвентарь"
+		)
+	end
+)
+
+test(
+	"v2.4 С13/Г4: шансы слияния в UI = реальные шансы сервера (с катализатором); сияние зависит от варианта",
+	function()
+		local S = boot("fuse")
+		local M = S.PetMeta
+		for _, v in ipairs({ "Normal", "Golden", "Rainbow" }) do
+			for _, cat in ipairs({ false, true }) do
+				local o = M.fuseOdds(v, cat)
+				check(math.abs(o.Shiny + o.Upgrade + o.Same - 1) < 1e-9, v .. ": сумма шансов = 1")
+				-- точный расчёт по сетке бросков (roll1, roll2) — без случайности
+				local N = 400
+				local got = { Shiny = 0, Up = 0, Same = 0 }
+				for i = 0, N - 1 do
+					for j = 0, N - 1 do
+						local r = M.fuseVariant(
+							v,
+							(i + 0.5) / N,
+							(j + 0.5) / N,
+							if cat then M.CATALYST_BONUS else 0
+						)
+						if r == "Shiny" then
+							got.Shiny += 1
+						elseif r == v then
+							got.Same += 1
+						else
+							got.Up += 1
+						end
+					end
+				end
+				local tag = v .. (if cat then "+катализатор" else "")
+				check(
+					math.abs(got.Shiny / N ^ 2 - o.Shiny) < 0.004,
+					tag .. ": сияние " .. got.Shiny / N ^ 2 .. " vs " .. o.Shiny
+				)
+				check(math.abs(got.Up / N ^ 2 - o.Upgrade) < 0.004, tag .. ": улучшение")
+				check(math.abs(got.Same / N ^ 2 - o.Same) < 0.004, tag .. ": без изменений")
+			end
+		end
+		check(
+			M.fuseOdds("Normal", false).Shiny < M.fuseOdds("Golden", false).Shiny,
+			"Normal даёт сияние реже Golden"
+		)
+		check(
+			M.fuseOdds("Golden", false).Shiny < M.fuseOdds("Rainbow", false).Shiny,
+			"Golden реже Rainbow"
+		)
+		check(
+			M.fuseOdds("Normal", true).Shiny > M.fuseOdds("Normal", false).Shiny,
+			"катализатор повышает сияние (это видно в UI)"
+		)
+	end
+)
+
+test(
+	"v2.4 М1: XP пропуска, набранный в новом сезоне до первого клейма, не сгорает",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("season")
+		local data, _, p = S.join(95, "Sea")
+		data.BattlePass.Season = S.BattlePassData.Season - 1 -- профиль из прошлого сезона
+		data.BattlePass.Xp = 5000
+		data.BattlePass.ClaimedFree = { ["1"] = true }
+		S.Economy.addBpXp(p, 120)
+		check(
+			data.BattlePass.Season == S.BattlePassData.Season,
+			"сезон обновлён при начислении XP"
+		)
+		check(
+			data.BattlePass.Xp == 120,
+			"старый XP сброшен, новый сохранён: " .. data.BattlePass.Xp
+		)
+		check(
+			next(data.BattlePass.ClaimedFree) == nil,
+			"клеймы прошлого сезона сброшены"
+		)
+		-- клейм после этого XP не обнуляет
+		S.U.require("ServerScriptService/Server/BattlePassService").sync(data)
+		check(
+			data.BattlePass.Xp == 120,
+			"повторная синхронизация ничего не сбрасывает"
+		)
+	end
+)
+
+test(
+	"v2.4 Г1: ребёрт — множитель догоняет цену, потолок REBIRTH_MAX ниже MAX_COINS",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("rebirth")
+		local F, C = S.Formulas, S.Config
+		check(
+			F.rebirthMultiplier(1) == 1.5 and F.rebirthMultiplier(4) == 3,
+			"первые ребёрты как раньше (+0.5)"
+		)
+		check(math.abs(F.rebirthMultiplier(5) - 3 * 1.3) < 1e-9, "дальше ×1.3")
+		for n = 1, C.REBIRTH_MAX do
+			check(
+				F.rebirthMultiplier(n) > F.rebirthMultiplier(n - 1),
+				"множитель растёт: " .. n
+			)
+		end
+		check(
+			F.rebirthCost(C.REBIRTH_MAX - 1) < C.MAX_COINS,
+			"последний ребёрт дешевле потолка монет"
+		)
+		-- «стена»: отношение цены к множителю растёт не быстрее чем в ×2.4 за ребёрт после 4-го
+		for n = 5, C.REBIRTH_MAX - 1 do
+			local k = (F.rebirthCost(n) / F.rebirthMultiplier(n))
+				/ (F.rebirthCost(n - 1) / F.rebirthMultiplier(n - 1))
+			check(k < 2.4, "рост сложности на ребёрт " .. n .. ": " .. k)
+		end
+		-- серверный потолок
+		local data, _, p = S.join(97, "Max")
+		data.Rebirths = C.REBIRTH_MAX
+		data.Coins = C.MAX_COINS
+		local r = S.invoke(p, "Rebirth")
+		check(
+			r.ok == false and data.Rebirths == C.REBIRTH_MAX,
+			"сверх максимума ребёрт не проходит"
+		)
+	end
+)
+
+test(
+	"v2.4 Г3: обучение первой сессии — шаги засчитывает сервер, награды, пропуск, ветераны без обучения",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("tutorial")
+		local TD = S.U.require("ReplicatedStorage/Shared/TutorialData")
+		local TS = S.U.require("ServerScriptService/Server/TutorialService")
+		TS.init()
+		local data, _, p = S.join(99, "Newbie")
+		check(data.Tutorial.Step == 1, "новый игрок начинает обучение")
+		-- чужие события не засчитываются
+		TS.onEvent(p, "hatch", 1)
+		check(data.Tutorial.Step == 1 and data.Tutorial.P == 0, "шаги по порядку")
+		local coins0 = data.Coins
+		for _ = 1, TD.Steps[1].Count do
+			S.click(p)
+			ADVANCE(0.2)
+		end
+		check(
+			data.Tutorial.Step == 2,
+			"25 ручных сборов — шаг 1 пройден: "
+				.. data.Tutorial.Step
+				.. "/"
+				.. data.Tutorial.P
+		)
+		check(
+			data.Coins - coins0 >= TD.Steps[1].RewardCoins,
+			"монеты на первое яйцо выданы"
+		)
+		local r = S.invoke(p, "Hatch", "MeadowEgg", 1)
+		check(r.ok, "первое яйцо куплено: " .. tostring(r.msg))
+		check(data.Tutorial.Step == 3, "шаг «яйцо»")
+		check(S.invoke(p, "EquipBest").ok and data.Tutorial.Step == 4, "шаг «в команду»")
+		TS.onEvent(p, "boss", 1)
+		check(data.Tutorial.Step == 5, "убийство босса считается убийством")
+		local gems0 = data.Gems
+		TS.onEvent(p, "gather", 1)
+		check(
+			data.Tutorial.Step == TD.DONE and data.Gems - gems0 == TD.REWARD_GEMS,
+			"обучение пройдено, гемы выданы"
+		)
+		TS.onEvent(p, "gather", 1)
+		check(data.Gems - gems0 == TD.REWARD_GEMS, "повторно награда не выдаётся")
+		-- пропуск
+		local d2, _, p2 = S.join(100, "Skipper")
+		check(
+			S.invoke(p2, "TutorialSkip").ok and d2.Tutorial.Step == TD.DONE,
+			"пропуск обучения"
+		)
+		-- ветеран из v2.3 (без поля Tutorial, с питомцами)
+		local old = {
+			Version = 2,
+			Coins = 5,
+			Gems = 0,
+			Rebirths = 0,
+			TotalCoins = 0,
+			TotalHatched = 12,
+			Settings = { Lang = "ru" },
+		}
+		S.Migrations.run(old)
+		check(old.Tutorial.Step >= TD.DONE, "ветерану обучение не показывается")
+		local fresh = {
+			Version = 2,
+			Coins = 0,
+			Gems = 0,
+			Rebirths = 0,
+			TotalCoins = 0,
+			TotalHatched = 0,
+			Settings = { Lang = "ru" },
+		}
+		S.Migrations.run(fresh)
+		check(
+			fresh.Tutorial.Step == 1,
+			"старый пустой профиль проходит обучение"
+		)
+	end
+)
+
+test(
+	"v2.4 С7: ресурсы закрытого мира собрать нельзя (эксплойт), открытого — можно",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("lockedgather")
+		local ZD = S.U.require("ReplicatedStorage/Shared/ZoneData")
+		local RS = S.U.require("ServerScriptService/Server/ResourceService")
+		RS.init()
+		local data, _, p = S.join(77, "Walker")
+		local locked = ZD.List[2]
+		check(not data.Zones[locked.Id], "второй мир закрыт у нового игрока")
+		local res0 = 0
+		for _, v in pairs(data.Resources) do
+			res0 += v
+		end
+		check(
+			not RS.harvestNearest(p, locked.Position, 95),
+			"в закрытом мире узел не собирается"
+		)
+		local res1 = 0
+		for _, v in pairs(data.Resources) do
+			res1 += v
+		end
+		check(res1 == res0, "ресурсы не начислены")
+		data.Zones[locked.Id] = true
+		check(
+			RS.harvestNearest(p, locked.Position, 95),
+			"после открытия мира узел собирается"
+		)
 	end
 )
 

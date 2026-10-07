@@ -98,7 +98,7 @@ function EggPanel.init(gui: ScreenGui)
 	})
 	ticketBtn.Name = "TicketButton"
 
-	local function render()
+	local function renderHeader()
 		local core = ClientState.Core
 		local egg = currentEgg and PetData.EggsById[currentEgg]
 		if not core or not egg then
@@ -121,7 +121,16 @@ function EggPanel.init(gui: ScreenGui)
 			gold = string.format("%.0f", Config.GOLD_CHANCE * 100),
 			rainbow = string.format("%.1f", Config.RAINBOW_CHANCE * 100),
 		})
+	end
 
+	-- v2.4 (аудит С14): список шансов перестраивается только при смене яйца, удачи или языка;
+	-- монеты/гемы/билеты обновляют лишь шапку (renderHeader), без пересоздания строк
+	local function renderList()
+		local core = ClientState.Core
+		local egg = currentEgg and PetData.EggsById[currentEgg]
+		if not core or not egg then
+			return
+		end
 		Widgets.clear(list)
 		local odds = PetData.getOdds(egg.Id, core.Luck)
 		-- Сортировка: редкие выше
@@ -183,6 +192,16 @@ function EggPanel.init(gui: ScreenGui)
 	end
 
 	local lastKey = ""
+	local function listKey(core): string
+		return tostring(currentEgg) .. "|" .. string.format("%.4f", core.Luck)
+	end
+	local function render()
+		renderHeader()
+		renderList()
+		local core = ClientState.Core
+		lastKey = if core then listKey(core) else ""
+	end
+
 	L.onChanged(function()
 		lastKey = ""
 		if panel.IsOpen() then
@@ -191,17 +210,11 @@ function EggPanel.init(gui: ScreenGui)
 	end)
 	ClientState.onCore(function(core)
 		if panel.IsOpen() then
-			-- перерисовываем только при смене валюты/удачи (иначе список мигал бы каждую секунду)
-			local key = tostring(core.Coins)
-				.. "|"
-				.. tostring(core.Gems)
-				.. "|"
-				.. tostring(core.Luck)
-				.. "|"
-				.. tostring(core.Items and core.Items["ticket_" .. (currentEgg or "")])
+			renderHeader()
+			local key = listKey(core)
 			if key ~= lastKey then
 				lastKey = key
-				render()
+				renderList()
 			end
 		end
 	end)

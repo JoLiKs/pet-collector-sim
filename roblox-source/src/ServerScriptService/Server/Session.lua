@@ -16,8 +16,10 @@ export type PlayerSession = {
 	Friends: number, -- друзья на этом сервере (+ бот-друг в демо)
 	LastPosition: Vector3?,
 	LastPositionTime: number,
+	LastExpectedSpeed: number,
 	Ready: boolean, -- данные загружены, можно играть
 	-- событие «Суперсила» (SuperpowerService): множители суперигрока и оглушение охотника
+	IsSuper: boolean, -- сейчас суперигрок (ZoneService не даёт телепортироваться)
 	SuperSpeed: number,
 	SuperJump: number,
 	SuperCoin: number,
@@ -47,7 +49,9 @@ function Session.create(player: Player): PlayerSession
 		Friends = 0,
 		LastPosition = nil,
 		LastPositionTime = 0,
+		LastExpectedSpeed = 0,
 		Ready = false,
+		IsSuper = false,
 		SuperSpeed = 1,
 		SuperJump = 1,
 		SuperCoin = 1,

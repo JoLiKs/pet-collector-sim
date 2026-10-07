@@ -93,6 +93,8 @@ local function buildCore(player: Player, data: DataService.Data)
 		Slots = Economy.getPetSlots(player, data),
 		BagSize = Economy.getBagSize(data),
 		PetCount = Economy.countPets(data),
+		Tutorial = { Step = data.Tutorial.Step, P = data.Tutorial.P }, -- v2.4 (Г3)
+		PetMail = #data.PetMail, -- v2.4: питомцы-награды, ждущие места в инвентаре
 		Equipped = data.Equipped,
 		Upgrades = data.Upgrades,
 		Zones = data.Zones,
