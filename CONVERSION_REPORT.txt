@@ -1,15 +1,15 @@
-roblox2web 2.3.0 — отчёт о конвертации
+roblox2web 2.4.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Скрипты: 103/103 транспилированы в JS, 24211 строк Luau
+Скрипты: 110/110 транспилированы в JS, 25728 строк Luau
 
 === Покрытие API (статический анализ исходников) ===
-Глобальные API — поддержаны: CFrame, Color3, Enum, Instance, Random, RaycastParams, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, next, os, pairs, pcall, print, require, select, setmetatable, string, table, task, tonumber, tostring, type, typeof, warn
+Глобальные API — поддержаны: CFrame, Color3, ColorSequence, Enum, Instance, Random, RaycastParams, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, next, os, pairs, pcall, print, require, select, setmetatable, string, table, task, tonumber, tostring, type, typeof, utf8, warn
 Глобальные API — НЕ найдены в эмуляторе: —
 Функции библиотек — НЕ поддержаны: —
-Сервисы — поддержаны: DataStoreService, HttpService, Lighting, LocalizationService, MarketplaceService, Players, PolicyService, ReplicatedStorage, RunService, StarterGui, StarterPack, TweenService, UserInputService, Workspace
+Сервисы — поддержаны: BadgeService, DataStoreService, HttpService, Lighting, LocalizationService, MarketplaceService, Players, PolicyService, ReplicatedFirst, ReplicatedStorage, RunService, StarterGui, StarterPack, TweenService, UserInputService, Workspace
 Сервисы — НЕ поддержаны: UserService
 Сервисы-заглушки (вызовы логируются, функциональность урезана): LocalizationService
-Instance.new — поддержаны: Atmosphere, BillboardGui, Camera, Folder, Frame, Humanoid, IntValue, Model, Motor6D, Part, PointLight, ProximityPrompt, RemoteEvent, RemoteFunction, SpawnLocation, StringValue, SurfaceGui, TextLabel, Tool, UICorner, UIStroke, WedgePart, WeldConstraint
+Instance.new — поддержаны: Atmosphere, BillboardGui, Camera, Folder, Frame, Humanoid, ImageLabel, IntValue, Model, Motor6D, Part, PointLight, ProximityPrompt, RemoteEvent, RemoteFunction, ScreenGui, SpawnLocation, StringValue, SurfaceGui, TextLabel, Tool, UICorner, UIGradient, UIScale, UIStroke, UITextSizeConstraint, WedgePart, WeldConstraint
 Instance.new — НЕ поддержаны: —
 Enum — НЕ поддержаны: BulkMoveMode.FireCFrameChanged
 Методы вызываются, но не найдены ни в эмуляторе, ни в проекте: GetUserInfosByUserIdsAsync

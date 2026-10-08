@@ -23,6 +23,7 @@ local Locale = require(Shared.Locale)
 local Remotes = require(Shared.Remotes)
 local Logic = require(Shared.SuperpowerLogic)
 
+local Badges = require(script.Parent.Badges)
 local AntiExploit = require(script.Parent.AntiExploit)
 local Knockback = require(script.Parent.Knockback)
 local DataService = require(script.Parent.DataService)
@@ -455,6 +456,9 @@ function SuperpowerService.start(forcedKey: string?): string?
 	end
 	setPower(u, true, r)
 	updateBar(r)
+	if not u.IsBot and u.Player then
+		Badges.award(u.Player, "SUPERPOWER")
+	end
 	local model = u.GetModel()
 	local root = rootOf(u)
 	combatFx(nil, "SuperStart", model, root and root.Position)

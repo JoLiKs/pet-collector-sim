@@ -28,6 +28,7 @@ panels.Craft = require(Modules:WaitForChild("CraftPanel")).init(gui)
 panels.Boards = require(Modules:WaitForChild("BoardsPanel")).init(gui)
 panels.Trade = require(Modules:WaitForChild("TradePanel")).init(gui)
 panels.Index = require(Modules:WaitForChild("IndexPanel")).init(gui) -- v2.5: индекс питомцев
+panels.Inventory = require(Modules:WaitForChild("InventoryPanel")).init(gui) -- v2.6: ресурсы и предметы
 local Dialog = require(Modules:WaitForChild("DialogPanel")).init(gui)
 require(Modules:WaitForChild("HatchPopup")).init(gui)
 

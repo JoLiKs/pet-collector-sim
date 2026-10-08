@@ -23,6 +23,7 @@ local ResourceData = require(Shared.ResourceData)
 local Remotes = require(Shared.Remotes)
 local ZoneData = require(Shared.ZoneData)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local PetService = require(script.Parent.PetService)
@@ -343,6 +344,7 @@ local function reward(player: Player, e: Enemy)
 		Progress.record(player, "kill", def.Id, 1, e.Zone)
 		if def.Boss then
 			Progress.record(player, "boss", def.Id, 1, e.Zone)
+			Badges.award(player, "FIRST_BOSS")
 		end
 	end
 	fx(

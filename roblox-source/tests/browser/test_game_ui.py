@@ -34,10 +34,18 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     # v2.5: компактный HUD как в Roblox-симуляторах — без сетки из 12 кнопок и без кнопки «УДАР»
     for n in ['ShopBtn', 'IndexBtn', 'MoreBtn']:
         check('слева: ' + n, g.vis('[data-n="LeftButtons"] [data-n="%s"]' % n))
-    for n in ['EggsBtn', 'PetsBtn', 'QuestsBtn']:
+    for n in ['EggsBtn', 'PetsBtn', 'QuestsBtn', 'InventoryBtn']:
         check('справа: ' + n, g.vis('[data-n="RightButtons"] [data-n="%s"]' % n))
     check('валюты слева снизу', g.vis('[data-n="Currency"] [data-n="Coins"]') and g.vis('[data-n="Currency"] [data-n="Gems"]'))
     check('хотбар: 3 слота', all(g.vis('[data-n="Hotbar"] [data-n="Slot%d"]' % i) for i in (1, 2, 3)))
+    # v2.6: иконки валют и хотбара — из примитивов GUI (не эмодзи): контейнер Icon со слоями-фреймами
+    NLAYERS = "(sel)=>{const e=document.querySelector(sel); return e? e.querySelectorAll('div').length: 0}"
+    for sel in ['[data-n="Currency"] [data-n="Coins"] [data-n="Icon"]', '[data-n="Currency"] [data-n="Gems"] [data-n="Icon"]',
+                '[data-n="Hotbar"] [data-n="Slot1"] [data-n="Icon"]', '[data-n="Hotbar"] [data-n="Slot2"] [data-n="Icon"]',
+                '[data-n="Hotbar"] [data-n="Slot3"] [data-n="Icon"]', '[data-n="RightButtons"] [data-n="InventoryBtn"] [data-n="Icon"]']:
+        check('иконка из примитивов: ' + sel.split('"')[-2] + ' ' + sel.split('"')[3], g.vis(sel) and page.evaluate(NLAYERS, sel) >= 5, page.evaluate(NLAYERS, sel))
+    hud_txt = g.text('[data-n="Currency"]') + g.text('[data-n="Hotbar"]')
+    check('в валютах и хотбаре нет эмодзи', not any(ch in hud_txt for ch in '🪙💎⚔🧲🧪'), hud_txt)
     g.wait(lambda: g.vis('[data-n="Timer"] [data-n="NextEvent"]'), what='next event chip', timeout=30)
     nxt = g.p.locator('[data-n="Timer"] [data-n="NextEvent"]').first.inner_text()
     check('справа снизу — компактный таймер до ближайшего события', ':' in nxt and '🌙' in nxt, nxt)
@@ -126,7 +134,27 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="CraftPanel"] [data-n="Tab_Items"]')
     g.wait(lambda: 'x1' in g.text('[data-n="CraftPanel"]') or 'x2' in g.text('[data-n="CraftPanel"]'), what='craft item')
     check('крафт: предмет появился', True)
+    check('крафт: у ресурсов свои иконки', all(g.vis('[data-n="CraftPanel"] [data-n="Icon_%s"]' % r) for r in ['Wood', 'Stone', 'Ore', 'Herb', 'Crystal', 'Essence', 'Fragment']))
     g.click('[data-n="CraftPanel"] [data-n="Close"]')
+
+    # --- v2.6: инвентарь — все ресурсы и предметы, у каждого своя иконка; клик — описание, где добыть, для чего
+    g.click('[data-n="RightButtons"] [data-n="InventoryBtn"]')
+    g.wait(lambda: g.vis('[data-n="InventoryPanel"]') and g.p.locator('[data-n="InventoryPanel"] [data-n^="Cell_"]').count() > 0, what='inventory')
+    ncell = g.p.locator('[data-n="InventoryPanel"] [data-n^="Cell_"]').count()
+    check('инвентарь: 7 ресурсов + 9 предметов', ncell == 16, ncell)
+    kinds = page.evaluate("""(()=>{const out=new Set(); for(const c of document.querySelectorAll('[data-n="InventoryPanel"] [data-n^="Cell_"]')){
+      const i=c.querySelector('[data-n="Icon"]'); if(i && i.querySelectorAll('div').length>=3) out.add(c.dataset.n);} return out.size;})()""")
+    check('инвентарь: в каждой ячейке своя иконка', kinds == ncell, kinds)
+    wood = g.text('[data-n="InventoryPanel"] [data-n="Cell_Wood"] [data-n="Count"]')
+    check('инвентарь: число дерева после seed', wood not in ('', '0'), wood)
+    g.click('[data-n="InventoryPanel"] [data-n="Cell_Crystal"]'); g.vwait(0.3)
+    info = g.text('[data-n="InventoryPanel"] [data-n="Info"]')
+    check('инвентарь: кристалл — где добыть (миры) и для чего (рецепты)', 'Where to get' in info and 'Frostpeak Glade' in info and 'Used for' in info and 'Luck Potion' in info, info[:300])
+    g.shot('15_inventory')
+    g.click('[data-n="InventoryPanel"] [data-n="Cell_luck_potion"]'); g.vwait(0.3)
+    info = g.text('[data-n="InventoryPanel"] [data-n="Info"]')
+    check('инвентарь: зелье — верстак и сундуки, как применить', 'Workbench' in info and 'chests' in info and 'Drink' in info, info[:300])
+    g.click('[data-n="InventoryPanel"] [data-n="Close"]')
 
     # --- NPC и квест
     g.cmd('tp:-30,30')

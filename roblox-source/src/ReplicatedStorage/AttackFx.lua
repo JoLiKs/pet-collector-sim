@@ -1,12 +1,17 @@
 --!strict
 --[[
 	AttackFx — визуал удара на КЛИЕНТЕ (урон считает только сервер).
-	  * замах правой рукой через Motor6D.C0 (R6: Torso["Right Shoulder"], R15: RightUpperArm.RightShoulder) + поворот торса (RootJoint/Root);
-	  * меч из примитивов в руке на время удара;
+	  * замах правой рукой + поворот торса через joint.Transform (кадр RunService.PreSimulation, поверх позы Animator):
+	    работает и со старыми Motor6D, и с AnimationConstraint (Avatar Joint Upgrade, у них C0/C1 только для чтения);
+	    R6: Torso["Right Shoulder"] / HumanoidRootPart.RootJoint, R15: RightUpperArm.RightShoulder / LowerTorso.Root;
+	    суставов нет — качаем Tool.Grip меча;
+	  * меч: Tool "Sword" из хотбара в руке (двигается вместе с рукой); без Tool (боты) — меч из примитивов;
 	  * след удара — неоновый полумесяц из сегментов, пролетает справа налево и тает (Transparency);
 	  * лёгкий рывок вперёд (только свой персонаж), рывок питомцев (PetFollower читает AttackFx.lastSwing);
 	  * вспышка и искры при попадании (AttackFx.impact).
-	Только стандартные API: Motor6D, CFrame, TweenService, Part/Neon — одинаково в Roblox и в эмуляторе roblox2web.
+	Только стандартные API: Motor6D/AnimationConstraint.Transform, CFrame, TweenService, Part/Neon — одинаково в Roblox и в эмуляторе roblox2web.
+	Почему не C0: v2.5 писал Motor6D.C0 и искал только Motor6D — с Avatar Joint Upgrade (суставы R15 = AnimationConstraint)
+	сустав не находился и рука стояла на месте, а рисованный меч в v2.5 убрали в пользу Tool — замах пропал.
 ]]
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -71,24 +76,72 @@ local function fadeAndDestroy(p: BasePart, delay: number, duration: number, goal
 	end)
 end
 
-local function findMotor(
-	character: Model,
-	r6Parent: string,
-	r6Name: string,
-	r15Parent: string,
-	r15Name: string
-): Motor6D?
-	local a = character:FindFirstChild(r6Parent)
-	local m = a and a:FindFirstChild(r6Name)
-	if m and m:IsA("Motor6D") then
-		return m
-	end
-	local b = character:FindFirstChild(r15Parent)
-	local m2 = b and b:FindFirstChild(r15Name)
-	if m2 and m2:IsA("Motor6D") then
-		return m2
+-- Сустав: Motor6D (классика) или AnimationConstraint (Avatar Joint Upgrade). Варианты имён: R6, затем R15.
+function AttackFx.findJoint(character: Instance, candidates: { { string } }): Instance?
+	for _, c in ipairs(candidates) do
+		local parent = character:FindFirstChild(c[1])
+		local j = parent and parent:FindFirstChild(c[2])
+		if j and (j:IsA("Motor6D") or j:IsA("AnimationConstraint")) then
+			return j
+		end
 	end
 	return nil
+end
+AttackFx.SHOULDER = { { "Torso", "Right Shoulder" }, { "RightUpperArm", "RightShoulder" } } -- l10n-ok (имена суставов)
+AttackFx.ROOT = { { "HumanoidRootPart", "RootJoint" }, { "LowerTorso", "Root" } }
+
+-- Поворот сустава в «пространстве C0»: поза = C0 * offset * Transform. Для поворота q вокруг осей родителя
+-- (как раньше C0' = pos * q * rot) offset = rot^-1 * q * rot. C0 у AnimationConstraint — алиас только для чтения.
+local function jointFrame(j: Instance): CFrame
+	local ok, c0 = pcall(function()
+		return (j :: any).C0
+	end)
+	if ok and typeof(c0) == "CFrame" then
+		return c0
+	end
+	local ok2, a0 = pcall(function()
+		return (j :: any).Attachment0
+	end)
+	if ok2 and a0 and a0:IsA("Attachment") then
+		return a0.CFrame
+	end
+	return CFrame.new()
+end
+
+local function sameCF(a: CFrame, b: CFrame): boolean
+	return (a.Position - b.Position).Magnitude < 1e-3
+		and a.LookVector:Dot(b.LookVector) > 0.99999
+		and a.UpVector:Dot(b.UpVector) > 0.99999
+end
+
+-- Драйвер одного сустава: каждый кадр Transform = offset * (поза анимации). Если Animator в этом кадре
+-- Transform не переписал (нет анимации / эмулятор) — берём сохранённую базу, а не накапливаем повороты.
+type Driver = { set: (CFrame) -> (), reset: () -> () }
+local function jointDriver(j: Instance?): Driver?
+	if not j then
+		return nil
+	end
+	local rot = jointFrame(j).Rotation
+	local base: CFrame = (j :: any).Transform
+	local written: CFrame? = nil
+	local d: Driver = {} :: any
+	function d.set(q: CFrame)
+		local cur: CFrame = (j :: any).Transform
+		if not (written and sameCF(cur, written)) then
+			base = cur
+		end
+		local v = rot:Inverse() * q * rot * base
+		written = v;
+		(j :: any).Transform = v
+	end
+	function d.reset()
+		local cur: CFrame = (j :: any).Transform
+		if written and sameCF(cur, written) then
+			(j :: any).Transform = base
+		end
+		written = nil
+	end
+	return d
 end
 
 local function lerp(a: number, b: number, t: number): number
@@ -269,32 +322,37 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	end
 	AttackFx.lastSwing[player] = { T = os.clock(), Dir = flat }
 
-	local shoulder = findMotor(character, "Torso", "Right Shoulder", "RightUpperArm", "RightShoulder")
-	local rootJoint = findMotor(character, "HumanoidRootPart", "RootJoint", "LowerTorso", "Root")
+	local shoulder = jointDriver(AttackFx.findJoint(character, AttackFx.SHOULDER))
+	local rootJoint = jointDriver(AttackFx.findJoint(character, AttackFx.ROOT))
 	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
-	local shoulderBase = shoulder and shoulder.C0
-	local rootBase = rootJoint and rootJoint.C0
-	-- v2.5: меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, двигается только рука
+	-- меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, Tool движется вместе с рукой
 	local held = character:FindFirstChildOfClass("Tool")
-	local sword = if held
-			and held.Name == "Sword"
-			and held:FindFirstChild("Handle")
-		then { Parts = {} }
-		else buildSword()
+	local heldSword = held and held.Name == "Sword" and held:FindFirstChild("Handle") and held or nil
+	local sword = if heldSword then { Parts = {} } else buildSword()
+	-- запасной вариант без суставов: качаем сам меч через Tool.Grip
+	local gripBase: CFrame? = if heldSword and not shoulder then (heldSword :: Tool).Grip else nil
 	local t0 = os.clock()
 	local arcDone, lunged = false, 0
 	local conn: RBXScriptConnection? = nil
+	local poseConn: RBXScriptConnection? = nil
 
 	local function stop()
 		if conn then
 			conn:Disconnect()
 			conn = nil
 		end
-		if shoulder and shoulderBase then
-			shoulder.C0 = shoulderBase
+		if poseConn then
+			poseConn:Disconnect()
+			poseConn = nil
 		end
-		if rootJoint and rootBase then
-			rootJoint.C0 = rootBase
+		if shoulder then
+			shoulder.reset()
+		end
+		if rootJoint then
+			rootJoint.reset()
+		end
+		if gripBase and heldSword then
+			(heldSword :: Tool).Grip = gripBase
 		end
 		for _, s in ipairs(sword.Parts) do
 			s.Part:Destroy()
@@ -303,21 +361,29 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	end
 	running[character] = { Stop = stop }
 
+	-- поза суставов: PreSimulation — после Animator, до физики и рендера (рекомендация Roblox для Transform)
+	local function pose()
+		local t = os.clock() - t0
+		if t >= AttackFx.SWING_TIME then
+			return
+		end
+		local yaw, pitch, twist = AttackFx.poseAt(t)
+		if shoulder then
+			shoulder.set(CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0))
+		end
+		if rootJoint then
+			rootJoint.set(CFrame.Angles(0, twist, 0))
+		end
+		if gripBase and heldSword then
+			(heldSword :: Tool).Grip = gripBase * CFrame.Angles(-pitch * 0.8, yaw * 0.6, 0)
+		end
+	end
+
 	local function step()
 		local t = os.clock() - t0
 		if t >= AttackFx.SWING_TIME or not character.Parent then
 			stop()
 			return
-		end
-		local yaw, pitch, twist = AttackFx.poseAt(t)
-		if shoulder and shoulderBase then
-			shoulder.C0 = CFrame.new(shoulderBase.Position)
-				* CFrame.Angles(0, yaw, 0)
-				* CFrame.Angles(pitch, 0, 0)
-				* shoulderBase.Rotation
-		end
-		if rootJoint and rootBase then
-			rootJoint.C0 = CFrame.new(rootBase.Position) * CFrame.Angles(0, twist, 0) * rootBase.Rotation
 		end
 		-- меч в руке: рукоять в кисти, клинок продолжает руку с наклоном вперёд
 		if arm and arm:IsA("BasePart") then
@@ -337,6 +403,8 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 		end
 	end
 	conn = RunService.RenderStepped:Connect(step)
+	poseConn = RunService.PreSimulation:Connect(pose)
+	pose()
 	step()
 end
 

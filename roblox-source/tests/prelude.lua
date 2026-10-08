@@ -189,6 +189,12 @@ UDim2 = setmetatable({}, {
 	end,
 })
 UDim = UDim2
+-- v2.6: градиенты иконок (Icons.lua)
+ColorSequence = {
+	new = function(a, b)
+		return { Keypoints = { a, b or a } }
+	end,
+}
 -- Random.new(seed): детерминированный генератор (xorshift), как в Roblox выдаёт одинаковую последовательность на одинаковый seed
 Random = {
 	new = function(seed)

@@ -30,21 +30,21 @@ local Hotbar = {}
 Hotbar.SLOTS = {
 	{
 		Tool = "Sword",
-		Icon = "⚔️",
+		IconKind = "Sword",
 		Text = "hotbar.sword",
 		Color = Color3.fromRGB(235, 80, 80),
 		Key = Enum.KeyCode.One,
 	},
 	{
 		Tool = "Collector",
-		Icon = "🧲",
+		IconKind = "Magnet",
 		Text = "hotbar.collect",
 		Color = Color3.fromRGB(255, 190, 40),
 		Key = Enum.KeyCode.Two,
 	},
 	{
 		Tool = nil,
-		Icon = "🧪",
+		IconKind = "Potion",
 		Text = "hotbar.potion",
 		Color = Color3.fromRGB(170, 100, 255),
 		Key = Enum.KeyCode.Three,
@@ -187,7 +187,7 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		local b = Widgets.hudButton({
 			Name = "Slot" .. i,
 			Color = Color3.fromRGB(40, 44, 62),
-			Icon = s.Icon,
+			IconKind = s.IconKind,
 			Text = L.k(s.Text),
 			Layout = "column",
 			MaxTextSize = 15,

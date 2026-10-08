@@ -224,7 +224,7 @@ local function harvest(player: Player, node: Node): boolean
 			local list = if zone then zone.Resources else { "Wood" }
 			reward.Res = { [list[rng:NextInteger(1, #list)]] = rng:NextInteger(3, 6) + idx }
 		else
-			local items = { "catalyst", "luck_potion", "coin_elixir", "xp_treat" }
+			local items = ResourceData.ChestItems
 			reward.Item = items[rng:NextInteger(1, #items)]
 			reward.ItemCount = 1
 		end

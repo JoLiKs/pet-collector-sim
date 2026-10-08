@@ -219,6 +219,52 @@ function handlers.hud(arg)
 		g.Enabled = arg ~= "off"
 	end
 end
+-- icons[:off] — витрина всех иконок Icons.lua крупно (для просмотра рисовки); icons:off — убрать
+function handlers.icons(arg)
+	local old = player.PlayerGui:FindFirstChild("IconGallery")
+	if old then
+		old:Destroy()
+	end
+	if arg == "off" then
+		return
+	end
+	local Icons = require(game:GetService("ReplicatedStorage").Shared.Icons)
+	local g = Instance.new("ScreenGui")
+	g.Name = "IconGallery"
+	g.DisplayOrder = 100
+	g.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	local bg = Instance.new("Frame")
+	bg.Size = UDim2.fromScale(1, 1)
+	bg.BackgroundColor3 = if arg == "light" then Color3.fromRGB(120, 200, 120) else Color3.fromRGB(36, 40, 60)
+	bg.Parent = g
+	local kinds = {}
+	for k in pairs(Icons.SPECS) do
+		table.insert(kinds, k)
+	end
+	table.sort(kinds)
+	local size = tonumber(arg) or 96
+	local cols = math.floor(1200 / (size + 24))
+	for i, k in ipairs(kinds) do
+		local col, row = (i - 1) % cols, (i - 1) // cols
+		Icons.make(k, {
+			Px = size,
+			Size = UDim2.fromOffset(size, size),
+			Position = UDim2.fromOffset(30 + col * (size + 24), 20 + row * (size + 30)),
+			ZIndex = 2,
+			Parent = bg,
+		})
+		local t = Instance.new("TextLabel")
+		t.BackgroundTransparency = 1
+		t.Text = k
+		t.TextColor3 = Color3.new(1, 1, 1)
+		t.TextSize = 11
+		t.Size = UDim2.fromOffset(size + 20, 14)
+		t.Position = UDim2.fromOffset(20 + col * (size + 24), 20 + row * (size + 30) + size + 2)
+		t.ZIndex = 30
+		t.Parent = bg
+	end
+	g.Parent = player.PlayerGui
+end
 function handlers.bpxp(arg)
 	Economy.addBpXp(player, tonumber(arg))
 end

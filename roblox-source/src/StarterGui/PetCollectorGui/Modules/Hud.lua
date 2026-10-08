@@ -19,6 +19,7 @@ local PetData = require(Shared:WaitForChild("PetData"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
 local Util = require(Shared:WaitForChild("Util"))
 local Config = require(Shared:WaitForChild("Config"))
+local Icons = require(Shared:WaitForChild("Icons"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
@@ -52,6 +53,14 @@ Hud.RIGHT = {
 		Text = "hud.quests",
 		Color = Color3.fromRGB(80, 200, 100),
 	},
+	-- v2.6: инвентарь — ресурсы и предметы со своими иконками (InventoryPanel)
+	{
+		Id = "Inventory",
+		Name = "InventoryBtn",
+		IconKind = "Bag",
+		Text = "hud.inventory",
+		Color = Color3.fromRGB(30, 180, 190),
+	},
 }
 
 -- Ближайшее яйцо в радиусе открытия (клиентская подсказка; сервер всё равно проверяет дистанцию)
@@ -83,7 +92,7 @@ local function currencyRow(
 	icon: string,
 	color: Color3,
 	order: number
-): TextLabel
+): TextLabel -- icon: вид Icons.lua (Coin / Gem) — без эмодзи (🪙 не рисуется на Windows 10 и в части шрифтов)
 	local row = Widgets.New("Frame", {
 		Name = name,
 		Size = UDim2.new(1, 0, 0, 42),
@@ -91,14 +100,12 @@ local function currencyRow(
 		LayoutOrder = order,
 		Parent = parent,
 	})
-	Widgets.New("TextLabel", {
+	Icons.make(icon, {
 		Name = "Icon",
-		Text = icon,
-		BackgroundTransparency = 1,
-		TextScaled = true,
-		Font = Theme.Font,
-		TextColor3 = color,
+		Px = 40,
 		Size = UDim2.fromOffset(40, 40),
+		Position = UDim2.fromOffset(0, 1),
+		ZIndex = 5,
 		Parent = row,
 	})
 	return Widgets.bold({
@@ -180,12 +187,12 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 	})
 	local moreDot = Widgets.dot(moreBtn)
 
-	-- ---------- справа: Яйца / Питомцы / Задания ----------
+	-- ---------- справа: Яйца / Питомцы / Задания / Инвентарь ----------
 	local right = Widgets.New("Frame", {
 		Name = "RightButtons",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -12, 0.42, 0),
-		Size = UDim2.fromOffset(76, 3 * 76 + 2 * 10),
+		Size = UDim2.fromOffset(76, #Hud.RIGHT * 76 + (#Hud.RIGHT - 1) * 10),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -201,6 +208,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 			Name = item.Name,
 			Color = item.Color,
 			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Layout = "column",
 			Size = UDim2.fromOffset(76, 76),
@@ -246,8 +254,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		VerticalAlignment = Enum.VerticalAlignment.Bottom,
 		Parent = wallet,
 	})
-	local gemsLabel = currencyRow(wallet, "Gems", "💎", Theme.Gem, 1)
-	local coinsLabel = currencyRow(wallet, "Coins", "🪙", Theme.Gold, 2)
+	local gemsLabel = currencyRow(wallet, "Gems", "Gem", Theme.Gem, 1)
+	local coinsLabel = currencyRow(wallet, "Coins", "Coin", Theme.Gold, 2)
 
 	-- ---------- хотбар и всплывающие «+N» над ним ----------
 	local hotbar

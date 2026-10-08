@@ -1,5 +1,5 @@
 {
-  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов, DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) и DEMO_BOT_ENABLED=true (NPC Trader Tom) подставляются патчами при конвертации.",
+  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов, DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) и DEMO_BOT_ENABLED=true (NPC Trader Tom) подставляются патчами при конвертации. Логотип (v2.6): Config.ASSETS.LOGO подменяется на 920001, а раздел \"assets\" показывает вместо rbxassetid://920001 картинку assets/icon_512.png.",
   "placeKey": "pet-collector-sim-v2",
   "patches": [
     { "script": "Shared.Config", "regex": "(\\bDOUBLE_COINS\\s*=\\s*)0,", "replace": "$1900001," },
@@ -17,8 +17,10 @@
     { "script": "Shared.Config", "regex": "(\\bBP_SKIP\\s*=\\s*)0,", "replace": "$1910008," },
     { "script": "Shared.Config", "regex": "(\\bESSENCE_PACK\\s*=\\s*)0,", "replace": "$1910009," },
     { "script": "Shared.Config", "regex": "(\\bDEMO_BOTS\\s*=\\s*)false", "replace": "$1true" },
-    { "script": "Shared.Config", "regex": "(\\bDEMO_BOT_ENABLED\\s*=\\s*)false", "replace": "$1true" }
+    { "script": "Shared.Config", "regex": "(\\bDEMO_BOT_ENABLED\\s*=\\s*)false", "replace": "$1true" },
+    { "script": "Shared.Config", "regex": "(\\bLOGO\\s*=\\s*)0,", "replace": "$1920001," }
   ],
+  "assets": { "920001": "assets/icon_512.png" },
   "catalog": {
     "gamepasses": {
       "900001": { "name": "x2 Coins", "price": 299, "description": "Double coins forever (demo)" },

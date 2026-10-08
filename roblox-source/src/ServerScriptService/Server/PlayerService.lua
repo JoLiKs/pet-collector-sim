@@ -9,6 +9,7 @@ local BattlePassData = require(Shared.BattlePassData)
 local Config = require(Shared.Config)
 local Util = require(Shared.Util)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local LanguageService = require(script.Parent.LanguageService)
@@ -203,6 +204,7 @@ local function onPlayerAdded(player: Player)
 	end)
 
 	State.push(player, true)
+	Badges.award(player, "WELCOME") -- v2.6: значок «Добро пожаловать» (Config.BADGES.WELCOME, 0 = выкл.)
 	if DataService.isNewPlayer(player) then
 		Notify.send(player, "welcome.new", "info")
 	end

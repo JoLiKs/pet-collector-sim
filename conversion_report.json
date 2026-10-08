@@ -1,20 +1,21 @@
 {
-  "version": "2.3.0",
+  "version": "2.4.0",
   "project": {
     "name": "PetCollectorSimulator",
     "kind": "rojo"
   },
   "scripts": {
-    "total": 103,
-    "transpiled": 103,
+    "total": 110,
+    "transpiled": 110,
     "failed": [],
-    "lines": 24211
+    "lines": 25728
   },
   "globals": {
-    "used": 31,
+    "used": 33,
     "supported": [
       "CFrame",
       "Color3",
+      "ColorSequence",
       "Enum",
       "Instance",
       "Random",
@@ -43,6 +44,7 @@
       "tostring",
       "type",
       "typeof",
+      "utf8",
       "warn"
     ],
     "unsupported": []
@@ -56,6 +58,7 @@
       "Color3.fromHSV",
       "Color3.fromRGB",
       "Color3.new",
+      "ColorSequence.new",
       "Instance.new",
       "Random.new",
       "RaycastParams.new",
@@ -108,12 +111,14 @@
       "task.defer",
       "task.delay",
       "task.spawn",
-      "task.wait"
+      "task.wait",
+      "utf8.len"
     ],
     "unsupported": []
   },
   "services": {
     "supported": [
+      "BadgeService",
       "DataStoreService",
       "HttpService",
       "Lighting",
@@ -121,6 +126,7 @@
       "MarketplaceService",
       "Players",
       "PolicyService",
+      "ReplicatedFirst",
       "ReplicatedStorage",
       "RunService",
       "StarterGui",
@@ -141,6 +147,7 @@
       "Folder",
       "Frame",
       "Humanoid",
+      "ImageLabel",
       "IntValue",
       "Model",
       "Motor6D",
@@ -149,13 +156,17 @@
       "ProximityPrompt",
       "RemoteEvent",
       "RemoteFunction",
+      "ScreenGui",
       "SpawnLocation",
       "StringValue",
       "SurfaceGui",
       "TextLabel",
       "Tool",
       "UICorner",
+      "UIGradient",
+      "UIScale",
       "UIStroke",
+      "UITextSizeConstraint",
       "WedgePart",
       "WeldConstraint"
     ],
@@ -216,6 +227,7 @@
       "ProductPurchaseDecision.NotProcessedYet",
       "ProductPurchaseDecision.PurchaseGranted",
       "RaycastFilterType.Exclude",
+      "ScaleType.Fit",
       "ScrollingDirection.X",
       "SortOrder.LayoutOrder",
       "SurfaceGuiSizingMode.PixelsPerStud",
@@ -227,7 +239,8 @@
       "UserInputType.MouseButton1",
       "UserInputType.Touch",
       "VerticalAlignment.Bottom",
-      "VerticalAlignment.Center"
+      "VerticalAlignment.Center",
+      "ZIndexBehavior.Sibling"
     ],
     "unsupported": [
       "BulkMoveMode.FireCFrameChanged"

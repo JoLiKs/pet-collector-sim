@@ -1,19 +1,25 @@
-# Pet Collector Simulator v2.5 — 3D-симулятор питомцев для Roblox (Luau)
+# Pet Collector Simulator v2.6 — 3D-симулятор питомцев для Roblox (Luau)
 
 Игра в жанре **pet simulator + мини-RPG**: хаб с NPC и станциями, пять биомов-миров, добыча ресурсов, враги и боссы, автоатака питомцев, события по расписанию,
 питомцы с **редкостями, стихиями, ролями, уровнями, эволюцией, слиянием 3→1 (Golden/Rainbow/Shiny)**, команда, крафт, квесты с диалогами, достижения, ребёрт с **деревом талантов**,
 **торговля** (в демо — с ботом), событие **«Суперсила / Охота»** (раз в минуту случайный игрок становится суперигроком, остальные его ловят), **ротация магазина**, **батл-пасс** (free/premium), оффлайн-доход, лидерборды и полноценная монетизация.
-Всё — код на **Luau**, ни одного внешнего ассета: мир, интерфейс и питомцы строятся скриптами из примитивов.
+Всё — код на **Luau**, ни одного обязательного внешнего ассета: мир, интерфейс, питомцы и иконки строятся скриптами из примитивов (картинки иконки/логотипа лежат в `assets/` — их ID можно вписать в `Config.ASSETS`, но игра работает и без них).
 **Два языка — русский и английский**: язык выбирается автоматически по стране игрока (и языку клиента), переключается в настройках и сохраняется в данных игрока (см. [§ Языки](#языки)).
 
 ▶ **Веб-демо (реальный Luau-код → JS через [roblox2web](https://github.com/JoLiKs/roblox2web)):** <https://joliks.github.io/pet-collector-sim/>
 Сам конвертор: <https://joliks.github.io/roblox2web/>
 
-> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (2392 проверки), интеграционным сценарием (136 проверок) и браузерными UI-проверками (Playwright, ПК и телефон) **в эмуляторе Roblox**,
+> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (2559 проверок), интеграционным сценарием (136 проверок) и браузерными UI-проверками (Playwright, ПК и телефон) **в эмуляторе Roblox**,
 > но **не запускался в настоящей Roblox Studio** (в среде сборки её нет). Список проверенного и непроверенного — [`docs/TESTING.md`](docs/TESTING.md);
 > честная оценка рисков и урезанного — [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md); готовность к публикации и что сделать руками — [`docs/RELEASE_CHECKLIST_v2.4.md`](docs/RELEASE_CHECKLIST_v2.4.md). **Никакого дохода проект не гарантирует.**
 
-**Что нового в v2.5** — интерфейс и враги «как в Roblox-симуляторах»:
+**Что нового в v2.6:**
+* **Иконка игры, значок и превью** — `assets/icon_512.png` (512×512), `assets/badge_512.png` (значок «Добро пожаловать», важное — в круге), `assets/thumbnail_1920x1080.png`; запасные варианты иконки — `assets/variants/`. Логотип виден в игре: **экран загрузки** (`ReplicatedFirst/LoadingScreen`) и **табличка в хабе** за фонтаном; без ID картинки логотип рисуется примитивами. Значки (`BadgeService`): «Добро пожаловать» при первом входе + необязательные «первый босс», «первое перерождение», «суперсила»; ID — в `Config.BADGES` (0 = выключено, без ошибок). Как загрузить и куда вписать ID — [`docs/ICON_AND_BADGES.md`](docs/ICON_AND_BADGES.md).
+* **Вернулся замах мечом.** Причина: с v2.5 меч — настоящий `Tool` (нарисованный меч скрыт), а рука двигалась только через `Motor6D.C0`; после **Avatar Joint Upgrade** в Roblox суставы R15 — `AnimationConstraint`, у них `C0` нет, и рука не двигалась. Теперь `AttackFx` пишет `Transform` сустава (Motor6D или AnimationConstraint, R6/R15) в `PreSimulation`, есть запасной вариант через `Tool.Grip`. Замах виден при ударе в воздух, по врагу и по суперигроку; браузерный тест сравнивает позиции меча и руки покадрово.
+* **Кнопка «Инвентарь»** (справа, сумка): все ресурсы (дерево, камень, руда, травы, кристаллы, эссенция, осколки) и предметы (зелья, эликсиры, лакомства, катализатор, кирка, клинок, билеты) — у каждого своя иконка, название и количество; по нажатию — описание, где добыть (миры, сундуки, враги, верстак) и для чего нужен (рецепты), RU/EN.
+* **Иконка монет снова видна.** Причина: эмодзи 🪙 (Unicode 13) нет в Windows 10 и части шрифтов. Теперь монеты, самоцветы, все ресурсы, предметы и инструменты хотбара — иконки из примитивов GUI (`Icons.lua`), одинаковые в Roblox и веб-демо; при желании их можно заменить картинками (`Config.ASSETS`).
+
+**Что было в v2.5** — интерфейс и враги «как в Roblox-симуляторах»:
 * **HUD без лишних кнопок.** Сетка из 12 кнопок меню и кнопки «УДАР»/«СОБРАТЬ» убраны. Слева — «Магазин» и «Индекс» (+ переключатель автосбора с геймпассом и маленькая кнопка «Ещё»), справа — квадратные «Яйца», «Питомцы», «Задания», слева снизу — монеты и самоцветы крупными цифрами с обводкой, внизу по центру — **хотбар на 3 слота** (Меч, Магнит, Зелье), справа снизу — компактный таймер (охота, события, удача, босс; между событиями — «🌙 Золотой дождь через 2:51», как в образце). Верх экрана свободен: уведомления компактные.
 * **Удар — настоящим инструментом.** Меч и магнит — `Tool` в рюкзаке (`ToolService` → StarterPack): выберите слот (1–3 или тап) и кликните/тапните по миру; `Q` — удар, `F` — сбор. Удар в воздух и удары по суперигроку работают как раньше.
 * **Куда переехали разделы:** Улучшения, Ребёрт, Таланты, Награды дня, Миры, Крафт, Рынок, Обмен, Топ, Настройки — в окне **«Ещё»**; кроме того, в хабе станции с подсказкой ProximityPrompt: «Сундук наград» (награды дня), «Мастерская» (улучшения), «Алтарь перерождения» (ребёрт), доска лидеров (топ), а также прежние верстак, рынок, алтарь талантов, NPC.
@@ -28,6 +34,9 @@
 
 | | |
 |---|---|
+| ![HUD v2.6](docs/screens/50_hud_coin.png) HUD v2.6: монеты и самоцветы — иконки из примитивов | ![Инвентарь](docs/screens/50_inventory.png) Окно «Инвентарь»: ресурсы и предметы, где добыть и для чего |
+| ![Замах](docs/screens/50_swing_mid.png) Середина замаха мечом | ![Загрузка](docs/screens/50_loading.png) Экран загрузки с логотипом |
+| ![Табличка](docs/screens/50_logo_sign.png) Табличка с логотипом в хабе | ![Иконка](assets/icon_512.png) Иконка игры 512×512 |
 | ![HUD v2.5](docs/screens/40_hud_1280x720.png) HUD v2.5 (ПК, RU): бой с боссом | ![Телефон](docs/screens/40_hud_390x844.png) Телефон 390×844 |
 | ![Ландшафт](docs/screens/40_hud_844x390.png) Телефон 844×390 | ![Ещё](docs/screens/40_more_390x844.png) Окно «Ещё» (телефон) |
 | ![Мобы](docs/screens/40_mobs_closeup.png) Враги крупным планом (все архетипы) | ![Боссы](docs/screens/40_bosses_closeup.png) Боссы: корона, аура, полоса HP |
@@ -99,21 +108,24 @@ roblox-game/
 ├── PetCollectorSimulator.rbxlx      ← готовый place-файл (XML): открыть в Studio двойным кликом, Rojo не нужен
 ├── PetCollectorSimulator.rbxl       ← то же в бинарном формате (собран `rojo build`)
 ├── default.project.json             ← Rojo-проект
-├── roblox2web.config.json           ← настройки веб-демо (демо-ID пассов/продуктов патчами, каталог покупок)
+├── roblox2web.config.json           ← настройки веб-демо (демо-ID пассов/продуктов патчами, каталог покупок, картинка логотипа)
+├── assets/                          ← иконка 512, значок 512, превью 1920×1080 (+ SVG-исходники, варианты иконки); пересборка: tools/art/make_art.py
 ├── src/
 │   ├── ReplicatedStorage/           ← общие данные и чистая логика: Config, PetData, PetMeta, Abilities, ZoneData, EnemyData, ResourceData,
 │   │                                   RecipeData, QuestData, AchievementData, TalentData, BattlePassData, ShopData, EventData,
 │   │                                   TradeLogic, Formulas, UpgradeData, PetModel, AttackFx, SuperFx, SuperpowerLogic, Remotes, Util,
-│   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных), EnemyVisual (модели врагов)
+│   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных), EnemyVisual (модели врагов),
+│   │                                   Icons (иконки из примитивов), Assets, Logo, InventoryData
 │   ├── ServerScriptService/Server/  ← сервисы: Data, Economy, State, Router, AntiExploit, Pet, Click, Upgrade, Zone, Rebirth, Daily, Monetization,
 │   │                                   Leaderboard, Player, WorldBuilder, Tool, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
-│   │                                   Offline, Progress, Dailies, Migrations, LanguageService, Superpower, SuperBots …
+│   │                                   Offline, Progress, Dailies, Migrations, LanguageService, Superpower, SuperBots, Badges …
+│   ├── ReplicatedFirst/LoadingScreen ← экран загрузки с логотипом
 │   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), EnemyVisuals (рисовка и анимация врагов), CombatFx (эффекты удара и «Суперсилы»), WorldLocalizer (перевод текстов мира)
-│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Hotbar, Fx, HuntHud, Toasts, панели Index/More/ Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
+│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Hotbar, Fx, HuntHud, Toasts, панели Index/More/Inventory/Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
 ├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, check_strings.py (линтер строк), publish_web.sh
 ├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium: UI, удар, локализация, Суперсила)
 ├── docs/                            ← документация и screens/ (скриншоты)
-├── dist/PetCollectorSimulator_v2.5.zip, PetCollectorSimulator_v2.5.zip
+├── dist/PetCollectorSimulator_v2.6.zip, PetCollectorSimulator_v2.6.zip
 └── stylua.toml, selene.toml, rokit.toml
 ```
 
@@ -166,7 +178,10 @@ Studio → Explorer → `ReplicatedStorage → Shared → Config` (двойно�
 
 ### Шаг 10. Страница игры: иконка, описание, тэги
 Creator Hub → ваш опыт → **Settings / Basic info**, **Media**, **Access**: см. подробный чек-лист в [`docs/STORE_PAGE.md`](docs/STORE_PAGE.md)
-(иконка 512×512, 3–5+ превью 1920×1080, жанр, устройства, анкета возрастного рейтинга — **отметьте наличие платных случайных предметов**).
+(иконка 512×512 — готовая `assets/icon_512.png`, 3–5+ превью 1920×1080 — `assets/thumbnail_1920x1080.png` + скриншоты, жанр, устройства, анкета возрастного рейтинга — **отметьте наличие платных случайных предметов**).
+
+### Шаг 10b. Значки и логотип в игре
+Создайте значок «Добро пожаловать» (картинка `assets/badge_512.png`) и загрузите логотип как Image — ID впишите в `Config.BADGES.WELCOME` и `Config.ASSETS.LOGO`. Пошагово: [`docs/ICON_AND_BADGES.md`](docs/ICON_AND_BADGES.md). Без ID игра работает (значки не выдаются, логотип из примитивов).
 
 ### Шаг 11. Откройте игру публично
 **Settings → Access / Permissions → Public** (по умолчанию Private) → сохранить. Затем — раскрутка: [`docs/MONETIZATION_GUIDE.md`](docs/MONETIZATION_GUIDE.md).
@@ -205,6 +220,7 @@ bash tools/check_all.sh            # формат + линт + типы + тес
 | [`docs/MONETIZATION_GUIDE.md`](docs/MONETIZATION_GUIDE.md) | Монетизация и раскрутка: цены, воронка, Roblox Ads, группы, ивенты, коды, DevEx (правила и ставки) |
 | [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md) | Честная оценка: что нужно для заработка/продажи, риски (модерация, авторские права, правила про лутбоксы), без обещаний |
 | [`docs/STORE_PAGE.md`](docs/STORE_PAGE.md) | Название, описание, иконка, тэги, анкета рейтинга, шаблоны текстов |
+| [`docs/ICON_AND_BADGES.md`](docs/ICON_AND_BADGES.md) | v2.6: иконка, превью, значки (Badges), логотип — как загрузить и куда вписать ID |
 | [`docs/TESTING.md`](docs/TESTING.md) | Что и как проверено, что НЕ проверено, чек-лист ручного теста в Studio |
 | [`docs/AUDIT_v2.3.md`](docs/AUDIT_v2.3.md) | Аудит v2.3 и статус каждого пункта в v2.4 (исправлено / не исправлено и почему) |
 | [`docs/RELEASE_CHECKLIST_v2.4.md`](docs/RELEASE_CHECKLIST_v2.4.md) | Предрелизная проверка v2.4: вердикт, блокеры, что сделать руками в Studio и Creator Hub |

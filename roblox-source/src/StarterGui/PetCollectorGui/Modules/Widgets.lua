@@ -3,6 +3,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
+local Icons = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Icons"))
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 
@@ -160,7 +161,7 @@ function Widgets.bold(props: { [string]: any }): TextLabel
 end
 
 -- v2.5: яркая кнопка HUD: толстая чёрная рамка, иконка (эмодзи) и/или жирная подпись с обводкой.
--- props: Name, Color, Icon, Text (строка или L.k), Size, Position, AnchorPoint, Parent, OnClick, Layout ("row" | "column")
+-- props: Name, Color, Icon (эмодзи) или IconKind (Icons.lua, v2.6), Text (строка или L.k), Size, Position, AnchorPoint, Parent, OnClick, Layout ("row" | "column")
 function Widgets.hudButton(props: { [string]: any }): TextButton
 	local color: Color3 = props.Color or Theme.Blue
 	local btn: TextButton = New("TextButton", {
@@ -196,7 +197,19 @@ function Widgets.hudButton(props: { [string]: any }): TextButton
 	Widgets.corner(shine, 9)
 	local z = (props.ZIndex or 4) + 2
 	local column = props.Layout == "column"
-	if props.Icon then
+	if props.IconKind then
+		-- v2.6: иконка из примитивов (Icons.lua) вместо эмодзи — одинаково на любом клиенте
+		Icons.make(props.IconKind, {
+			Name = "Icon",
+			Px = props.IconPx or 44,
+			AnchorPoint = if column then Vector2.new(0.5, 0) else Vector2.new(0, 0.5),
+			Position = if column then UDim2.fromScale(0.5, 0.06) else UDim2.new(0, 8, 0.5, 0),
+			Size = if column then UDim2.fromScale(0.62, 0.62) else UDim2.fromOffset(30, 30),
+			ZIndex = z,
+			Parent = btn,
+		})
+		props.Icon = props.Icon or true
+	elseif props.Icon then
 		New("TextLabel", {
 			Name = "Icon",
 			BackgroundTransparency = 1,
@@ -234,7 +247,7 @@ function Widgets.hudButton(props: { [string]: any }): TextButton
 			-- подпись справа от квадратной иконки (размеры в «дизайнерских» пикселях: UIScale кластера масштабирует всё сразу)
 			local h = (props.Size and props.Size.Y.Offset) or 56
 			local sz = math.floor(h * 0.72)
-			local icon = btn:FindFirstChild("Icon") :: TextLabel
+			local icon = btn:FindFirstChild("Icon") :: GuiObject
 			icon.Size = UDim2.fromOffset(sz, sz)
 			cap.Position = UDim2.new(0, sz + 14, 0.5, 0)
 			cap.Size = UDim2.new(1, -(sz + 20), 0.62, 0)

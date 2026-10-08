@@ -3222,6 +3222,213 @@ test("v2.5 T1: настоящие инструменты в StarterPack (меч 
 	check(n >= 1, "повторный init не ломает StarterPack")
 end)
 
+test("v2.6 AttackFx.findJoint: Motor6D (R6) и AnimationConstraint (R15 + Avatar Joint Upgrade)", function()
+	local S = boot("A26J")
+	local FX = S.U.require("ReplicatedStorage/Shared/AttackFx")
+	local function rig(parts)
+		local m = Instance.new("Model")
+		for _, p in ipairs(parts) do
+			local part = Instance.new("Part")
+			part.Name = p[1]
+			part.Parent = m
+			local j = Instance.new(p[3])
+			j.Name = p[2]
+			j.Parent = part
+		end
+		return m
+	end
+	local r6 =
+		rig({ { "Torso", "Right Shoulder", "Motor6D" }, { "HumanoidRootPart", "RootJoint", "Motor6D" } })
+	local s6 = FX.findJoint(r6, FX.SHOULDER)
+	check(s6 ~= nil and s6.Name == "Right Shoulder", "R6: плечо — Motor6D Right Shoulder")
+	check(FX.findJoint(r6, FX.ROOT) ~= nil, "R6: RootJoint найден")
+	local r15 = rig({
+		{ "RightUpperArm", "RightShoulder", "AnimationConstraint" },
+		{ "LowerTorso", "Root", "AnimationConstraint" },
+	})
+	local s15 = FX.findJoint(r15, FX.SHOULDER)
+	check(
+		s15 ~= nil and s15.ClassName == "AnimationConstraint",
+		"R15 Joint Upgrade: плечо — AnimationConstraint"
+	)
+	check(FX.findJoint(r15, FX.ROOT) ~= nil, "R15 Joint Upgrade: Root найден")
+	local bad = rig({ { "RightUpperArm", "RightShoulder", "Weld" } })
+	check(
+		FX.findJoint(bad, FX.SHOULDER) == nil,
+		"посторонний класс сустава не берём"
+	)
+end)
+
+test(
+	"v2.6 Badges: ID 0 — выключено; выдача один раз; ошибки BadgeService не роняют",
+	function()
+		local S = boot("A26B")
+		local B = S.U.require("ServerScriptService/Server/Badges")
+		local _, _, p = S.join(2601, "BadgeKid")
+		local prev = game
+		game = S.U.Game
+		local bs = S.U.Game:GetService("BadgeService")
+		local calls = { has = 0, award = 0 }
+		local fail = false
+		rawset(bs, "UserHasBadgeAsync", function(_, uid, id)
+			calls.has += 1
+			return false
+		end)
+		rawset(bs, "AwardBadge", function(_, uid, id)
+			calls.award += 1
+			if fail then
+				error("HTTP 500")
+			end
+			return true
+		end)
+		check(
+			B.awardNow(p, "WELCOME") == false and calls.has == 0,
+			"WELCOME = 0: BadgeService не вызывается"
+		)
+		S.Config.BADGES.WELCOME = 777
+		check(B.awardNow(p, "WELCOME") == true and calls.award == 1, "WELCOME выдан")
+		check(
+			B.awardNow(p, "WELCOME") == true and calls.award == 1,
+			"повторно в сессии не выдаём"
+		)
+		S.Config.BADGES.FIRST_BOSS = 778
+		fail = true
+		check(
+			B.awardNow(p, "FIRST_BOSS") == false,
+			"ошибка AwardBadge -> false без исключения"
+		)
+		fail = false
+		check(
+			B.awardNow(p, "FIRST_BOSS") == true and calls.award == 3,
+			"после ошибки — новая попытка"
+		)
+		S.Config.BADGES.WELCOME = 0
+		S.Config.BADGES.FIRST_BOSS = 0
+		game = prev
+	end
+)
+
+test(
+	"v2.6 Logo: без ID — логотип из примитивов, с ID — картинка",
+	function()
+		local S = boot("A26L")
+		local Logo = S.U.require("ReplicatedStorage/Shared/Logo")
+		local a = Logo.make({ Name = "L1", Px = 200 })
+		check(a:GetAttribute("LogoKind") == "primitives", "LOGO = 0 -> примитивы")
+		local n = 0
+		for _, d in ipairs(a:GetDescendants()) do
+			if d:GetAttribute("IconKind") then
+				n += 1
+			end
+		end
+		check(
+			n >= 4,
+			"в логотипе есть иконки (меч, яйцо, монеты, кристалл)"
+		)
+		S.Config.ASSETS.LOGO = 4242
+		local b = Logo.make({ Name = "L2", Px = 200 })
+		check(b:GetAttribute("LogoKind") == "image", "LOGO задан -> ImageLabel")
+		local img = nil
+		for _, d in ipairs(b:GetDescendants()) do
+			if d:IsA("ImageLabel") then
+				img = d
+			end
+		end
+		check(img ~= nil and img.Image == "rbxassetid://4242", "Image = rbxassetid://4242")
+		S.Config.ASSETS.LOGO = 0
+	end
+)
+
+test(
+	"v2.6 Инвентарь и иконки: у каждого ресурса и предмета своя иконка, где добыть и для чего",
+	function()
+		local S = boot("A26I")
+		local Icons = S.U.require("ReplicatedStorage/Shared/Icons")
+		local Inv = S.U.require("ReplicatedStorage/Shared/InventoryData")
+		local Ru = S.U.require("ReplicatedStorage/Shared/LocaleRu")
+		local En = S.U.require("ReplicatedStorage/Shared/LocaleEn")
+		local list = Inv.list()
+		check(
+			#list == #S.ResourceData.Order + #S.RecipeData.ItemOrder,
+			"в инвентаре все ресурсы и все предметы"
+		)
+		local seen = {}
+		for _, e in ipairs(list) do
+			check(Icons.has(e.Id), "иконка есть: " .. e.Id)
+			local spec = Icons.SPECS[e.Id]
+			if spec then
+				check(seen[spec] == nil, "иконка своя (не общая): " .. e.Id)
+				seen[spec] = true
+			end
+			check(#Inv.sources(e.Id) > 0, "известно, где добыть: " .. e.Id)
+			check(#Inv.uses(e.Id) > 0, "известно, для чего: " .. e.Id)
+			if e.Kind == "Res" then
+				check(
+					Ru.Strings["inv.desc." .. e.Id] ~= nil and En.Strings["inv.desc." .. e.Id] ~= nil,
+					"описание RU/EN: " .. e.Id
+				)
+			end
+			for _, ln in ipairs(Inv.sources(e.Id)) do
+				check(
+					Ru.Strings[ln.Key] ~= nil and En.Strings[ln.Key] ~= nil,
+					"ключ " .. ln.Key .. " есть в RU/EN"
+				)
+			end
+			for _, ln in ipairs(Inv.uses(e.Id)) do
+				check(
+					Ru.Strings[ln.Key] ~= nil and En.Strings[ln.Key] ~= nil,
+					"ключ " .. ln.Key .. " есть в RU/EN"
+				)
+			end
+		end
+		for _, k in ipairs({ "Coin", "Gem", "Sword", "Magnet", "Potion", "Bag" }) do
+			check(Icons.has(k), "иконка " .. k)
+		end
+		local wood = Inv.sources("Wood")[1]
+		check(
+			wood.Key == "inv.src_nodes" and table.find(wood.Zones, "Sunny Meadow") ~= nil,
+			"дерево — узлы на Солнечном лугу"
+		)
+		local woodUses = Inv.uses("Wood")
+		check(
+			#woodUses >= 3 and woodUses[1].Key == "inv.use_recipe",
+			"дерево идёт в рецепты"
+		)
+		local ess = Inv.uses("Essence")
+		check(ess[#ess].Key == "inv.use_evolve", "эссенция — эволюция питомцев")
+		local crystal = Inv.sources("Crystal")[1]
+		check(
+			crystal.Zones and table.find(crystal.Zones, "Sunny Meadow") == nil,
+			"кристаллов на лугу нет"
+		)
+		local lp = Inv.sources("luck_potion")
+		check(
+			lp[1].Key == "inv.src_craft" and lp[#lp].Key == "inv.src_chests",
+			"зелье удачи: верстак и сундуки"
+		)
+		local tk = Inv.sources("ticket_MeadowEgg")
+		check(tk[#tk].Key == "inv.src_tickets", "билет: с врагов мира")
+		check(
+			Inv.count({ Resources = { Wood = 7 }, Items = { catalyst = 2 } }, "Wood") == 7,
+			"count ресурса"
+		)
+		check(
+			Inv.count({ Resources = {}, Items = { catalyst = 2 } }, "catalyst") == 2,
+			"count предмета"
+		)
+		check(Inv.count(nil, "Wood") == 0, "count без данных")
+		local ok, err = pcall(function()
+			local f = Icons.make("Coin", { Px = 40 })
+			check(f:GetAttribute("IconKind") == "Coin", "Icons.make: атрибут IconKind")
+			local n = #f:GetChildren()
+			check(n >= 5, "монета из нескольких слоёв (" .. n .. ")")
+			local u = Icons.make("NoSuchKind")
+			check(u ~= nil, "неизвестный вид не падает")
+		end)
+		check(ok, "Icons.make без ошибок: " .. tostring(err))
+	end
+)
+
 -- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
 if failed > 0 or (TEST_ERRORS or 0) > 0 then

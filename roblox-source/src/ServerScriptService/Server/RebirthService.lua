@@ -8,6 +8,7 @@ local Config = require(Shared.Config)
 local Formulas = require(Shared.Formulas)
 local TalentData = require(Shared.TalentData)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
@@ -40,6 +41,7 @@ local function rebirth(player: Player): (boolean, any)
 	data.Rebirths += 1
 	Economy.addGems(player, gems)
 	Progress.setMax(player, "Rebirths", data.Rebirths)
+	Badges.award(player, "FIRST_REBIRTH")
 	State.markCore(player)
 	Notify.send(
 		player,

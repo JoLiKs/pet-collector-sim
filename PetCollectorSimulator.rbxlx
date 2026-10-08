@@ -18,15 +18,137 @@
 			<string name="Name">Lighting</string>
 		</Properties>
 	</Item>
-	<Item class="ReplicatedStorage" referent="RBX00000000000000000000000000000004">
+	<Item class="ReplicatedFirst" referent="RBX00000000000000000000000000000004">
+		<Properties>
+			<string name="Name">ReplicatedFirst</string>
+		</Properties>
+		<Item class="LocalScript" referent="RBX00000000000000000000000000000005">
+			<Properties>
+				<string name="Name">LoadingScreen</string>
+				<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	LoadingScreen (v2.6) — свой экран загрузки с логотипом игры (Logo: картинка Config.ASSETS.LOGO или логотип из
+	примитивов). Показывается сразу (ReplicatedFirst), убирается, когда игра загружена и построен основной интерфейс.
+	Текста почти нет: название игры — имя собственное, точки-индикатор вместо слова «Загрузка».
+]]
+local Players = game:GetService("Players")
+local ReplicatedFirst = game:GetService("ReplicatedFirst")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+pcall(function()
+	ReplicatedFirst:RemoveDefaultLoadingScreen()
+end)
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "LoadingScreen"
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 1000
+gui.ResetOnSpawn = false
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local bg = Instance.new("Frame")
+bg.Name = "Bg"
+bg.Size = UDim2.fromScale(1, 1)
+bg.BackgroundColor3 = Color3.new(1, 1, 1)
+bg.BorderSizePixel = 0
+local grad = Instance.new("UIGradient")
+grad.Color = ColorSequence.new(Color3.fromRGB(80, 170, 255), Color3.fromRGB(60, 30, 160))
+grad.Rotation = 90
+grad.Parent = bg
+bg.Parent = gui
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Logo = require(Shared:WaitForChild("Logo"))
+local logo = Logo.make({
+	Name = "Logo",
+	Px = 220,
+	Size = UDim2.fromOffset(220, 220),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.42),
+	ZIndex = 2,
+	Parent = bg,
+})
+local title = Instance.new("TextLabel")
+title.Name = "Title"
+title.BackgroundTransparency = 1
+title.AnchorPoint = Vector2.new(0.5, 0)
+title.Position = UDim2.new(0.5, 0, 0.42, 128)
+title.Size = UDim2.fromOffset(520, 56)
+title.Font = Enum.Font.FredokaOne
+title.Text = "Pet Collector Simulator" -- l10n-ok (название игры)
+title.TextScaled = true
+title.TextColor3 = Color3.fromRGB(255, 220, 70)
+title.ZIndex = 5
+local ts = Instance.new("UIStroke")
+ts.Color = Color3.fromRGB(27, 24, 64)
+ts.Thickness = 4
+ts.Parent = title
+local tc = Instance.new("UITextSizeConstraint")
+tc.MaxTextSize = 44
+tc.Parent = title
+title.Parent = bg
+
+-- индикатор: три точки по очереди
+local dots = {}
+for i = 1, 3 do
+	local d = Instance.new("Frame")
+	d.Name = "Dot" .. i
+	d.AnchorPoint = Vector2.new(0.5, 0.5)
+	d.Position = UDim2.new(0.5, (i - 2) * 30, 0.42, 212)
+	d.Size = UDim2.fromOffset(16, 16)
+	d.BackgroundColor3 = Color3.new(1, 1, 1)
+	d.ZIndex = 5
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.5, 0)
+	c.Parent = d
+	d.Parent = bg
+	dots[i] = d
+end
+local logoScale = Instance.new("UIScale")
+logoScale.Parent = logo
+gui.Parent = playerGui
+
+local done = false
+task.spawn(function()
+	local k = 0
+	while not done do
+		k += 1
+		for i, d in ipairs(dots) do
+			d.BackgroundTransparency = if (k % 3) + 1 == i then 0 else 0.6
+		end
+		logoScale.Scale = if k % 2 == 0 then 1 else 1.04
+		task.wait(0.25)
+	end
+end)
+
+local t0 = os.clock()
+if not game:IsLoaded() then
+	game.Loaded:Wait()
+end
+playerGui:WaitForChild("PetCollectorGui", 30)
+task.wait(math.max(0, 1.2 - (os.clock() - t0))) -- логотип виден хотя бы ~1 с
+done = true
+local info = TweenInfo.new(0.45, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
+TweenService:Create(bg, info, { Position = UDim2.fromScale(0, -1) }):Play()
+task.wait(0.5)
+gui:Destroy()
+]]></ProtectedString>
+			</Properties>
+		</Item>
+	</Item>
+	<Item class="ReplicatedStorage" referent="RBX00000000000000000000000000000006">
 		<Properties>
 			<string name="Name">ReplicatedStorage</string>
 		</Properties>
-		<Item class="Folder" referent="RBX00000000000000000000000000000005">
+		<Item class="Folder" referent="RBX00000000000000000000000000000007">
 			<Properties>
 				<string name="Name">Shared</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000006">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000008">
 				<Properties>
 					<string name="Name">Abilities</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -105,7 +227,7 @@ return Abilities
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000007">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000009">
 				<Properties>
 					<string name="Name">AchievementData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -155,18 +277,47 @@ return AchievementData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000008">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000A">
+				<Properties>
+					<string name="Name">Assets</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+-- Картинки из Config.ASSETS: id ~= 0 -> "rbxassetid://id", иначе nil (вызывающий рисует запасной вариант из примитивов).
+-- В веб-демо ID подставляет патч roblox2web.config.json, а раздел "assets" там же сопоставляет ID с PNG из assets/.
+local Config = require(script.Parent.Config)
+
+local Assets = {}
+
+function Assets.id(key: string): number
+	local v = (Config.ASSETS :: any)[key]
+	return if type(v) == "number" and v > 0 then v else 0
+end
+
+function Assets.image(key: string): string?
+	local id = Assets.id(key)
+	return if id > 0 then "rbxassetid://" .. id else nil
+end
+
+return Assets
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000B">
 				<Properties>
 					<string name="Name">AttackFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
 	AttackFx — визуал удара на КЛИЕНТЕ (урон считает только сервер).
-	  * замах правой рукой через Motor6D.C0 (R6: Torso["Right Shoulder"], R15: RightUpperArm.RightShoulder) + поворот торса (RootJoint/Root);
-	  * меч из примитивов в руке на время удара;
+	  * замах правой рукой + поворот торса через joint.Transform (кадр RunService.PreSimulation, поверх позы Animator):
+	    работает и со старыми Motor6D, и с AnimationConstraint (Avatar Joint Upgrade, у них C0/C1 только для чтения);
+	    R6: Torso["Right Shoulder"] / HumanoidRootPart.RootJoint, R15: RightUpperArm.RightShoulder / LowerTorso.Root;
+	    суставов нет — качаем Tool.Grip меча;
+	  * меч: Tool "Sword" из хотбара в руке (двигается вместе с рукой); без Tool (боты) — меч из примитивов;
 	  * след удара — неоновый полумесяц из сегментов, пролетает справа налево и тает (Transparency);
 	  * лёгкий рывок вперёд (только свой персонаж), рывок питомцев (PetFollower читает AttackFx.lastSwing);
 	  * вспышка и искры при попадании (AttackFx.impact).
-	Только стандартные API: Motor6D, CFrame, TweenService, Part/Neon — одинаково в Roblox и в эмуляторе roblox2web.
+	Только стандартные API: Motor6D/AnimationConstraint.Transform, CFrame, TweenService, Part/Neon — одинаково в Roblox и в эмуляторе roblox2web.
+	Почему не C0: v2.5 писал Motor6D.C0 и искал только Motor6D — с Avatar Joint Upgrade (суставы R15 = AnimationConstraint)
+	сустав не находился и рука стояла на месте, а рисованный меч в v2.5 убрали в пользу Tool — замах пропал.
 ]]
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -231,24 +382,72 @@ local function fadeAndDestroy(p: BasePart, delay: number, duration: number, goal
 	end)
 end
 
-local function findMotor(
-	character: Model,
-	r6Parent: string,
-	r6Name: string,
-	r15Parent: string,
-	r15Name: string
-): Motor6D?
-	local a = character:FindFirstChild(r6Parent)
-	local m = a and a:FindFirstChild(r6Name)
-	if m and m:IsA("Motor6D") then
-		return m
-	end
-	local b = character:FindFirstChild(r15Parent)
-	local m2 = b and b:FindFirstChild(r15Name)
-	if m2 and m2:IsA("Motor6D") then
-		return m2
+-- Сустав: Motor6D (классика) или AnimationConstraint (Avatar Joint Upgrade). Варианты имён: R6, затем R15.
+function AttackFx.findJoint(character: Instance, candidates: { { string } }): Instance?
+	for _, c in ipairs(candidates) do
+		local parent = character:FindFirstChild(c[1])
+		local j = parent and parent:FindFirstChild(c[2])
+		if j and (j:IsA("Motor6D") or j:IsA("AnimationConstraint")) then
+			return j
+		end
 	end
 	return nil
+end
+AttackFx.SHOULDER = { { "Torso", "Right Shoulder" }, { "RightUpperArm", "RightShoulder" } } -- l10n-ok (имена суставов)
+AttackFx.ROOT = { { "HumanoidRootPart", "RootJoint" }, { "LowerTorso", "Root" } }
+
+-- Поворот сустава в «пространстве C0»: поза = C0 * offset * Transform. Для поворота q вокруг осей родителя
+-- (как раньше C0' = pos * q * rot) offset = rot^-1 * q * rot. C0 у AnimationConstraint — алиас только для чтения.
+local function jointFrame(j: Instance): CFrame
+	local ok, c0 = pcall(function()
+		return (j :: any).C0
+	end)
+	if ok and typeof(c0) == "CFrame" then
+		return c0
+	end
+	local ok2, a0 = pcall(function()
+		return (j :: any).Attachment0
+	end)
+	if ok2 and a0 and a0:IsA("Attachment") then
+		return a0.CFrame
+	end
+	return CFrame.new()
+end
+
+local function sameCF(a: CFrame, b: CFrame): boolean
+	return (a.Position - b.Position).Magnitude < 1e-3
+		and a.LookVector:Dot(b.LookVector) > 0.99999
+		and a.UpVector:Dot(b.UpVector) > 0.99999
+end
+
+-- Драйвер одного сустава: каждый кадр Transform = offset * (поза анимации). Если Animator в этом кадре
+-- Transform не переписал (нет анимации / эмулятор) — берём сохранённую базу, а не накапливаем повороты.
+type Driver = { set: (CFrame) -> (), reset: () -> () }
+local function jointDriver(j: Instance?): Driver?
+	if not j then
+		return nil
+	end
+	local rot = jointFrame(j).Rotation
+	local base: CFrame = (j :: any).Transform
+	local written: CFrame? = nil
+	local d: Driver = {} :: any
+	function d.set(q: CFrame)
+		local cur: CFrame = (j :: any).Transform
+		if not (written and sameCF(cur, written)) then
+			base = cur
+		end
+		local v = rot:Inverse() * q * rot * base
+		written = v;
+		(j :: any).Transform = v
+	end
+	function d.reset()
+		local cur: CFrame = (j :: any).Transform
+		if written and sameCF(cur, written) then
+			(j :: any).Transform = base
+		end
+		written = nil
+	end
+	return d
 end
 
 local function lerp(a: number, b: number, t: number): number
@@ -429,32 +628,37 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	end
 	AttackFx.lastSwing[player] = { T = os.clock(), Dir = flat }
 
-	local shoulder = findMotor(character, "Torso", "Right Shoulder", "RightUpperArm", "RightShoulder")
-	local rootJoint = findMotor(character, "HumanoidRootPart", "RootJoint", "LowerTorso", "Root")
+	local shoulder = jointDriver(AttackFx.findJoint(character, AttackFx.SHOULDER))
+	local rootJoint = jointDriver(AttackFx.findJoint(character, AttackFx.ROOT))
 	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
-	local shoulderBase = shoulder and shoulder.C0
-	local rootBase = rootJoint and rootJoint.C0
-	-- v2.5: меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, двигается только рука
+	-- меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, Tool движется вместе с рукой
 	local held = character:FindFirstChildOfClass("Tool")
-	local sword = if held
-			and held.Name == "Sword"
-			and held:FindFirstChild("Handle")
-		then { Parts = {} }
-		else buildSword()
+	local heldSword = held and held.Name == "Sword" and held:FindFirstChild("Handle") and held or nil
+	local sword = if heldSword then { Parts = {} } else buildSword()
+	-- запасной вариант без суставов: качаем сам меч через Tool.Grip
+	local gripBase: CFrame? = if heldSword and not shoulder then (heldSword :: Tool).Grip else nil
 	local t0 = os.clock()
 	local arcDone, lunged = false, 0
 	local conn: RBXScriptConnection? = nil
+	local poseConn: RBXScriptConnection? = nil
 
 	local function stop()
 		if conn then
 			conn:Disconnect()
 			conn = nil
 		end
-		if shoulder and shoulderBase then
-			shoulder.C0 = shoulderBase
+		if poseConn then
+			poseConn:Disconnect()
+			poseConn = nil
 		end
-		if rootJoint and rootBase then
-			rootJoint.C0 = rootBase
+		if shoulder then
+			shoulder.reset()
+		end
+		if rootJoint then
+			rootJoint.reset()
+		end
+		if gripBase and heldSword then
+			(heldSword :: Tool).Grip = gripBase
 		end
 		for _, s in ipairs(sword.Parts) do
 			s.Part:Destroy()
@@ -463,21 +667,29 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	end
 	running[character] = { Stop = stop }
 
+	-- поза суставов: PreSimulation — после Animator, до физики и рендера (рекомендация Roblox для Transform)
+	local function pose()
+		local t = os.clock() - t0
+		if t >= AttackFx.SWING_TIME then
+			return
+		end
+		local yaw, pitch, twist = AttackFx.poseAt(t)
+		if shoulder then
+			shoulder.set(CFrame.Angles(0, yaw, 0) * CFrame.Angles(pitch, 0, 0))
+		end
+		if rootJoint then
+			rootJoint.set(CFrame.Angles(0, twist, 0))
+		end
+		if gripBase and heldSword then
+			(heldSword :: Tool).Grip = gripBase * CFrame.Angles(-pitch * 0.8, yaw * 0.6, 0)
+		end
+	end
+
 	local function step()
 		local t = os.clock() - t0
 		if t >= AttackFx.SWING_TIME or not character.Parent then
 			stop()
 			return
-		end
-		local yaw, pitch, twist = AttackFx.poseAt(t)
-		if shoulder and shoulderBase then
-			shoulder.C0 = CFrame.new(shoulderBase.Position)
-				* CFrame.Angles(0, yaw, 0)
-				* CFrame.Angles(pitch, 0, 0)
-				* shoulderBase.Rotation
-		end
-		if rootJoint and rootBase then
-			rootJoint.C0 = CFrame.new(rootBase.Position) * CFrame.Angles(0, twist, 0) * rootBase.Rotation
 		end
 		-- меч в руке: рукоять в кисти, клинок продолжает руку с наклоном вперёд
 		if arm and arm:IsA("BasePart") then
@@ -497,6 +709,8 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 		end
 	end
 	conn = RunService.RenderStepped:Connect(step)
+	poseConn = RunService.PreSimulation:Connect(pose)
+	pose()
 	step()
 end
 
@@ -518,7 +732,7 @@ return AttackFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000009">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
 				<Properties>
 					<string name="Name">BattlePassData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -611,7 +825,7 @@ return BattlePassData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
 				<Properties>
 					<string name="Name">Config</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -659,6 +873,38 @@ Config.PRODUCT_IDS = {
 	LUCK_5X_10M = 0, -- лаки-буст x5 на 10 минут, ~149-249 R$
 	BP_SKIP = 0, -- +5 уровней батл-пасса, ~99-149 R$
 	ESSENCE_PACK = 0, -- 30 эссенции для эволюции питомцев, ~79-129 R$
+}
+
+-- ============================================================================
+-- 2a. КАРТИНКИ (Image asset ID) — логотип и иконки. 0 = нет картинки: рисуем из примитивов GUI
+--     (Frame + UICorner + UIGradient + UIStroke) — игра выглядит цельно и без загрузок.
+--     Как получить ID: Creator Hub -> Development Items -> Decals -> Upload (assets/icon_512.png и т.п.)
+--     -> откройте декаль -> ID картинки (Image) из Toolbox/Asset Manager (Studio: View -> Asset Manager -> Images
+--     -> ПКМ -> Copy Asset ID). Подробно: docs/ICON_AND_BADGES.md.
+-- ============================================================================
+Config.ASSETS = {
+	LOGO = 0, -- логотип (assets/icon_512.png): экран загрузки и табличка в хабе
+	-- иконки валют/ресурсов (необязательно: без ID рисуются примитивами Icons.lua)
+	COIN = 0,
+	GEM = 0,
+	WOOD = 0,
+	STONE = 0,
+	ORE = 0,
+	HERB = 0,
+	CRYSTAL = 0,
+	ESSENCE = 0,
+	FRAGMENT = 0,
+}
+
+-- ============================================================================
+-- 2b. ЗНАЧКИ (Badges) — ID из Creator Hub -> ваш опыт -> Engagement -> Badges -> Create a Badge.
+--     0 = значок выключен (никаких вызовов BadgeService и ошибок). Картинка: assets/badge_512.png.
+-- ============================================================================
+Config.BADGES = {
+	WELCOME = 0, -- «Добро пожаловать!» — первый вход в игру
+	FIRST_BOSS = 0, -- первый побеждённый босс
+	FIRST_REBIRTH = 0, -- первое перерождение
+	SUPERPOWER = 0, -- игрок впервые получил суперсилу
 }
 
 -- ============================================================================
@@ -779,7 +1025,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.5.0"
+Config.VERSION = "2.6.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -961,7 +1207,7 @@ return Config
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
 				<Properties>
 					<string name="Name">EnemyData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1569,7 +1815,7 @@ return EnemyData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
 				<Properties>
 					<string name="Name">EnemyVisual</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2513,7 +2759,7 @@ return EnemyVisual
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
 				<Properties>
 					<string name="Name">EventData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2611,7 +2857,7 @@ return EventData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
 				<Properties>
 					<string name="Name">Formulas</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2734,7 +2980,641 @@ return Formulas
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+				<Properties>
+					<string name="Name">Icons</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Icons — иконки валют, ресурсов, предметов и инструментов из примитивов GUI (Frame + UICorner + UIGradient + UIStroke).
+	Без эмодзи и без загрузок: одинаково в Roblox (любой клиент) и в веб-демо. Эмодзи 🪙 (Unicode 13) не рисуется
+	на Windows 10 и в части шрифтов — отсюда «пропавшая» иконка монет в v2.5.
+	Если в Config.ASSETS задан ID картинки (COIN, GEM, WOOD, …) — показывается ImageLabel с ней.
+
+	Icons.make(kind, props) -> Frame: квадратный контейнер, всё внутри в долях (масштабируется с размером).
+	  kind: Coin, Gem, Wood, Stone, Ore, Herb, Crystal, Essence, Fragment, Sword, Magnet, Potion,
+	        id предмета из RecipeData (luck_potion, coin_elixir, xp_treat, catalyst, pickaxe, blade, ticket_*).
+	  props: Name, Size, Position, AnchorPoint, ZIndex, LayoutOrder, Parent, Px (примерный размер в пикселях — толщина обводки).
+]]
+local Assets = require(script.Parent.Assets)
+
+local Icons = {}
+
+local c3 = Color3.fromRGB
+local WHITE = Color3.new(1, 1, 1)
+
+-- Слой: { x, y, w, h } — центр и размер в долях контейнера.
+--   c — цвет, g = { верх/лево, низ/право } — градиент, gr — его Rotation (по умолчанию 90), r — поворот (°, вокруг центра), k — скругление (доля),
+--   t — прозрачность, ring = толщина кольца (доля размера: только обводка, без заливки), o = false — без общего контура.
+type Layer = { [string]: any }
+local function L(x: number, y: number, w: number, h: number, o: any): Layer
+	local t: Layer = o or {}
+	t.X, t.Y, t.W, t.H = x, y, w, h
+	return t
+end
+type Spec = { Outline: Color3?, Layers: { Layer } }
+
+local function flask(liquid: Color3, liquidDark: Color3): Spec
+	return {
+		Outline = c3(30, 40, 60),
+		Layers = {
+			L(0.5, 0.25, 0.22, 0.26, { c = c3(215, 235, 245), k = 0.15 }), -- горлышко
+			L(0.5, 0.63, 0.66, 0.62, { g = { c3(225, 240, 250), c3(170, 200, 220) }, gr = 90, k = 0.5 }), -- колба
+			L(0.5, 0.67, 0.54, 0.46, { g = { liquid, liquidDark }, gr = 90, k = 0.5, o = false }), -- жидкость
+			L(0.5, 0.13, 0.28, 0.1, { c = c3(170, 110, 60), k = 0.3 }), -- пробка
+			L(0.37, 0.56, 0.1, 0.18, { c = WHITE, t = 0.35, k = 0.5, r = 20, o = false }), -- блик
+			L(0.58, 0.72, 0.07, 0.07, { c = WHITE, t = 0.45, k = 0.5, o = false }), -- пузырёк
+			L(0.45, 0.8, 0.05, 0.05, { c = WHITE, t = 0.5, k = 0.5, o = false }),
+		},
+	}
+end
+
+local function ticket(color: Color3, dark: Color3): Spec
+	return {
+		Outline = c3(40, 30, 20),
+		Layers = {
+			L(0.5, 0.5, 0.86, 0.56, { g = { color, dark }, gr = 90, k = 0.14, r = -12 }),
+			L(0.5, 0.5, 0.7, 0.4, { c = WHITE, t = 0.75, k = 0.1, r = -12, o = false }),
+			L(
+				0.5,
+				0.5,
+				0.22,
+				0.3,
+				{ g = { c3(255, 252, 240), c3(235, 220, 190) }, gr = 90, k = 0.5, r = -12, o = false }
+			),
+			L(0.47, 0.44, 0.06, 0.07, { c = WHITE, k = 0.5, o = false }),
+		},
+	}
+end
+
+Icons.SPECS = {
+	Coin = {
+		Outline = c3(125, 72, 8),
+		Layers = {
+			L(0.5, 0.5, 0.9, 0.9, { g = { c3(250, 190, 50), c3(205, 120, 20) }, gr = 90, k = 0.5 }), -- ребро
+			L(
+				0.5,
+				0.5,
+				0.7,
+				0.7,
+				{ g = { c3(255, 240, 140), c3(250, 185, 40) }, gr = 45, k = 0.5, o = false }
+			), -- лицевая сторона
+			L(0.5, 0.5, 0.52, 0.52, { ring = 0.035, c = c3(215, 140, 25), k = 0.5, o = false }), -- внутреннее кольцо
+			L(
+				0.5,
+				0.5,
+				0.24,
+				0.24,
+				{ g = { c3(255, 250, 210), c3(245, 200, 80) }, gr = 90, r = 45, k = 0.12, o = false }
+			), -- ромб-чекан
+			L(0.33, 0.29, 0.22, 0.1, { c = WHITE, t = 0.3, k = 0.5, r = -40, o = false }), -- блик
+		},
+	},
+	Gem = {
+		Outline = c3(10, 60, 125),
+		Layers = {
+			L(0.5, 0.54, 0.6, 0.6, { g = { c3(150, 245, 255), c3(30, 130, 235) }, gr = 90, r = 45, k = 0.1 }),
+			L(
+				0.5,
+				0.54,
+				0.3,
+				0.3,
+				{ g = { c3(225, 252, 255), c3(110, 210, 255) }, gr = 90, r = 45, k = 0.1, o = false }
+			),
+			L(0.4, 0.4, 0.14, 0.06, { c = WHITE, t = 0.25, k = 0.5, r = -45, o = false }),
+			L(0.78, 0.2, 0.1, 0.1, { c = WHITE, r = 45, k = 0.2, o = false }), -- искры
+			L(0.2, 0.84, 0.07, 0.07, { c = WHITE, r = 45, k = 0.2, t = 0.2, o = false }),
+		},
+	},
+	Wood = {
+		Outline = c3(65, 35, 12),
+		Layers = {
+			L(0.44, 0.56, 0.72, 0.44, { g = { c3(185, 120, 62), c3(115, 66, 28) }, gr = 90, k = 0.3 }), -- кора
+			L(0.8, 0.56, 0.32, 0.44, { g = { c3(245, 210, 150), c3(215, 165, 100) }, gr = 90, k = 0.5 }), -- спил
+			L(0.8, 0.56, 0.16, 0.22, { ring = 0.03, c = c3(180, 125, 70), k = 0.5, o = false }), -- годовое кольцо
+			L(0.8, 0.56, 0.05, 0.06, { c = c3(170, 115, 60), k = 0.5, o = false }),
+			L(0.4, 0.47, 0.42, 0.04, { c = c3(95, 55, 22), k = 0.5, o = false }), -- полосы коры
+			L(0.36, 0.64, 0.34, 0.04, { c = c3(95, 55, 22), k = 0.5, o = false }),
+			L(
+				0.28,
+				0.3,
+				0.2,
+				0.11,
+				{ g = { c3(150, 230, 110), c3(70, 170, 70) }, gr = 90, k = 0.5, r = -35 }
+			), -- листик
+		},
+	},
+	Stone = {
+		Outline = c3(50, 52, 64),
+		Layers = {
+			L(0.4, 0.44, 0.48, 0.42, { g = { c3(215, 220, 230), c3(150, 155, 170) }, gr = 90, k = 0.45 }),
+			L(0.68, 0.5, 0.36, 0.32, { g = { c3(195, 200, 212), c3(130, 135, 150) }, gr = 90, k = 0.45 }),
+			L(0.5, 0.64, 0.8, 0.44, { g = { c3(185, 190, 202), c3(105, 110, 125) }, gr = 90, k = 0.42 }),
+			L(0.36, 0.4, 0.18, 0.08, { c = WHITE, t = 0.35, k = 0.5, r = -20, o = false }),
+			L(0.62, 0.66, 0.2, 0.035, { c = c3(80, 84, 98), k = 0.5, r = 35, o = false }), -- трещина
+		},
+	},
+	Ore = {
+		Outline = c3(45, 35, 35),
+		Layers = {
+			L(0.5, 0.58, 0.84, 0.62, { g = { c3(140, 128, 125), c3(78, 70, 72) }, gr = 90, k = 0.42 }),
+			L(0.36, 0.56, 0.2, 0.2, { g = { c3(255, 205, 140), c3(205, 110, 55) }, gr = 45, k = 0.5 }),
+			L(0.62, 0.46, 0.16, 0.16, { g = { c3(255, 205, 140), c3(205, 110, 55) }, gr = 45, k = 0.5 }),
+			L(0.6, 0.72, 0.13, 0.13, { g = { c3(255, 205, 140), c3(205, 110, 55) }, gr = 45, k = 0.5 }),
+			L(0.33, 0.52, 0.06, 0.05, { c = WHITE, t = 0.2, k = 0.5, o = false }),
+			L(0.6, 0.43, 0.05, 0.04, { c = WHITE, t = 0.2, k = 0.5, o = false }),
+		},
+	},
+	Herb = {
+		Outline = c3(25, 85, 35),
+		Layers = {
+			L(0.5, 0.72, 0.06, 0.42, { c = c3(70, 150, 60), k = 0.5 }), -- стебель
+			L(
+				0.29,
+				0.52,
+				0.44,
+				0.25,
+				{ g = { c3(165, 240, 125), c3(55, 165, 70) }, gr = 90, k = 0.5, r = 30 }
+			),
+			L(
+				0.71,
+				0.44,
+				0.44,
+				0.25,
+				{ g = { c3(165, 240, 125), c3(55, 165, 70) }, gr = 90, k = 0.5, r = -30 }
+			),
+			L(
+				0.46,
+				0.25,
+				0.25,
+				0.38,
+				{ g = { c3(180, 245, 140), c3(70, 180, 80) }, gr = 90, k = 0.5, r = -15 }
+			),
+			L(0.46, 0.27, 0.025, 0.26, { c = c3(60, 140, 60), r = -15, o = false }), -- прожилки
+			L(0.3, 0.52, 0.28, 0.025, { c = c3(60, 140, 60), r = 30, o = false }),
+			L(0.7, 0.44, 0.28, 0.025, { c = c3(60, 140, 60), r = -30, o = false }),
+			L(0.78, 0.18, 0.15, 0.15, { g = { c3(255, 130, 150), c3(215, 50, 80) }, gr = 90, k = 0.5 }), -- ягодки
+			L(0.88, 0.3, 0.11, 0.11, { g = { c3(255, 130, 150), c3(215, 50, 80) }, gr = 90, k = 0.5 }),
+			L(0.75, 0.15, 0.05, 0.05, { c = WHITE, t = 0.2, k = 0.5, o = false }),
+		},
+	},
+	Crystal = {
+		Outline = c3(15, 70, 130),
+		Layers = {
+			L(0.28, 0.68, 0.18, 0.3, { g = { c3(200, 250, 255), c3(70, 175, 235) }, gr = 0 }),
+			L(0.28, 0.53, 0.127, 0.127, { g = { c3(220, 252, 255), c3(120, 210, 250) }, gr = 0, r = 45 }),
+			L(0.72, 0.66, 0.18, 0.34, { g = { c3(200, 250, 255), c3(70, 175, 235) }, gr = 0 }),
+			L(0.72, 0.49, 0.127, 0.127, { g = { c3(220, 252, 255), c3(120, 210, 250) }, gr = 0, r = 45 }),
+			L(0.5, 0.58, 0.24, 0.5, { g = { c3(215, 252, 255), c3(60, 165, 235) }, gr = 0 }),
+			L(0.5, 0.33, 0.17, 0.17, { g = { c3(235, 255, 255), c3(130, 215, 250) }, gr = 0, r = 45 }),
+			L(0.44, 0.58, 0.05, 0.38, { c = WHITE, t = 0.35, o = false }), -- грань-блик
+			L(0.5, 0.86, 0.78, 0.12, { c = c3(95, 100, 125), k = 0.5 }), -- основание
+		},
+	},
+	Essence = {
+		Outline = c3(80, 25, 130),
+		Layers = {
+			L(0.5, 0.52, 0.96, 0.96, { c = c3(225, 150, 255), t = 0.72, k = 0.5, o = false }), -- свечение
+			L(0.5, 0.52, 0.66, 0.66, { g = { c3(250, 205, 255), c3(150, 60, 220) }, gr = 60, k = 0.5 }),
+			L(0.56, 0.58, 0.3, 0.3, { c = c3(255, 225, 255), t = 0.35, k = 0.5, o = false }),
+			L(0.4, 0.38, 0.16, 0.08, { c = WHITE, t = 0.2, k = 0.5, r = -35, o = false }),
+			L(0.82, 0.18, 0.11, 0.11, { c = WHITE, r = 45, k = 0.2, o = false }),
+			L(0.17, 0.8, 0.08, 0.08, { c = WHITE, r = 45, k = 0.2, o = false }),
+		},
+	},
+	Fragment = {
+		Outline = c3(115, 55, 10),
+		Layers = {
+			L(0.5, 0.5, 0.8, 0.8, { c = c3(255, 185, 90), t = 0.86, k = 0.5, o = false }),
+			L(
+				0.48,
+				0.48,
+				0.34,
+				0.72,
+				{ g = { c3(255, 228, 150), c3(225, 115, 35) }, gr = 0, r = 28, k = 0.06 }
+			),
+			L(
+				0.74,
+				0.74,
+				0.14,
+				0.3,
+				{ g = { c3(255, 228, 150), c3(225, 115, 35) }, gr = 0, r = -24, k = 0.06 }
+			),
+			L(0.44, 0.44, 0.08, 0.5, { c = c3(255, 245, 210), t = 0.3, r = 28, o = false }),
+		},
+	},
+	Sword = {
+		Outline = c3(30, 35, 55),
+		Layers = {
+			L(0.57, 0.43, 0.15, 0.66, { g = { c3(245, 250, 255), c3(150, 165, 190) }, gr = 0, r = 45 }), -- клинок
+			L(0.79, 0.21, 0.106, 0.106, { g = { c3(245, 250, 255), c3(170, 185, 205) }, gr = 0, r = 45 }), -- остриё
+			L(0.57, 0.43, 0.035, 0.58, { c = c3(120, 210, 255), r = 45, o = false }), -- дол (неоновая кромка)
+			L(
+				0.33,
+				0.67,
+				0.4,
+				0.1,
+				{ g = { c3(255, 225, 100), c3(210, 145, 30) }, gr = 90, r = 45, k = 0.4 }
+			), -- гарда
+			L(0.25, 0.75, 0.09, 0.2, { c = c3(120, 75, 40), r = 45, k = 0.3 }), -- рукоять
+			L(0.17, 0.83, 0.12, 0.12, { g = { c3(255, 225, 100), c3(210, 145, 30) }, gr = 90, k = 0.5 }), -- навершие
+		},
+	},
+	Magnet = {
+		Outline = c3(70, 15, 20),
+		Layers = {
+			L(0.3, 0.42, 0.2, 0.4, { g = { c3(255, 110, 110), c3(200, 35, 45) }, gr = 0 }),
+			L(0.7, 0.42, 0.2, 0.4, { g = { c3(255, 110, 110), c3(200, 35, 45) }, gr = 0 }),
+			L(0.3, 0.26, 0.2, 0.12, { g = { c3(245, 248, 255), c3(170, 180, 200) }, gr = 0 }), -- полюса
+			L(0.7, 0.26, 0.2, 0.12, { g = { c3(245, 248, 255), c3(170, 180, 200) }, gr = 0 }),
+			L(0.5, 0.62, 0.6, 0.6, { arc = true, c = c3(225, 55, 60) }), -- дуга (нижняя половина кольца)
+		},
+	},
+	Egg = {
+		Outline = c3(40, 50, 90),
+		Layers = {
+			L(0.5, 0.54, 0.64, 0.84, { g = { c3(255, 255, 255), c3(185, 205, 240) }, gr = 45, k = 0.5 }),
+			L(0.38, 0.42, 0.16, 0.12, { c = c3(127, 200, 255), k = 0.5, o = false }),
+			L(0.6, 0.62, 0.2, 0.13, { c = c3(255, 179, 224), k = 0.5, o = false }),
+			L(0.42, 0.78, 0.12, 0.09, { c = c3(155, 240, 154), k = 0.5, o = false }),
+			L(0.38, 0.27, 0.1, 0.2, { c = WHITE, t = 0.15, k = 0.5, r = 25, o = false }),
+		},
+	},
+	Bag = {
+		Outline = c3(70, 38, 15),
+		Layers = {
+			L(0.5, 0.2, 0.36, 0.2, { ring = 0.07, c = c3(120, 70, 30), k = 0.5, o = false }), -- ручка
+			L(0.5, 0.58, 0.74, 0.68, { g = { c3(215, 145, 75), c3(150, 90, 40) }, gr = 90, k = 0.3 }), -- корпус
+			L(0.5, 0.4, 0.74, 0.3, { g = { c3(235, 170, 95), c3(185, 115, 55) }, gr = 90, k = 0.35 }), -- клапан
+			L(0.5, 0.7, 0.42, 0.24, { g = { c3(200, 130, 65), c3(160, 95, 45) }, gr = 90, k = 0.25 }), -- карман
+			L(0.5, 0.52, 0.14, 0.12, { g = { c3(255, 230, 120), c3(220, 160, 40) }, gr = 90, k = 0.25 }), -- застёжка
+			L(0.36, 0.33, 0.14, 0.05, { c = WHITE, t = 0.4, k = 0.5, o = false }),
+		},
+	},
+	Potion = flask(c3(120, 245, 200), c3(30, 170, 140)),
+	luck_potion = flask(c3(150, 250, 120), c3(40, 170, 60)),
+	coin_elixir = flask(c3(255, 230, 110), c3(230, 150, 20)),
+	xp_treat = {
+		Outline = c3(110, 80, 50),
+		Layers = {
+			L(0.22, 0.42, 0.22, 0.22, { c = c3(255, 240, 215), k = 0.5 }),
+			L(0.22, 0.6, 0.22, 0.22, { c = c3(255, 240, 215), k = 0.5 }),
+			L(0.78, 0.42, 0.22, 0.22, { c = c3(255, 240, 215), k = 0.5 }),
+			L(0.78, 0.6, 0.22, 0.22, { c = c3(255, 240, 215), k = 0.5 }),
+			L(0.5, 0.51, 0.58, 0.2, { g = { c3(255, 248, 232), c3(235, 210, 175) }, gr = 90, k = 0.2 }),
+			L(0.5, 0.47, 0.4, 0.04, { c = WHITE, t = 0.3, k = 0.5, o = false }),
+		},
+	},
+	catalyst = {
+		Outline = c3(70, 25, 110),
+		Layers = {
+			L(0.5, 0.5, 0.62, 0.62, { ring = 0.07, c = c3(200, 140, 255), k = 0.5, o = false }),
+			L(0.5, 0.5, 0.4, 0.4, { g = { c3(255, 190, 255), c3(140, 60, 220) }, gr = 45, k = 0.5 }),
+			L(0.5, 0.12, 0.12, 0.12, { c = c3(255, 220, 120), r = 45, k = 0.2 }),
+			L(0.88, 0.5, 0.12, 0.12, { c = c3(120, 230, 255), r = 45, k = 0.2 }),
+			L(0.5, 0.88, 0.12, 0.12, { c = c3(255, 140, 170), r = 45, k = 0.2 }),
+			L(0.12, 0.5, 0.12, 0.12, { c = c3(150, 250, 140), r = 45, k = 0.2 }),
+			L(0.44, 0.42, 0.1, 0.06, { c = WHITE, t = 0.25, k = 0.5, r = -35, o = false }),
+		},
+	},
+	pickaxe = {
+		Outline = c3(35, 35, 50),
+		Layers = {
+			L(0.5, 0.55, 0.11, 0.78, { g = { c3(185, 125, 70), c3(120, 75, 35) }, gr = 0, r = 35, k = 0.4 }), -- рукоять
+			L(
+				0.66,
+				0.31,
+				0.74,
+				0.15,
+				{ g = { c3(235, 240, 250), c3(130, 140, 160) }, gr = 90, r = 35, k = 0.5 }
+			), -- кирка
+			L(0.66, 0.31, 0.16, 0.2, { c = c3(110, 115, 135), r = 35, k = 0.2 }), -- обух
+		},
+	},
+	blade = {
+		Outline = c3(60, 20, 30),
+		Layers = {
+			L(0.57, 0.43, 0.17, 0.66, { g = { c3(255, 215, 215), c3(200, 70, 90) }, gr = 0, r = 45 }),
+			L(0.79, 0.21, 0.12, 0.12, { g = { c3(255, 225, 225), c3(210, 90, 110) }, gr = 0, r = 45 }),
+			L(0.57, 0.43, 0.04, 0.56, { c = c3(255, 240, 160), r = 45, o = false }),
+			L(0.33, 0.67, 0.42, 0.11, { g = { c3(70, 70, 90), c3(30, 30, 45) }, gr = 90, r = 45, k = 0.4 }),
+			L(0.25, 0.75, 0.09, 0.2, { c = c3(60, 40, 30), r = 45, k = 0.3 }),
+			L(0.17, 0.83, 0.12, 0.12, { g = { c3(255, 120, 120), c3(180, 30, 50) }, gr = 90, k = 0.5 }),
+		},
+	},
+	ticket_MeadowEgg = ticket(c3(150, 230, 110), c3(70, 165, 70)),
+	ticket_ForestEgg = ticket(c3(90, 175, 100), c3(35, 105, 60)),
+	ticket_FrostEgg = ticket(c3(170, 225, 255), c3(70, 140, 220)),
+} :: { [string]: Spec }
+
+-- Ключ в Config.ASSETS для картинки (только у валют и ресурсов)
+Icons.ASSET_KEYS = {
+	Coin = "COIN",
+	Gem = "GEM",
+	Wood = "WOOD",
+	Stone = "STONE",
+	Ore = "ORE",
+	Herb = "HERB",
+	Crystal = "CRYSTAL",
+	Essence = "ESSENCE",
+	Fragment = "FRAGMENT",
+}
+
+function Icons.has(kind: string): boolean
+	return Icons.SPECS[kind] ~= nil
+end
+
+local function frame(parent: Instance, name: string, l: Layer, z: number): Frame
+	local f = Instance.new("Frame")
+	f.Name = name
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.Position = UDim2.fromScale(l.X, l.Y)
+	f.Size = UDim2.fromScale(l.W, l.H)
+	f.BorderSizePixel = 0
+	f.BackgroundColor3 = l.c or WHITE
+	f.BackgroundTransparency = l.t or 0
+	f.Rotation = l.r or 0
+	f.ZIndex = z
+	if l.k then
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(l.k, 0)
+		cr.Parent = f
+	end
+	if l.g then
+		f.BackgroundColor3 = WHITE
+		local g = Instance.new("UIGradient")
+		g.Color = ColorSequence.new(l.g[1], l.g[2])
+		g.Rotation = l.gr or 90
+		g.Parent = f
+	end
+	f.Parent = parent
+	return f
+end
+
+local function stroke(f: Instance, color: Color3, px: number)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = math.max(1, px)
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = f
+end
+
+-- Нижняя половина кольца (дуга магнита): кольцо-обводка, обрезанное контейнером с ClipsDescendants.
+-- l = { cx, верх дуги, внешний диаметр }: отверстие и толщина дуги — по трети диаметра.
+local function arc(root: Frame, l: Layer, z: number, px: number, outline: Color3?)
+	local d = l.W
+	local cw, ch = d + 0.16, d / 2 + 0.1
+	local clip = Instance.new("Frame")
+	clip.Name = "ArcClip"
+	clip.BackgroundTransparency = 1
+	clip.ClipsDescendants = true
+	clip.AnchorPoint = Vector2.new(0.5, 0)
+	clip.Position = UDim2.fromScale(l.X, l.Y)
+	clip.Size = UDim2.fromScale(cw, ch)
+	clip.ZIndex = z
+	clip.Parent = root
+	local function ring(name: string, hole: number, thick: number, color: Color3, zz: number)
+		local f = Instance.new("Frame")
+		f.Name = name
+		f.BackgroundTransparency = 1
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(0.5, 0)
+		f.Size = UDim2.fromScale(hole / cw, hole / ch)
+		f.ZIndex = zz
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0.5, 0)
+		cr.Parent = f
+		stroke(f, color, thick)
+		f.Parent = clip
+	end
+	local ow = 0.06
+	if outline then
+		ring("ArcOutline", d / 3 - 2 * ow * 0.5, px * (d / 3 + 2 * ow * 0.5), outline, z)
+	end
+	ring("Arc", d / 3, px * d / 3, l.c or WHITE, z + 1)
+end
+
+function Icons.make(kind: string, props: { [string]: any }?): Frame
+	local p: { [string]: any } = props or {}
+	local px: number = p.Px or 40
+	local root = Instance.new("Frame")
+	root.Name = p.Name or "Icon"
+	root.BackgroundTransparency = 1
+	root.BorderSizePixel = 0
+	root.Size = p.Size or UDim2.fromOffset(px, px)
+	root.Position = p.Position or UDim2.new()
+	root.AnchorPoint = p.AnchorPoint or Vector2.zero
+	if p.LayoutOrder then
+		root.LayoutOrder = p.LayoutOrder
+	end
+	local z0: number = p.ZIndex or 1
+	root.ZIndex = z0
+	root:SetAttribute("IconKind", kind)
+	local akey = Icons.ASSET_KEYS[kind]
+	local img = akey and Assets.image(akey)
+	if img then
+		local il = Instance.new("ImageLabel")
+		il.Name = "Image"
+		il.BackgroundTransparency = 1
+		il.Image = img
+		il.ScaleType = Enum.ScaleType.Fit
+		il.Size = UDim2.fromScale(1, 1)
+		il.ZIndex = z0 + 1
+		il.Parent = root
+	else
+		local spec = Icons.SPECS[kind]
+		if not spec then
+			-- неизвестный вид — нейтральный кружок (не падаем)
+			spec = {
+				Outline = c3(40, 40, 60),
+				Layers = { L(0.5, 0.5, 0.7, 0.7, { c = c3(170, 180, 205), k = 0.5 }) },
+			}
+		end
+		local outline = spec.Outline
+		local ow = px * 0.06
+		-- проход 1: общий контур (обводка всех «твёрдых» слоёв), проход 2: сами слои поверх — силуэт без внутренних швов
+		if outline then
+			for i, l in ipairs(spec.Layers) do
+				if l.o ~= false and not l.ring and not l.arc then
+					local f = frame(root, "Outline" .. i, l, z0 + 1)
+					f.BackgroundColor3 = outline
+					for _, ch in ipairs(f:GetChildren()) do
+						if ch:IsA("UIGradient") then
+							ch:Destroy()
+						end
+					end
+					stroke(f, outline, ow)
+				end
+			end
+		end
+		for i, l in ipairs(spec.Layers) do
+			local z = z0 + 1 + i -- порядок слоёв = порядок отрисовки
+			if l.arc then
+				arc(root, l, z, px, outline)
+			elseif l.ring then
+				local f = frame(root, "Ring" .. i, l, z)
+				f.BackgroundTransparency = 1
+				stroke(f, l.c or WHITE, px * l.ring)
+			else
+				frame(root, "L" .. i, l, z)
+			end
+		end
+	end
+	if p.Parent then
+		root.Parent = p.Parent
+	end
+	return root
+end
+
+return Icons
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+				<Properties>
+					<string name="Name">InventoryData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	InventoryData (v2.6) — чистые данные для окна «Инвентарь»: что показывать, где это добыть и для чего оно нужно.
+	Всё выводится из ResourceData / RecipeData / ZoneData / Config, поэтому новые рецепты и миры появляются в окне сами.
+	Тексты — ключи Locale (inv.*) с аргументами; форматирует окно (InventoryPanel).
+]]
+local Config = require(script.Parent.Config)
+local RecipeData = require(script.Parent.RecipeData)
+local ResourceData = require(script.Parent.ResourceData)
+local ZoneData = require(script.Parent.ZoneData)
+
+local InventoryData = {}
+
+export type Entry = { Id: string, Kind: string } -- Kind: "Res" | "Item"
+export type Line = { Key: string, Zones: { string }?, Recipe: any? }
+
+-- Как применяется предмет (по Kind из RecipeData)
+InventoryData.ITEM_USE = {
+	BoostLuck = "inv.use_boost_luck",
+	BoostCoins = "inv.use_boost_coins",
+	PetXp = "craft.use_pets",
+	Catalyst = "craft.use_fusion",
+	Tool = "craft.passive",
+	Weapon = "craft.passive",
+	Ticket = "craft.use_egg",
+} :: { [string]: string }
+
+function InventoryData.list(): { Entry }
+	local out = {}
+	for _, id in ipairs(ResourceData.Order) do
+		table.insert(out, { Id = id, Kind = "Res" })
+	end
+	for _, id in ipairs(RecipeData.ItemOrder) do
+		table.insert(out, { Id = id, Kind = "Item" })
+	end
+	return out
+end
+
+function InventoryData.kindOf(id: string): string?
+	if ResourceData.Resources[id] then
+		return "Res"
+	elseif RecipeData.Items[id] then
+		return "Item"
+	end
+	return nil
+end
+
+-- Имя (англ., переводится Locale.n) — для ресурса из ResourceData, для предмета из RecipeData
+function InventoryData.name(id: string): string
+	local r = ResourceData.Resources[id]
+	if r then
+		return r.Name
+	end
+	local it = RecipeData.Items[id]
+	return if it then it.Name else id
+end
+
+function InventoryData.count(core: any, id: string): number
+	if not core then
+		return 0
+	end
+	if ResourceData.Resources[id] then
+		return (core.Resources and core.Resources[id]) or 0
+	end
+	return (core.Items and core.Items[id]) or 0
+end
+
+-- Миры, где растут узлы ресурса (имена миров по порядку ZoneData)
+function InventoryData.zonesFor(res: string): { string }
+	local out = {}
+	for _, z in ipairs(ZoneData.List) do
+		for _, r in ipairs(z.Resources or {}) do
+			if r == res then
+				table.insert(out, z.Name)
+				break
+			end
+		end
+	end
+	return out
+end
+
+function InventoryData.sources(id: string): { Line }
+	local out: { Line } = {}
+	if ResourceData.Resources[id] then
+		local zones = InventoryData.zonesFor(id)
+		if #zones > 0 then
+			table.insert(out, { Key = "inv.src_nodes", Zones = zones })
+			table.insert(out, { Key = "inv.src_chests" })
+		end
+		if id == "Essence" then
+			table.insert(out, { Key = "inv.src_enemies" })
+			if Config.PRODUCTS.ESSENCE_PACK then
+				table.insert(out, { Key = "inv.src_shop" })
+			end
+		elseif id == "Fragment" then
+			table.insert(out, { Key = "inv.src_bosses" })
+		end
+		return out
+	end
+	for _, r in ipairs(RecipeData.Recipes) do
+		if r.Item == id then
+			table.insert(out, { Key = "inv.src_craft", Recipe = r })
+		end
+	end
+	if table.find(ResourceData.ChestItems, id) then
+		table.insert(out, { Key = "inv.src_chests" })
+	end
+	local it = RecipeData.Items[id]
+	if it and it.Kind == "Ticket" then
+		table.insert(out, { Key = "inv.src_tickets" })
+	end
+	return out
+end
+
+function InventoryData.uses(id: string): { Line }
+	local out: { Line } = {}
+	if ResourceData.Resources[id] then
+		for _, r in ipairs(RecipeData.Recipes) do
+			if r.Cost[id] then
+				table.insert(out, { Key = "inv.use_recipe", Recipe = r })
+			end
+		end
+		if id == "Essence" then
+			table.insert(out, { Key = "inv.use_evolve" })
+		end
+	else
+		local it = RecipeData.Items[id]
+		local key = it and InventoryData.ITEM_USE[it.Kind]
+		if key then
+			table.insert(out, { Key = key })
+		end
+	end
+	if #out == 0 then
+		table.insert(out, { Key = "inv.use_none" })
+	end
+	return out
+end
+
+return InventoryData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
 				<Properties>
 					<string name="Name">Locale</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3150,7 +4030,7 @@ return Locale
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
 				<Properties>
 					<string name="Name">LocaleEn</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3299,10 +4179,10 @@ LocaleEn.Strings = {
 	["pets.empty_filter"] = "No pets match these filters.",
 	["tutorial.title"] = "Tutorial {i}/{n}: {text}",
 	["tutorial.progress"] = " ({p}/{c})",
-	["tutorial.collect"] = "pick the 🧲 magnet (slot 2) and tap the screen {c} times",
+	["tutorial.collect"] = "pick the magnet (slot 2) and tap the screen {c} times",
 	["tutorial.hatch"] = "press Eggs on the right or walk to an egg and open it",
 	["tutorial.equip"] = "add a pet to your team (Pets on the right → Equip)",
-	["tutorial.kill"] = "defeat an enemy: ⚔️ sword (slot 1), then tap/click the screen; Q attacks too",
+	["tutorial.kill"] = "defeat an enemy: sword (slot 1), then tap/click the screen; Q attacks too",
 	["tutorial.gather"] = "gather a resource — a tree, rock or bush",
 	["tutorial.step_done"] = "Tutorial step complete!",
 	["tutorial.step_done_coins"] = "Step complete! +{n} coins — enough for your first egg",
@@ -3697,13 +4577,41 @@ LocaleEn.Strings = {
 	["event.next"] = "🌙 {name} in {time}",
 	["obj.superstop"] = "Stop the superplayer",
 	["obj.supersurvive"] = "Hold out with the superpower",
+	-- v2.6: окно «Инвентарь»
+	["hud.inventory"] = "Inventory",
+	["panel.Inventory"] = "Inventory",
+	["inv.section_res"] = "Resources",
+	["inv.section_items"] = "Items",
+	["inv.hint"] = "Tap a resource or item to see where to get it and what it is for",
+	["inv.have"] = "You have: {n}",
+	["inv.where"] = "Where to get",
+	["inv.used_for"] = "Used for",
+	["inv.src_nodes"] = "Nodes in worlds: {zones}. Walk up and hold E (the button on mobile)",
+	["inv.src_chests"] = "Sometimes in chests",
+	["inv.src_enemies"] = "Dropped by enemies and bosses (stronger ones drop more)",
+	["inv.src_bosses"] = "Often from bosses, rarely from regular enemies",
+	["inv.src_shop"] = "Essence pack in the shop",
+	["inv.src_craft"] = "Workbench in the Hub: {cost}",
+	["inv.src_tickets"] = "Sometimes dropped by enemies of its world",
+	["inv.use_recipe"] = "{item}: {cost}",
+	["inv.use_evolve"] = "Evolving pets at their level cap",
+	["inv.use_none"] = "Not used in recipes yet",
+	["inv.use_boost_luck"] = "Drink it (hotbar slot 3 or Craft → Items): luck x2 for 5 minutes",
+	["inv.use_boost_coins"] = "Drink it (hotbar slot 3 or Craft → Items): coins x2 for 5 minutes",
+	["inv.desc.Wood"] = "Sturdy wood, the base of simple recipes.",
+	["inv.desc.Stone"] = "Heavy stone for sturdy things.",
+	["inv.desc.Ore"] = "Iron ore for the pickaxe, the blade and elixirs.",
+	["inv.desc.Herb"] = "Healing herbs, the main potion ingredient.",
+	["inv.desc.Crystal"] = "A rare glowing crystal from the frost and fire worlds.",
+	["inv.desc.Essence"] = "Magic monster essence: pets grow further with it.",
+	["inv.desc.Fragment"] = "A shard of a defeated boss's power.",
 }
 
 return LocaleEn
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
 				<Properties>
 					<string name="Name">LocaleRu</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3852,10 +4760,10 @@ LocaleRu.Strings = {
 	["pets.empty_filter"] = "Нет питомцев под выбранные фильтры.",
 	["tutorial.title"] = "Обучение {i}/{n}: {text}",
 	["tutorial.progress"] = " ({p}/{c})",
-	["tutorial.collect"] = "выберите 🧲 магнит (слот 2) и жмите по экрану {c} раз",
+	["tutorial.collect"] = "выберите магнит (слот 2) и жмите по экрану {c} раз",
 	["tutorial.hatch"] = "нажмите «Яйца» справа или подойдите к яйцу и откройте его",
 	["tutorial.equip"] = "возьмите питомца в команду («Питомцы» справа → «В команду»)",
-	["tutorial.kill"] = "победите врага: ⚔️ меч (слот 1) и тап/клик по экрану, Q — тоже удар",
+	["tutorial.kill"] = "победите врага: меч (слот 1) и тап/клик по экрану, Q — тоже удар",
 	["tutorial.gather"] = "соберите ресурс — дерево, камень или куст",
 	["tutorial.step_done"] = "Шаг обучения пройден!",
 	["tutorial.step_done_coins"] = "Шаг пройден! +{n} монет — хватит на первое яйцо",
@@ -4250,6 +5158,34 @@ LocaleRu.Strings = {
 	["event.next"] = "🌙 {name} через {time}",
 	["obj.superstop"] = "Останови суперигрока",
 	["obj.supersurvive"] = "Продержись с суперсилой",
+	-- v2.6: окно «Инвентарь»
+	["hud.inventory"] = "Инвентарь",
+	["panel.Inventory"] = "Инвентарь",
+	["inv.section_res"] = "Ресурсы",
+	["inv.section_items"] = "Предметы",
+	["inv.hint"] = "Нажмите на ресурс или предмет: покажем, где его добыть и для чего он нужен",
+	["inv.have"] = "У вас: {n}",
+	["inv.where"] = "Где добыть",
+	["inv.used_for"] = "Для чего",
+	["inv.src_nodes"] = "Узлы в мирах: {zones}. Подойдите и удерживайте E (на телефоне — кнопку)",
+	["inv.src_chests"] = "Иногда — в сундуках",
+	["inv.src_enemies"] = "Выпадает с врагов и боссов (больше — с сильных)",
+	["inv.src_bosses"] = "Часто — с боссов, изредка — с обычных врагов",
+	["inv.src_shop"] = "Пакет эссенции в магазине",
+	["inv.src_craft"] = "Верстак в Хабе: {cost}",
+	["inv.src_tickets"] = "Иногда выпадает с врагов своего мира",
+	["inv.use_recipe"] = "{item}: {cost}",
+	["inv.use_evolve"] = "Эволюция питомцев на пределе уровня",
+	["inv.use_none"] = "Пока не используется в рецептах",
+	["inv.use_boost_luck"] = "Выпейте (слот 3 хотбара или «Крафт» → «Предметы»): удача ×2 на 5 минут",
+	["inv.use_boost_coins"] = "Выпейте (слот 3 хотбара или «Крафт» → «Предметы»): монеты ×2 на 5 минут",
+	["inv.desc.Wood"] = "Крепкая древесина — основа простых рецептов.",
+	["inv.desc.Stone"] = "Тяжёлый камень для прочных вещей.",
+	["inv.desc.Ore"] = "Железная руда — для кирки, клинка и эликсиров.",
+	["inv.desc.Herb"] = "Целебные травы — главный ингредиент зелий.",
+	["inv.desc.Crystal"] = "Редкий сияющий кристалл холодных и огненных миров.",
+	["inv.desc.Essence"] = "Магическая эссенция монстров: с ней питомцы растут дальше.",
+	["inv.desc.Fragment"] = "Осколок силы побеждённого босса.",
 }
 
 -- Перевод «данных» по исходному английскому тексту (имена питомцев, врагов, зон, ресурсов, предметов,
@@ -4636,7 +5572,123 @@ return LocaleRu
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+				<Properties>
+					<string name="Name">Logo</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Logo (v2.6) — логотип игры для экрана загрузки и таблички в хабе.
+	Config.ASSETS.LOGO ~= 0 -> картинка (загруженная assets/icon_512.png); 0 -> логотип из примитивов GUI:
+	солнечные лучи, яйцо, меч, монета и самоцвет (Icons.lua) на ярком градиенте — без картинок и эмодзи.
+	Logo.make(props) -> Frame (квадрат): props Name, Size, Position, AnchorPoint, ZIndex, Parent, Px (размер в пикселях).
+]]
+local Assets = require(script.Parent.Assets)
+local Icons = require(script.Parent.Icons)
+
+local Logo = {}
+
+local c3 = Color3.fromRGB
+
+function Logo.make(props: { [string]: any }?): Frame
+	local p: { [string]: any } = props or {}
+	local px: number = p.Px or 200
+	local z: number = p.ZIndex or 1
+	local root = Instance.new("Frame")
+	root.Name = p.Name or "Logo"
+	root.Size = p.Size or UDim2.fromOffset(px, px)
+	root.Position = p.Position or UDim2.new()
+	root.AnchorPoint = p.AnchorPoint or Vector2.zero
+	root.BackgroundTransparency = 1
+	root.ZIndex = z
+	local img = Assets.image("LOGO")
+	if img then
+		root:SetAttribute("LogoKind", "image")
+		local il = Instance.new("ImageLabel")
+		il.Name = "Image"
+		il.BackgroundTransparency = 1
+		il.Image = img
+		il.ScaleType = Enum.ScaleType.Fit
+		il.Size = UDim2.fromScale(1, 1)
+		il.ZIndex = z + 1
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0.18, 0)
+		cr.Parent = il
+		il.Parent = root
+	else
+		root:SetAttribute("LogoKind", "primitives")
+		local bg = Instance.new("Frame")
+		bg.Name = "Bg"
+		bg.Size = UDim2.fromScale(1, 1)
+		bg.BackgroundColor3 = Color3.new(1, 1, 1)
+		bg.BorderSizePixel = 0
+		bg.ZIndex = z + 1
+		local cr = Instance.new("UICorner")
+		cr.CornerRadius = UDim.new(0.18, 0)
+		cr.Parent = bg
+		local g = Instance.new("UIGradient")
+		g.Color = ColorSequence.new(c3(255, 230, 110), c3(255, 125, 40))
+		g.Rotation = 90
+		g.Parent = bg
+		local st = Instance.new("UIStroke")
+		st.Color = c3(27, 24, 64)
+		st.Thickness = math.max(2, px * 0.03)
+		st.Parent = bg
+		bg.Parent = root
+		-- лучи: тонкие полосы через центр (вписаны в круг — не выходят за квадрат)
+		for i = 0, 5 do
+			local ray = Instance.new("Frame")
+			ray.Name = "Ray" .. i
+			ray.AnchorPoint = Vector2.new(0.5, 0.5)
+			ray.Position = UDim2.fromScale(0.5, 0.5)
+			ray.Size = UDim2.fromScale(0.94, 0.11)
+			ray.Rotation = i * 30
+			ray.BackgroundColor3 = Color3.new(1, 1, 1)
+			ray.BackgroundTransparency = 0.72
+			ray.BorderSizePixel = 0
+			ray.ZIndex = z + 2
+			ray.Parent = root
+		end
+		local glow = Instance.new("Frame")
+		glow.Name = "Glow"
+		glow.AnchorPoint = Vector2.new(0.5, 0.5)
+		glow.Position = UDim2.fromScale(0.5, 0.52)
+		glow.Size = UDim2.fromScale(0.7, 0.7)
+		glow.BackgroundColor3 = c3(255, 250, 200)
+		glow.BackgroundTransparency = 0.45
+		glow.BorderSizePixel = 0
+		glow.ZIndex = z + 3
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(0.5, 0)
+		gc.Parent = glow
+		glow.Parent = root
+		local function icon(kind: string, x: number, y: number, s: number, zz: number)
+			Icons.make(kind, {
+				Name = kind,
+				Px = px * s,
+				Size = UDim2.fromScale(s, s),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromScale(x, y),
+				ZIndex = zz,
+				Parent = root,
+			})
+		end
+		icon("Sword", 0.58, 0.43, 0.7, z + 4)
+		icon("Egg", 0.46, 0.56, 0.56, z + 20)
+		icon("Coin", 0.2, 0.22, 0.26, z + 40)
+		icon("Gem", 0.82, 0.78, 0.24, z + 40)
+		icon("Coin", 0.2, 0.8, 0.2, z + 40)
+	end
+	if p.Parent then
+		root.Parent = p.Parent
+	end
+	return root
+end
+
+return Logo
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5145,7 +6197,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5486,7 +6538,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5800,7 +6852,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6086,7 +7138,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6236,7 +7288,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6318,7 +7370,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6407,6 +7459,8 @@ ResourceData.GATHER_RANGE = 20
 ResourceData.CHEST_RESPAWN = 120
 ResourceData.CHESTS_PER_ZONE = 2
 -- Сундук: случайная добыча
+-- Предметы, которые может дать сундук (Kind = "Item"); их же показывает окно «Инвентарь»
+ResourceData.ChestItems = { "catalyst", "luck_potion", "coin_elixir", "xp_treat" }
 ResourceData.ChestLoot = {
 	{ Kind = "Coins", Weight = 40 },
 	{ Kind = "Gems", Weight = 12 },
@@ -6418,7 +7472,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6586,7 +7640,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6860,7 +7914,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7128,7 +8182,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7341,7 +8395,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7495,7 +8549,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7549,7 +8603,7 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7630,7 +8684,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7757,7 +8811,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7898,11 +8952,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000022">
+	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000028">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX00000000000000000000000000000023">
+		<Item class="Script" referent="RBX00000000000000000000000000000029">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -7957,11 +9011,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX00000000000000000000000000000024">
+		<Item class="Folder" referent="RBX0000000000000000000000000000002A">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8102,7 +9156,72 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+				<Properties>
+					<string name="Name">Badges</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Badges — значки Roblox (BadgeService). ID в Config.BADGES; 0 = значок выключен (BadgeService не трогаем).
+	award(player, key) не блокирует вызывающего (task.spawn), ошибки сети гасятся pcall, повторно в той же сессии не выдаёт.
+	Где выдаются: WELCOME — вход (PlayerService), FIRST_BOSS — первый босс (CombatService),
+	FIRST_REBIRTH — перерождение (RebirthService), SUPERPOWER — получил суперсилу (SuperpowerService).
+]]
+local Config = require(game:GetService("ReplicatedStorage"):WaitForChild("Shared"):WaitForChild("Config"))
+
+local Badges = {}
+
+local given: { [Player]: { [string]: boolean } } = setmetatable({}, { __mode = "k" }) :: any
+
+function Badges.id(key: string): number
+	local v = (Config.BADGES :: any)[key]
+	return if type(v) == "number" and v > 0 then v else 0
+end
+
+-- Синхронная выдача (для тестов); возвращает true, если значок выдан сейчас или уже был
+function Badges.awardNow(player: Player, key: string): boolean
+	local id = Badges.id(key)
+	if id == 0 or player.UserId <= 0 then
+		return false
+	end
+	local mine = given[player]
+	if not mine then
+		mine = {}
+		given[player] = mine
+	end
+	if mine[key] then
+		return true
+	end
+	mine[key] = true
+	local BadgeService = game:GetService("BadgeService")
+	local okHas, has = pcall(function()
+		return BadgeService:UserHasBadgeAsync(player.UserId, id)
+	end)
+	if okHas and has then
+		return true
+	end
+	local ok, res = pcall(function()
+		return BadgeService:AwardBadge(player.UserId, id)
+	end)
+	if not ok or res == false then
+		mine[key] = nil -- попробуем ещё раз при следующем событии
+		warn(("[Badges] %s (%d): %s"):format(key, id, tostring(res)))
+		return false
+	end
+	return true
+end
+
+function Badges.award(player: Player, key: string)
+	if Badges.id(key) == 0 then
+		return
+	end
+	task.spawn(Badges.awardNow, player, key)
+end
+
+return Badges
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8203,7 +9322,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8286,7 +9405,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8314,6 +9433,7 @@ local ResourceData = require(Shared.ResourceData)
 local Remotes = require(Shared.Remotes)
 local ZoneData = require(Shared.ZoneData)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local PetService = require(script.Parent.PetService)
@@ -8634,6 +9754,7 @@ local function reward(player: Player, e: Enemy)
 		Progress.record(player, "kill", def.Id, 1, e.Zone)
 		if def.Boss then
 			Progress.record(player, "boss", def.Id, 1, e.Zone)
+			Badges.award(player, "FIRST_BOSS")
 		end
 	end
 	fx(
@@ -9168,7 +10289,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9269,7 +10390,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9302,7 +10423,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9391,7 +10512,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9879,7 +11000,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10369,7 +11490,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10625,7 +11746,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10674,7 +11795,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10755,7 +11876,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10848,7 +11969,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11018,7 +12139,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11108,7 +12229,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11337,7 +12458,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11361,7 +12482,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11436,7 +12557,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11849,7 +12970,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11863,6 +12984,7 @@ local BattlePassData = require(Shared.BattlePassData)
 local Config = require(Shared.Config)
 local Util = require(Shared.Util)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local LanguageService = require(script.Parent.LanguageService)
@@ -12057,6 +13179,7 @@ local function onPlayerAdded(player: Player)
 	end)
 
 	State.push(player, true)
+	Badges.award(player, "WELCOME") -- v2.6: значок «Добро пожаловать» (Config.BADGES.WELCOME, 0 = выкл.)
 	if DataService.isNewPlayer(player) then
 		Notify.send(player, "welcome.new", "info")
 	end
@@ -12158,7 +13281,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12295,7 +13418,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12484,7 +13607,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12497,6 +13620,7 @@ local Config = require(Shared.Config)
 local Formulas = require(Shared.Formulas)
 local TalentData = require(Shared.TalentData)
 
+local Badges = require(script.Parent.Badges)
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
@@ -12529,6 +13653,7 @@ local function rebirth(player: Player): (boolean, any)
 	data.Rebirths += 1
 	Economy.addGems(player, gems)
 	Progress.setMax(player, "Rebirths", data.Rebirths)
+	Badges.award(player, "FIRST_REBIRTH")
 	State.markCore(player)
 	Notify.send(
 		player,
@@ -12590,7 +13715,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12819,7 +13944,7 @@ local function harvest(player: Player, node: Node): boolean
 			local list = if zone then zone.Resources else { "Wood" }
 			reward.Res = { [list[rng:NextInteger(1, #list)]] = rng:NextInteger(3, 6) + idx }
 		else
-			local items = { "catalyst", "luck_potion", "coin_elixir", "xp_treat" }
+			local items = ResourceData.ChestItems
 			reward.Item = items[rng:NextInteger(1, #items)]
 			reward.ItemCount = 1
 		end
@@ -12977,7 +14102,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13064,7 +14189,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13147,7 +14272,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13191,7 +14316,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13252,7 +14377,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13500,7 +14625,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13560,7 +14685,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13589,7 +14714,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13884,7 +15009,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13912,6 +15037,7 @@ local Locale = require(Shared.Locale)
 local Remotes = require(Shared.Remotes)
 local Logic = require(Shared.SuperpowerLogic)
 
+local Badges = require(script.Parent.Badges)
 local AntiExploit = require(script.Parent.AntiExploit)
 local Knockback = require(script.Parent.Knockback)
 local DataService = require(script.Parent.DataService)
@@ -14344,6 +15470,9 @@ function SuperpowerService.start(forcedKey: string?): string?
 	end
 	setPower(u, true, r)
 	updateBar(r)
+	if not u.IsBot and u.Player then
+		Badges.award(u.Player, "SUPERPOWER")
+	end
 	local model = u.GetModel()
 	local root = rootOf(u)
 	combatFx(nil, "SuperStart", model, root and root.Position)
@@ -14739,7 +15868,7 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
 				<Properties>
 					<string name="Name">ToolService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14902,7 +16031,7 @@ return ToolService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15435,7 +16564,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15512,7 +16641,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15569,7 +16698,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15580,6 +16709,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
 local Locale = require(Shared.Locale)
+local Logo = require(Shared.Logo)
 local PetData = require(Shared.PetData)
 local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
@@ -16096,6 +17226,42 @@ local function buildNpc(
 	stationPositions[id] = pos
 end
 
+-- v2.6: табличка с логотипом игры за фонтаном (над табло и яйцами хаба): две стойки, рамка, на ней BillboardGui с Logo
+-- (картинка Config.ASSETS.LOGO или логотип из примитивов). SurfaceGui не используем — billboard виден и в веб-демо.
+local function buildLogoSign(parent: Instance, base: Vector3)
+	local m = Instance.new("Model")
+	m.Name = "LogoSign"
+	m.Parent = parent
+	local wood = Color3.fromRGB(120, 78, 45)
+	block(m, "PostL", Vector3.new(1.4, 22, 1.4), base + Vector3.new(-9.5, 11, 0), wood, Enum.Material.Wood)
+	block(m, "PostR", Vector3.new(1.4, 22, 1.4), base + Vector3.new(9.5, 11, 0), wood, Enum.Material.Wood)
+	local frame = block(
+		m,
+		"Frame",
+		Vector3.new(19, 19, 0.8),
+		base + Vector3.new(0, 19, 0),
+		Color3.fromRGB(255, 200, 60),
+		Enum.Material.Neon
+	)
+	local board = block(
+		m,
+		"Board",
+		Vector3.new(17.6, 17.6, 1),
+		base + Vector3.new(0, 19, 0.1),
+		Color3.fromRGB(30, 34, 70),
+		Enum.Material.SmoothPlastic
+	)
+	local _ = frame
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "LogoGui"
+	gui.Size = UDim2.fromScale(16, 16) -- в студах
+	gui.LightInfluence = 0
+	gui.MaxDistance = 260
+	gui.Parent = board
+	Logo.make({ Name = "Logo", Px = 256, Size = UDim2.fromScale(1, 1), Parent = gui })
+	return m
+end
+
 local function buildHub(world: Folder)
 	local hub = Instance.new("Folder")
 	hub.Name = "Hub"
@@ -16522,6 +17688,7 @@ local function buildHub(world: Folder)
 	for k, egg in ipairs(hubEggs) do
 		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
 	end
+	buildLogoSign(hub, Vector3.new(0, 0, -50))
 	local boardModel = buildBoard(hub, Vector3.new(0, 0, -98))
 	local boardPart = boardModel and boardModel:FindFirstChild("Board")
 	if boardPart and boardPart:IsA("BasePart") then
@@ -16731,7 +17898,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16831,15 +17998,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000004C">
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000053">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX0000000000000000000000000000004D">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000054">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000055">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16897,7 +18064,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000004F">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000056">
 				<Properties>
 					<string name="Name">EnemyVisuals</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17397,7 +18564,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000050">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000057">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17533,7 +18700,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000051">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000058">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17640,22 +18807,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000052">
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000059">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000053">
+		<Item class="ScreenGui" referent="RBX0000000000000000000000000000005A">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX00000000000000000000000000000054">
+			<Item class="Folder" referent="RBX0000000000000000000000000000005B">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17688,7 +18855,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17787,7 +18954,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17874,7 +19041,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17885,6 +19052,7 @@ local L = require(Shared:WaitForChild("Locale"))
 
 local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local ResourceData = require(Shared:WaitForChild("ResourceData"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
@@ -17909,16 +19077,27 @@ function CraftPanel.init(gui: ScreenGui)
 		Parent = body,
 	})
 	Widgets.corner(resBar, 10)
+	-- v2.6: у каждого ресурса своя иконка (Icons.lua) + число
 	local resLabels = {}
 	for i, id in ipairs(ResourceData.Order) do
 		local r = ResourceData.Resources[id]
+		Icons.make(id, {
+			Name = "Icon_" .. id,
+			Px = 26,
+			Size = UDim2.fromOffset(26, 26),
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new((i - 1) / #ResourceData.Order, 4, 0.5, 0),
+			ZIndex = 23,
+			Parent = resBar,
+		})
 		local l = UiKit.text(
 			resBar,
 			"",
-			UDim2.new((i - 1) / #ResourceData.Order, 6, 0, 3),
-			UDim2.new(1 / #ResourceData.Order, -8, 1, -6),
+			UDim2.new((i - 1) / #ResourceData.Order, 32, 0, 3),
+			UDim2.new(1 / #ResourceData.Order, -34, 1, -6),
 			{ TextColor3 = r.Color, Font = Theme.Font, MaxSize = 16 }
 		)
+		l.Name = "Res_" .. id
 		resLabels[id] = l
 	end
 
@@ -17938,7 +19117,7 @@ function CraftPanel.init(gui: ScreenGui)
 			return
 		end
 		for id, l in pairs(resLabels) do
-			l.Text = L.t("res_short." .. id) .. " " .. Util.formatNumber(core.Resources[id] or 0)
+			l.Text = Util.formatNumber(core.Resources[id] or 0)
 		end
 		Widgets.clear(scroll)
 		if view == "Recipes" then
@@ -17947,11 +19126,19 @@ function CraftPanel.init(gui: ScreenGui)
 				local ok = RecipeData.canCraft(recipe, core.Resources, core.Coins)
 				local card = UiKit.card(scroll, 58, if ok then Theme.Green else nil, i)
 				card.Name = recipe.Id
+				Icons.make(recipe.Item, {
+					Px = 44,
+					Size = UDim2.fromOffset(44, 44),
+					AnchorPoint = Vector2.new(0, 0.5),
+					Position = UDim2.new(0, 8, 0.5, 0),
+					ZIndex = 23,
+					Parent = card,
+				})
 				UiKit.text(
 					card,
 					L.t("reward.item", { n = recipe.Count, item = item.Name }),
-					UDim2.fromOffset(10, 4),
-					UDim2.new(0.55, 0, 0, 22),
+					UDim2.fromOffset(60, 4),
+					UDim2.new(0.55, -50, 0, 22),
 					{ Font = Theme.Font, MaxSize = 18 }
 				)
 				local parts = {}
@@ -17973,8 +19160,8 @@ function CraftPanel.init(gui: ScreenGui)
 				UiKit.text(
 					card,
 					table.concat(parts, "  +  "),
-					UDim2.fromOffset(10, 28),
-					UDim2.new(0.6, 0, 0, 22),
+					UDim2.fromOffset(60, 28),
+					UDim2.new(0.6, -50, 0, 22),
 					{ TextColor3 = if ok then Theme.TextDim else Theme.Red, MaxSize = 14 }
 				)
 				UiKit.text(
@@ -18009,18 +19196,26 @@ function CraftPanel.init(gui: ScreenGui)
 					local item = RecipeData.Items[id]
 					local card = UiKit.card(scroll, 52, Theme.BgLight, i)
 					card.Name = id
+					Icons.make(id, {
+						Px = 40,
+						Size = UDim2.fromOffset(40, 40),
+						AnchorPoint = Vector2.new(0, 0.5),
+						Position = UDim2.new(0, 8, 0.5, 0),
+						ZIndex = 23,
+						Parent = card,
+					})
 					UiKit.text(
 						card,
 						("%s  x%d"):format(L.n(item.Name), n),
-						UDim2.fromOffset(10, 4),
-						UDim2.new(0.6, 0, 0, 22),
+						UDim2.fromOffset(56, 4),
+						UDim2.new(0.6, -46, 0, 22),
 						{ Font = Theme.Font, MaxSize = 18 }
 					)
 					UiKit.text(
 						card,
 						L.n(item.Desc),
-						UDim2.fromOffset(10, 28),
-						UDim2.new(0.62, 0, 0, 20),
+						UDim2.fromOffset(56, 28),
+						UDim2.new(0.62, -46, 0, 20),
 						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
 					)
 					if item.Kind == "BoostLuck" or item.Kind == "BoostCoins" then
@@ -18103,7 +19298,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18245,7 +19440,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18432,7 +19627,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18744,7 +19939,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19142,7 +20337,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19340,7 +20535,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
 					<Properties>
 						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19375,21 +20570,21 @@ local Hotbar = {}
 Hotbar.SLOTS = {
 	{
 		Tool = "Sword",
-		Icon = "⚔️",
+		IconKind = "Sword",
 		Text = "hotbar.sword",
 		Color = Color3.fromRGB(235, 80, 80),
 		Key = Enum.KeyCode.One,
 	},
 	{
 		Tool = "Collector",
-		Icon = "🧲",
+		IconKind = "Magnet",
 		Text = "hotbar.collect",
 		Color = Color3.fromRGB(255, 190, 40),
 		Key = Enum.KeyCode.Two,
 	},
 	{
 		Tool = nil,
-		Icon = "🧪",
+		IconKind = "Potion",
 		Text = "hotbar.potion",
 		Color = Color3.fromRGB(170, 100, 255),
 		Key = Enum.KeyCode.Three,
@@ -19532,7 +20727,7 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		local b = Widgets.hudButton({
 			Name = "Slot" .. i,
 			Color = Color3.fromRGB(40, 44, 62),
-			Icon = s.Icon,
+			IconKind = s.IconKind,
 			Text = L.k(s.Text),
 			Layout = "column",
 			MaxTextSize = 15,
@@ -19711,7 +20906,7 @@ return Hotbar
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19735,6 +20930,7 @@ local PetData = require(Shared:WaitForChild("PetData"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
 local Util = require(Shared:WaitForChild("Util"))
 local Config = require(Shared:WaitForChild("Config"))
+local Icons = require(Shared:WaitForChild("Icons"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
@@ -19768,6 +20964,14 @@ Hud.RIGHT = {
 		Text = "hud.quests",
 		Color = Color3.fromRGB(80, 200, 100),
 	},
+	-- v2.6: инвентарь — ресурсы и предметы со своими иконками (InventoryPanel)
+	{
+		Id = "Inventory",
+		Name = "InventoryBtn",
+		IconKind = "Bag",
+		Text = "hud.inventory",
+		Color = Color3.fromRGB(30, 180, 190),
+	},
 }
 
 -- Ближайшее яйцо в радиусе открытия (клиентская подсказка; сервер всё равно проверяет дистанцию)
@@ -19799,7 +21003,7 @@ local function currencyRow(
 	icon: string,
 	color: Color3,
 	order: number
-): TextLabel
+): TextLabel -- icon: вид Icons.lua (Coin / Gem) — без эмодзи (🪙 не рисуется на Windows 10 и в части шрифтов)
 	local row = Widgets.New("Frame", {
 		Name = name,
 		Size = UDim2.new(1, 0, 0, 42),
@@ -19807,14 +21011,12 @@ local function currencyRow(
 		LayoutOrder = order,
 		Parent = parent,
 	})
-	Widgets.New("TextLabel", {
+	Icons.make(icon, {
 		Name = "Icon",
-		Text = icon,
-		BackgroundTransparency = 1,
-		TextScaled = true,
-		Font = Theme.Font,
-		TextColor3 = color,
+		Px = 40,
 		Size = UDim2.fromOffset(40, 40),
+		Position = UDim2.fromOffset(0, 1),
+		ZIndex = 5,
 		Parent = row,
 	})
 	return Widgets.bold({
@@ -19896,12 +21098,12 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 	})
 	local moreDot = Widgets.dot(moreBtn)
 
-	-- ---------- справа: Яйца / Питомцы / Задания ----------
+	-- ---------- справа: Яйца / Питомцы / Задания / Инвентарь ----------
 	local right = Widgets.New("Frame", {
 		Name = "RightButtons",
 		AnchorPoint = Vector2.new(1, 0.5),
 		Position = UDim2.new(1, -12, 0.42, 0),
-		Size = UDim2.fromOffset(76, 3 * 76 + 2 * 10),
+		Size = UDim2.fromOffset(76, #Hud.RIGHT * 76 + (#Hud.RIGHT - 1) * 10),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -19917,6 +21119,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 			Name = item.Name,
 			Color = item.Color,
 			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Layout = "column",
 			Size = UDim2.fromOffset(76, 76),
@@ -19962,8 +21165,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		VerticalAlignment = Enum.VerticalAlignment.Bottom,
 		Parent = wallet,
 	})
-	local gemsLabel = currencyRow(wallet, "Gems", "💎", Theme.Gem, 1)
-	local coinsLabel = currencyRow(wallet, "Coins", "🪙", Theme.Gold, 2)
+	local gemsLabel = currencyRow(wallet, "Gems", "Gem", Theme.Gem, 1)
+	local coinsLabel = currencyRow(wallet, "Coins", "Coin", Theme.Gold, 2)
 
 	-- ---------- хотбар и всплывающие «+N» над ним ----------
 	local hotbar
@@ -20052,7 +21255,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20505,7 +21708,7 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
 					<Properties>
 						<string name="Name">IndexPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20707,7 +21910,347 @@ return IndexPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+					<Properties>
+						<string name="Name">InventoryPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	InventoryPanel (v2.6) — окно «Инвентарь» (кнопка в правой колонке HUD).
+	Слева сетка: все ресурсы ResourceData и предметы RecipeData (лут, крафт); в ячейке — своя иконка (Icons.lua,
+	без эмодзи), название и количество; чего нет — приглушено. Справа (на телефоне в портрете — снизу) карточка
+	выбранного: описание, где добыть (миры, сундуки, враги, верстак) и для чего нужно (рецепты). Данные — InventoryData.
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
+
+local Icons = require(Shared:WaitForChild("Icons"))
+local InventoryData = require(Shared:WaitForChild("InventoryData"))
+local RecipeData = require(Shared:WaitForChild("RecipeData"))
+local ResourceData = require(Shared:WaitForChild("ResourceData"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
+local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
+local Widgets = require(script.Parent.Widgets)
+
+local InventoryPanel = {}
+
+local ITEM_ACCENT = Color3.fromRGB(180, 120, 255)
+
+-- «Дерево ×4 + Камень ×2 + 500 монет»
+local function costText(recipe): string
+	local parts = {}
+	for _, res in ipairs(ResourceData.Order) do
+		local n = recipe.Cost[res]
+		if n then
+			table.insert(parts, L.t("reward.res", { n = n, res = L.n(ResourceData.Resources[res].Name) }))
+		end
+	end
+	if recipe.Coins then
+		table.insert(
+			parts,
+			L.t("reward.coins_fmt", { price = Util.formatNumber(recipe.Coins), n = recipe.Coins })
+		)
+	end
+	return table.concat(parts, " + ")
+end
+
+function InventoryPanel.lineText(line): string
+	if line.Key == "inv.src_nodes" then
+		local names = {}
+		for _, z in ipairs(line.Zones or {}) do
+			table.insert(names, L.n(z))
+		end
+		return L.t(line.Key, { zones = table.concat(names, ", ") })
+	elseif line.Key == "inv.src_craft" then
+		return L.t(line.Key, { cost = costText(line.Recipe) })
+	elseif line.Key == "inv.use_recipe" then
+		local it = RecipeData.Items[line.Recipe.Item]
+		return L.t(line.Key, {
+			item = L.t(
+				"reward.item",
+				{ n = line.Recipe.Count, item = L.n(it and it.Name or line.Recipe.Item) }
+			),
+			cost = costText(line.Recipe),
+		})
+	end
+	return L.t(line.Key)
+end
+
+function InventoryPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Inventory")
+	local body = panel.Body
+
+	local grid = Widgets.scroller(body, {
+		Name = "Grid",
+		Position = UDim2.fromOffset(10, 4),
+		Size = UDim2.new(0.58, -14, 1, -12),
+	})
+	Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(86, 98),
+		CellPadding = UDim2.fromOffset(8, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = grid,
+	})
+	Widgets.New("UIPadding", {
+		PaddingTop = UDim.new(0, 4),
+		PaddingLeft = UDim.new(0, 4),
+		Parent = grid,
+	})
+
+	local info = Widgets.New("Frame", {
+		Name = "Info",
+		Position = UDim2.new(0.58, 0, 0, 4),
+		Size = UDim2.new(0.42, -10, 1, -12),
+		BackgroundColor3 = Theme.BgLight,
+		ZIndex = 22,
+		Parent = body,
+	})
+	Widgets.corner(info, 12)
+
+	Layout.onChanged(function(lay)
+		if lay.Mode == "portrait" then
+			grid.Size = UDim2.new(1, -20, 0.5, -8)
+			info.Position = UDim2.new(0, 10, 0.5, 2)
+			info.Size = UDim2.new(1, -20, 0.5, -10)
+		else
+			grid.Size = UDim2.new(0.58, -14, 1, -12)
+			info.Position = UDim2.new(0.58, 0, 0, 4)
+			info.Size = UDim2.new(0.42, -10, 1, -12)
+		end
+	end)
+
+	local selected: string? = nil
+	local cells = {}
+
+	local function showInfo(id: string?)
+		Widgets.clear(info)
+		local core = ClientState.Core
+		if not id then
+			UiKit.text(
+				info,
+				L.t("inv.hint"),
+				UDim2.fromOffset(12, 12),
+				UDim2.new(1, -24, 0, 60),
+				{ TextColor3 = Theme.TextDim, MaxSize = 16 }
+			)
+			return
+		end
+		local kind = InventoryData.kindOf(id)
+		Icons.make(id, {
+			Name = "BigIcon",
+			Px = 60,
+			Size = UDim2.fromOffset(60, 60),
+			Position = UDim2.fromOffset(10, 8),
+			ZIndex = 23,
+			Parent = info,
+		})
+		local title = UiKit.text(
+			info,
+			L.n(InventoryData.name(id)),
+			UDim2.fromOffset(78, 10),
+			UDim2.new(1, -86, 0, 28),
+			{ Font = Theme.Font, MaxSize = 22 }
+		)
+		title.Name = "Title"
+		local have = UiKit.text(
+			info,
+			L.t("inv.have", { n = Util.formatNumber(InventoryData.count(core, id)) }),
+			UDim2.fromOffset(78, 40),
+			UDim2.new(1, -86, 0, 22),
+			{ TextColor3 = Theme.Gold, Font = Theme.Font, MaxSize = 17 }
+		)
+		have.Name = "Have"
+		local list = Widgets.scroller(info, {
+			Name = "Lines",
+			Position = UDim2.fromOffset(8, 76),
+			Size = UDim2.new(1, -16, 1, -82),
+			ZIndex = 23,
+		})
+		UiKit.list(list, 4)
+		local order = 0
+		local function line(text: string, opts)
+			order += 1
+			local o = opts or {}
+			-- высота по длине текста (~34 символа в строке при 14 px), чтобы длинные строки не мельчили
+			local chars = utf8.len(text) or #text
+			local h = o.H or math.clamp(math.ceil(chars / 34) * 17 + 6, 22, 76)
+			local l = UiKit.text(list, text, UDim2.new(), UDim2.new(1, -8, 0, h), {
+				TextColor3 = o.Color or Theme.Text,
+				Font = o.Font,
+				MaxSize = o.Max or 14,
+				LayoutOrder = order,
+				ZIndex = 24,
+			})
+			l.Name = o.Name or ("Line" .. order)
+			return l
+		end
+		local desc = if kind == "Res" then L.t("inv.desc." .. id) else L.n((RecipeData.Items[id] :: any).Desc)
+		line(desc, { Color = Theme.TextDim, Name = "Desc" })
+		line(
+			L.t("inv.where"),
+			{ Font = Theme.Font, Color = Theme.Gem, Max = 16, H = 22, Name = "WhereTitle" }
+		)
+		for _, ln in ipairs(InventoryData.sources(id)) do
+			line("• " .. InventoryPanel.lineText(ln))
+		end
+		line(
+			L.t("inv.used_for"),
+			{ Font = Theme.Font, Color = Theme.Green, Max = 16, H = 22, Name = "UseTitle" }
+		)
+		for _, ln in ipairs(InventoryData.uses(id)) do
+			line("• " .. InventoryPanel.lineText(ln))
+		end
+	end
+
+	local function paintSelection()
+		for id, c in pairs(cells) do
+			local st = c.Cell:FindFirstChild("Sel")
+			if st then
+				st.Enabled = id == selected
+			end
+		end
+	end
+
+	local function selectId(id: string)
+		selected = id
+		paintSelection()
+		showInfo(id)
+	end
+
+	local function build()
+		Widgets.clear(grid)
+		cells = {}
+		for i, e in ipairs(InventoryData.list()) do
+			local accent = if e.Kind == "Res" then ResourceData.Resources[e.Id].Color else ITEM_ACCENT
+			local cell = Widgets.New("TextButton", {
+				Name = "Cell_" .. e.Id,
+				Text = "",
+				AutoButtonColor = true,
+				BackgroundColor3 = Theme.BgCard,
+				LayoutOrder = i,
+				ZIndex = 22,
+				Parent = grid,
+			})
+			Widgets.corner(cell, 12)
+			Widgets.stroke(cell, accent, 2)
+			Widgets.New("UIStroke", {
+				Name = "Sel",
+				Color = Theme.Gold,
+				Thickness = 4,
+				Enabled = false,
+				ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+				Parent = cell,
+			})
+			Icons.make(e.Id, {
+				Px = 52,
+				Size = UDim2.fromOffset(52, 52),
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.new(0.5, 0, 0, 6),
+				ZIndex = 23,
+				Parent = cell,
+			})
+			local dim = Widgets.New("Frame", {
+				Name = "Dim",
+				BackgroundColor3 = Theme.BgCard,
+				BackgroundTransparency = 0.4,
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = 40,
+				Visible = false,
+				Parent = cell,
+			})
+			Widgets.corner(dim, 12)
+			local count = Widgets.bold({
+				Name = "Count",
+				Text = "0",
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -6, 0, 2),
+				Size = UDim2.new(0.7, 0, 0, 22),
+				TextXAlignment = Enum.TextXAlignment.Right,
+				MaxTextSize = 20,
+				Stroke = 2,
+				ZIndex = 41,
+				Parent = cell,
+			})
+			local name = UiKit.text(
+				cell,
+				L.n(InventoryData.name(e.Id)),
+				UDim2.new(0, 4, 1, -34),
+				UDim2.new(1, -8, 0, 30),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13, ZIndex = 41 }
+			)
+			name.Name = "Name"
+			cell.Activated:Connect(function()
+				selectId(e.Id)
+			end)
+			cells[e.Id] = { Cell = cell, Count = count, Dim = dim }
+		end
+	end
+
+	function panel.Refresh()
+		local core = ClientState.Core
+		for id, c in pairs(cells) do
+			local n = InventoryData.count(core, id)
+			c.Count.Text = Util.formatNumber(n)
+			c.Count.TextColor3 = if n > 0 then Theme.Gold else Theme.TextDim
+			c.Dim.Visible = n <= 0
+		end
+		paintSelection()
+		showInfo(selected)
+	end
+
+	build()
+	local sig = ""
+	ClientState.onCore(function(core)
+		if not panel.IsOpen() then
+			return
+		end
+		local parts = {}
+		for _, e in ipairs(InventoryData.list()) do
+			table.insert(parts, InventoryData.count(core, e.Id))
+		end
+		local s = table.concat(parts, ",")
+		if s ~= sig then
+			sig = s
+			panel.Refresh()
+		end
+	end)
+	L.onChanged(function()
+		build()
+		sig = ""
+		if panel.IsOpen() then
+			panel.Refresh()
+		end
+	end)
+	local open = panel.Open
+	panel.Open = function()
+		open()
+		if not selected then
+			-- по умолчанию — первый ресурс, который уже есть (или дерево)
+			local core = ClientState.Core
+			for _, e in ipairs(InventoryData.list()) do
+				if InventoryData.count(core, e.Id) > 0 then
+					selected = e.Id
+					break
+				end
+			end
+			selected = selected or ResourceData.Order[1]
+		end
+		sig = ""
+		panel.Refresh()
+	end
+	panel.select = selectId
+	return panel
+end
+
+return InventoryPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20825,7 +22368,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21142,7 +22685,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">MorePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21283,7 +22826,7 @@ return MorePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22038,7 +23581,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22296,7 +23839,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22415,7 +23958,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22522,7 +24065,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22763,7 +24306,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22945,7 +24488,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -22973,7 +24516,7 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23133,7 +24676,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23639,7 +25182,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23779,7 +25322,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24037,7 +25580,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24142,7 +25685,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24150,6 +25693,7 @@ return UpgradesPanel
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
+local Icons = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Icons"))
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 
@@ -24307,7 +25851,7 @@ function Widgets.bold(props: { [string]: any }): TextLabel
 end
 
 -- v2.5: яркая кнопка HUD: толстая чёрная рамка, иконка (эмодзи) и/или жирная подпись с обводкой.
--- props: Name, Color, Icon, Text (строка или L.k), Size, Position, AnchorPoint, Parent, OnClick, Layout ("row" | "column")
+-- props: Name, Color, Icon (эмодзи) или IconKind (Icons.lua, v2.6), Text (строка или L.k), Size, Position, AnchorPoint, Parent, OnClick, Layout ("row" | "column")
 function Widgets.hudButton(props: { [string]: any }): TextButton
 	local color: Color3 = props.Color or Theme.Blue
 	local btn: TextButton = New("TextButton", {
@@ -24343,7 +25887,19 @@ function Widgets.hudButton(props: { [string]: any }): TextButton
 	Widgets.corner(shine, 9)
 	local z = (props.ZIndex or 4) + 2
 	local column = props.Layout == "column"
-	if props.Icon then
+	if props.IconKind then
+		-- v2.6: иконка из примитивов (Icons.lua) вместо эмодзи — одинаково на любом клиенте
+		Icons.make(props.IconKind, {
+			Name = "Icon",
+			Px = props.IconPx or 44,
+			AnchorPoint = if column then Vector2.new(0.5, 0) else Vector2.new(0, 0.5),
+			Position = if column then UDim2.fromScale(0.5, 0.06) else UDim2.new(0, 8, 0.5, 0),
+			Size = if column then UDim2.fromScale(0.62, 0.62) else UDim2.fromOffset(30, 30),
+			ZIndex = z,
+			Parent = btn,
+		})
+		props.Icon = props.Icon or true
+	elseif props.Icon then
 		New("TextLabel", {
 			Name = "Icon",
 			BackgroundTransparency = 1,
@@ -24381,7 +25937,7 @@ function Widgets.hudButton(props: { [string]: any }): TextButton
 			-- подпись справа от квадратной иконки (размеры в «дизайнерских» пикселях: UIScale кластера масштабирует всё сразу)
 			local h = (props.Size and props.Size.Y.Offset) or 56
 			local sz = math.floor(h * 0.72)
-			local icon = btn:FindFirstChild("Icon") :: TextLabel
+			local icon = btn:FindFirstChild("Icon") :: GuiObject
 			icon.Size = UDim2.fromOffset(sz, sz)
 			cap.Position = UDim2.new(0, sz + 14, 0.5, 0)
 			cap.Size = UDim2.new(1, -(sz + 20), 0.62, 0)
@@ -24578,7 +26134,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24710,7 +26266,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000073">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000007B">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24743,6 +26299,7 @@ panels.Craft = require(Modules:WaitForChild("CraftPanel")).init(gui)
 panels.Boards = require(Modules:WaitForChild("BoardsPanel")).init(gui)
 panels.Trade = require(Modules:WaitForChild("TradePanel")).init(gui)
 panels.Index = require(Modules:WaitForChild("IndexPanel")).init(gui) -- v2.5: индекс питомцев
+panels.Inventory = require(Modules:WaitForChild("InventoryPanel")).init(gui) -- v2.6: ресурсы и предметы
 local Dialog = require(Modules:WaitForChild("DialogPanel")).init(gui)
 require(Modules:WaitForChild("HatchPopup")).init(gui)
 

@@ -46,6 +46,38 @@ Config.PRODUCT_IDS = {
 }
 
 -- ============================================================================
+-- 2a. КАРТИНКИ (Image asset ID) — логотип и иконки. 0 = нет картинки: рисуем из примитивов GUI
+--     (Frame + UICorner + UIGradient + UIStroke) — игра выглядит цельно и без загрузок.
+--     Как получить ID: Creator Hub -> Development Items -> Decals -> Upload (assets/icon_512.png и т.п.)
+--     -> откройте декаль -> ID картинки (Image) из Toolbox/Asset Manager (Studio: View -> Asset Manager -> Images
+--     -> ПКМ -> Copy Asset ID). Подробно: docs/ICON_AND_BADGES.md.
+-- ============================================================================
+Config.ASSETS = {
+	LOGO = 0, -- логотип (assets/icon_512.png): экран загрузки и табличка в хабе
+	-- иконки валют/ресурсов (необязательно: без ID рисуются примитивами Icons.lua)
+	COIN = 0,
+	GEM = 0,
+	WOOD = 0,
+	STONE = 0,
+	ORE = 0,
+	HERB = 0,
+	CRYSTAL = 0,
+	ESSENCE = 0,
+	FRAGMENT = 0,
+}
+
+-- ============================================================================
+-- 2b. ЗНАЧКИ (Badges) — ID из Creator Hub -> ваш опыт -> Engagement -> Badges -> Create a Badge.
+--     0 = значок выключен (никаких вызовов BadgeService и ошибок). Картинка: assets/badge_512.png.
+-- ============================================================================
+Config.BADGES = {
+	WELCOME = 0, -- «Добро пожаловать!» — первый вход в игру
+	FIRST_BOSS = 0, -- первый побеждённый босс
+	FIRST_REBIRTH = 0, -- первое перерождение
+	SUPERPOWER = 0, -- игрок впервые получил суперсилу
+}
+
+-- ============================================================================
 -- 3. ОПИСАНИЕ ТОГО, ЧТО ДАЁТ КАЖДЫЙ ПРОДУКТ (ключи совпадают с PRODUCT_IDS)
 --    Kind: "Gems" | "Coins" | "Luck"
 --    Gems:  Amount  = количество гемов
@@ -163,7 +195,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.5.0"
+Config.VERSION = "2.6.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
