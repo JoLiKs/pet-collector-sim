@@ -60,7 +60,7 @@ local function makeTemplate(): Data
 		Zones = { [ZoneData.DEFAULT] = true },
 		CurrentZone = ZoneData.DEFAULT,
 		Daily = { LastDay = 0, Streak = 0, Cycle = 0, Popup = 0 }, -- v2.8: см. Shared/DailyData
-		Boosts = { Luck2 = 0, Luck5 = 0, Coins2 = 0 }, -- unix-время окончания
+		Boosts = { Luck2 = 0, Luck5 = 0, Coins2 = 0, Regen = 0 }, -- unix-время окончания (Regen — v3.0)
 		Resources = {}, -- [Wood|Stone|Ore|Herb|Crystal|Essence] = n
 		Items = {}, -- [itemId] = n (зелья, билеты, инструменты)
 		Talents = {}, -- [talentId] = уровень

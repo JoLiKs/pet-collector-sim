@@ -72,6 +72,11 @@ function HatchPopup.init(gui: ScreenGui)
 		Parent = overlay,
 	})
 	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(640, 260), Parent = row })
+	-- v3.0: общий масштаб интерфейса; на узком экране ряд шире на 1/k, чтобы карточки не сжимались
+	Widgets.autoScale(title)
+	Widgets.autoScale(row, function(_lay, k)
+		row.Size = UDim2.new(0.9 / k, 0, 0, 230)
+	end)
 	Widgets.New("UIListLayout", {
 		FillDirection = Enum.FillDirection.Horizontal,
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,

@@ -43,6 +43,15 @@ local function flask(liquid: Color3, liquidDark: Color3): Spec
 	}
 end
 
+-- v3.0: колба с дополнительными слоями-знаками (крест здоровья, сердце регенерации)
+local function flaskWith(liquid: Color3, liquidDark: Color3, extra: { any }): Spec
+	local spec = flask(liquid, liquidDark)
+	for _, layer in ipairs(extra) do
+		table.insert(spec.Layers, layer)
+	end
+	return spec
+end
+
 local function ticket(color: Color3, dark: Color3): Spec
 	return {
 		Outline = c3(40, 30, 20),
@@ -268,6 +277,17 @@ Icons.SPECS = {
 	Potion = flask(c3(120, 245, 200), c3(30, 170, 140)),
 	luck_potion = flask(c3(150, 250, 120), c3(40, 170, 60)),
 	coin_elixir = flask(c3(255, 230, 110), c3(230, 150, 20)),
+	-- v3.0: красная колба с белым крестом
+	health_potion = flaskWith(c3(255, 95, 95), c3(190, 30, 45), {
+		L(0.5, 0.66, 0.26, 0.08, { c = WHITE, k = 0.2, o = false }),
+		L(0.5, 0.66, 0.08, 0.26, { c = WHITE, k = 0.2, o = false }),
+	}),
+	-- v3.0: розовая колба с сердцем
+	regen_potion = flaskWith(c3(255, 150, 210), c3(200, 60, 140), {
+		L(0.44, 0.63, 0.13, 0.13, { c = WHITE, k = 0.5, o = false }),
+		L(0.56, 0.63, 0.13, 0.13, { c = WHITE, k = 0.5, o = false }),
+		L(0.5, 0.69, 0.13, 0.13, { c = WHITE, k = 0.1, r = 45, o = false }),
+	}),
 	xp_treat = {
 		Outline = c3(110, 80, 50),
 		Layers = {

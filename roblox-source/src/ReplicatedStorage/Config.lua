@@ -245,7 +245,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.9.0"
+Config.VERSION = "3.0.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -300,6 +300,8 @@ Config.COMBAT_TICK = 1.0 -- секунда между атаками питом�
 Config.COMBAT_RANGE = 40 -- радиус боя вокруг игрока
 Config.PET_DAMAGE_SCALE = 2.5 -- множитель урона питомцев (сила -> урон за удар)
 Config.ENEMY_SPEED = 9
+-- v3.0: регенерация здоровья игрока (доля максимума в секунду; как стандартный скрипт Roblox), см. HealthService
+Config.HP_REGEN_RATE = 0.01
 Config.PLAYER_ATTACK_RANGE = 22
 Config.PLAYER_ATTACK_COOLDOWN = 0.35
 Config.KILL_COIN_BASE_CLICKS = 1 -- награда за убийство = Coins * PerClick зоны
@@ -319,6 +321,24 @@ Config.REBIRTH_TALENT_POINTS = 1 -- очков талантов за ребёр�
 -- Серверные боты-игроки для событий (охотники/суперигроки), когда на сервере мало людей.
 -- В настоящей игре — false; в веб-демо (один игрок) включается патчем roblox2web.config.json.
 Config.DEMO_BOTS = false
+
+-- v3.0: ИИ-боты на малолюдных серверах (BotService, Shared/BotLogic, docs/BOTS_POLICY.md).
+-- Это NPC-модели (не объекты Player): нет в списке игроков, рейтингах и счётчиках, нет DataStore, чата и покупок.
+Config.BOTS_ENABLED = true
+Config.BOTS = {
+	MIN = 10, -- ботов на сервере, пока живых игроков меньше REAL_THRESHOLD (случайно MIN..MAX)
+	MAX = 20,
+	REAL_THRESHOLD = 5, -- от стольких живых игроков боты постепенно уходят
+	FILL_GAP = { 0.4, 1.2 }, -- старт сервера: боты «уже играют» — появляются быстро
+	CHURN_GAP = { 25, 75 }, -- обычная жизнь: по одному уходят/приходят через столько секунд
+	STEP_GAP = { 60, 120 }, -- уход при наплыве живых и возвращение: по одному раз в 1–2 минуты
+	MAX_PETS = 3,
+	MAX_HUNTERS = 4, -- сколько ботов одновременно охотятся на суперигрока (только находящиеся рядом)
+	HUNT_RANGE = 140,
+	SPEED = 16,
+	AI_BADGE = true, -- метка «ИИ» у имени над головой
+	BOT_HIT = 0.14, -- доля здоровья врага за удар бота (только враги, которых не бьют живые игроки)
+}
 Config.SUPERPOWER = {
 	ENABLED = true,
 	INTERVAL = 60, -- секунд между выборами суперигрока

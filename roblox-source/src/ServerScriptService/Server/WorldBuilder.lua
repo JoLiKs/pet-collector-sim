@@ -12,6 +12,8 @@ local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
 local ZoneData = require(Shared.ZoneData)
 
+local WorldDecor = require(script.Parent.WorldDecor)
+
 local WorldBuilder = {}
 
 local zoneSpawns: { [string]: CFrame } = {}
@@ -423,6 +425,14 @@ local function sign(
 	end
 end
 
+local decorHooks: WorldDecor.Hooks = {
+	prompt = function(target: BasePart, id: string, action: string, object: string, hold: number?)
+		addPrompt(target, id, action, object, hold)
+	end,
+	label = makeLabel,
+	billboard = billboard,
+}
+
 local function buildNpc(
 	parent: Instance,
 	id: string,
@@ -618,33 +628,11 @@ local function buildHub(world: Folder)
 		Enum.PartType.Cylinder,
 		Vector3.new(0.5, 22, 22),
 		CFrame.new(0, 2.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(90, 190, 255),
-		Enum.Material.Neon,
+		Color3.fromRGB(110, 190, 240),
+		Enum.Material.Glass,
 		false
 	)
-	water.Transparency = 0.35
-	mk(
-		hub,
-		"FountainSpire",
-		Enum.PartType.Cylinder,
-		Vector3.new(7, 3, 3),
-		CFrame.new(0, 5.5, 0) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(190, 190, 205),
-		Enum.Material.Marble,
-		true
-	)
-	local orb = mk(
-		hub,
-		"FountainOrb",
-		Enum.PartType.Ball,
-		Vector3.new(3, 3, 3),
-		CFrame.new(0, 10, 0),
-		Color3.fromRGB(255, 220, 120),
-		Enum.Material.Neon,
-		false
-	)
-	-- ниже и компактнее: с точки спавна вывеска не упирается в верхнюю панель HUD
-	sign(orb, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 1.2, 210, 60)
+	water.Transparency = 0.3
 
 	-- Точка появления
 	local sp = Instance.new("SpawnLocation")
@@ -653,8 +641,10 @@ local function buildHub(world: Folder)
 	sp.Neutral = true
 	sp.Size = Vector3.new(14, 1, 14)
 	sp.Position = Vector3.new(0, 0.5, 26)
-	sp.Color = Color3.fromRGB(255, 214, 120)
-	sp.Material = Enum.Material.Neon
+	sp.Color = Color3.fromRGB(250, 240, 220)
+	sp.Material = Enum.Material.Marble
+	sp.Transparency = 1 -- v3.0: узор точки спавна рисует площадь (WorldDecor)
+	sp.CanCollide = false
 	sp.Duration = 0
 	sp.Parent = hub
 	hubSpawn = CFrame.lookAt(Vector3.new(0, 3.5, 26), Vector3.new(0, 3.5, 0))
@@ -818,41 +808,86 @@ local function buildHub(world: Folder)
 	addPrompt(altarOrb, "altar", "prompt.pray", "world.altar", 0)
 	stationPositions.altar = altarPos
 
-	-- Портал в миры
-	local portalPos = Vector3.new(0, 0, 80)
-	for _, dx in ipairs({ -8, 8 }) do
-		block(
+	-- v3.0: порталы миров — рунные арки по дуге за точкой спавна (WorldDecor), спокойное свечение
+	for i, zone in ipairs(ZoneData.List) do
+		local origin = WorldDecor.portalOrigins()[zone.Id]
+		local sub, subArgs = WorldDecor.requirement(zone)
+		WorldDecor.buildArch(hub, "Portal_" .. zone.Id, origin, {
+			Id = "portal_" .. zone.Id,
+			Title = zone.Name,
+			Sub = sub,
+			SubArgs = subArgs,
+			Action = "prompt.travel",
+			Object = zone.Name,
+			Style = WorldDecor.STYLES[zone.Id] or WorldDecor.STYLES.Meadow,
+			Seed = i,
+		}, decorHooks)
+		stationPositions["portal_" .. zone.Id] = origin.Position + origin.LookVector * 5
+	end
+	-- карта миров (окно «Миры»): каменная кафедра с глобусом перед арками
+	local portalPos = Vector3.new(0, 0, 64)
+	mk(
+		hub,
+		"MapBase",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.8, 6, 6),
+		CFrame.new(portalPos + Vector3.new(0, 0.4, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(150, 144, 130),
+		Enum.Material.Cobblestone,
+		true
+	)
+	local lectern = block(
+		hub,
+		"MapLectern",
+		Vector3.new(2.2, 3.6, 2.2),
+		portalPos + Vector3.new(0, 2.6, 0),
+		Color3.fromRGB(196, 188, 166),
+		Enum.Material.Cobblestone
+	)
+	mk(
+		hub,
+		"MapGlobe",
+		Enum.PartType.Ball,
+		Vector3.new(3, 3, 3),
+		CFrame.new(portalPos + Vector3.new(0, 5.9, 0)),
+		Color3.fromRGB(90, 150, 210),
+		Enum.Material.SmoothPlastic,
+		false
+	)
+	for k, c in ipairs({
+		Color3.fromRGB(110, 180, 90),
+		Color3.fromRGB(230, 200, 130),
+		Color3.fromRGB(120, 170, 90),
+	}) do
+		mk(
 			hub,
-			"PortalPillar",
-			Vector3.new(2.4, 18, 2.4),
-			portalPos + Vector3.new(dx, 9, 0),
-			Color3.fromRGB(80, 80, 110),
-			Enum.Material.Marble
+			"MapLand",
+			Enum.PartType.Ball,
+			Vector3.new(1.2, 0.9, 1.3),
+			CFrame.new(
+				portalPos + Vector3.new(math.cos(k * 2.1) * 1.1, 5.9 + (k - 2) * 0.6, math.sin(k * 2.1) * 1.1)
+			),
+			c,
+			Enum.Material.SmoothPlastic,
+			false
 		)
 	end
-	local ring = mk(
+	mk(
 		hub,
-		"PortalRing",
+		"MapRing",
 		Enum.PartType.Cylinder,
-		Vector3.new(1, 18, 18),
-		CFrame.new(portalPos + Vector3.new(0, 10, 0)) * CFrame.Angles(0, math.rad(90), 0),
-		Color3.fromRGB(120, 200, 255),
-		Enum.Material.Neon,
+		Vector3.new(0.3, 4, 4),
+		CFrame.new(portalPos + Vector3.new(0, 5.9, 0)) * CFrame.Angles(0, 0, math.rad(70)),
+		Color3.fromRGB(230, 190, 90),
+		Enum.Material.Metal,
 		false
 	)
-	ring.Transparency = 0.25
-	sign(ring, "world.portal", "world.portal_sub", Color3.fromRGB(150, 220, 255), 11)
-	local portalPad = mk(
-		hub,
-		"PortalPad",
-		Enum.PartType.Cylinder,
-		Vector3.new(0.6, 10, 10),
-		CFrame.new(portalPos + Vector3.new(0, 0.3, -4)) * CFrame.Angles(0, 0, math.rad(90)),
-		Color3.fromRGB(120, 200, 255),
-		Enum.Material.Neon,
-		false
-	)
-	addPrompt(portalPad, "portal", "prompt.travel", "world.portal", 0)
+	sign(lectern, "world.portal", "world.portal_sub", Color3.fromRGB(150, 220, 255), 5, 150, 46)
+	local lecternGui = lectern:FindFirstChildOfClass("BillboardGui")
+	if lecternGui then
+		lecternGui.MaxDistance = 45
+	end
+	addPrompt(lectern, "portal", "prompt.travel", "world.portal", 0)
 	stationPositions.portal = portalPos
 
 	-- v2.5: станции разделов, убранных с экрана (лист «Ещё» дублирует их кнопками)
@@ -992,6 +1027,16 @@ local function buildHub(world: Folder)
 		addPrompt(boardPart, "board", "prompt.view", "world.boards", 0) -- v2.5: окно рейтингов
 	end
 	stationPositions.board = Vector3.new(0, 0, -98)
+
+	-- v3.0: площадь спавна — узор, фонтан со статуей, клумбы, фонари, флаги, указатель
+	local head = WorldDecor.buildSpawnPlaza(hub, Vector3.new(0, 0, 26), {
+		{ Key = "world.sign_portals", Pos = Vector3.new(0, 0, 90) },
+		{ Key = "world.workbench", Pos = benchPos },
+		{ Key = "world.market", Pos = stallPos },
+		{ Key = "world.sign_eggs", Pos = Vector3.new(0, 0, -84) },
+	}, decorHooks)
+	-- ниже и компактнее: с точки спавна вывеска не упирается в верхнюю панель HUD
+	sign(head, "world.hub", "world.hub_sub", Color3.fromRGB(255, 214, 90), 3.2, 210, 60)
 end
 
 -- ---------------------------------------------------------------------------
@@ -1112,17 +1157,28 @@ function WorldBuilder.build()
 			Vector3.new(0.6, 14, 14),
 			CFrame.new(spawnPos + Vector3.new(0, 0.3, 0)) * CFrame.Angles(0, 0, math.rad(90)),
 			zone.Accent,
-			Enum.Material.Neon,
+			Enum.Material.SmoothPlastic,
 			false
 		)
-		addPrompt(pad, "hubReturn", "prompt.return", "prompt.to_hub", 0)
+		pad.Transparency = 0.25
+		-- v3.0: арка возврата в хаб в стиле мира (подсказка «В хаб» — на вихре арки)
+		local backAt = spawnPos + Vector3.new(0, 0, 12)
+		WorldDecor.buildArch(folder, "ReturnArch", CFrame.lookAt(backAt, center), {
+			Id = "hubReturn",
+			Title = "world.return_hub",
+			Action = "prompt.return",
+			Object = "prompt.to_hub",
+			Style = WorldDecor.STYLES[zone.Id] or WorldDecor.STYLES.Meadow,
+			Seed = 10 + index,
+		}, decorHooks)
+		stationPositions["return_" .. zone.Id] = backAt + (center - backAt).Unit * 5
 
 		-- вывеска
 		local signPost = block(
 			folder,
 			"SignPost",
 			Vector3.new(1, 12, 1),
-			center + Vector3.new(0, 6, 62),
+			center + Vector3.new(-18, 6, 58), -- v3.0: сбоку, чтобы не загораживать арку возврата
 			Color3.fromRGB(110, 80, 60),
 			Enum.Material.Wood
 		)
@@ -1166,6 +1222,11 @@ end
 
 function WorldBuilder.getStationPosition(id: string): Vector3?
 	return stationPositions[id]
+end
+
+-- v3.0: арка портала мира в хабе (для ИИ-ботов и указателей)
+function WorldBuilder.getPortalPosition(zoneId: string): Vector3?
+	return stationPositions["portal_" .. zoneId]
 end
 
 function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())

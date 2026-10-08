@@ -407,7 +407,7 @@ function SuperpowerService.start(forcedKey: string?): string?
 		local function rint(n: number): number
 			return rng:NextInteger(1, n)
 		end
-		key = if Config.DEMO_BOTS
+		key = if Config.DEMO_BOTS or Config.BOTS_ENABLED
 			then Logic.pickWithBots(cands, lastKey, function()
 				return rng:NextNumber()
 			end, rint, C.BOT_PLAYER_SUPER_CHANCE)
@@ -420,12 +420,18 @@ function SuperpowerService.start(forcedKey: string?): string?
 	local u = units[key]
 	roundId += 1
 	-- PvP-HP по числу охотников; бот считается за половину игрока (он слабее живого охотника)
-	local hunters = 0
+	local hunters, botHunters = 0, 0
 	for _, x in ipairs(list) do
 		if x.Key ~= key then
-			hunters += if x.IsBot then 0.5 else 1
+			if x.IsBot then
+				botHunters += 0.5
+			else
+				hunters += 1
+			end
 		end
 	end
+	-- v3.0: охотятся только ближние боты (не больше BOTS.MAX_HUNTERS) — остальные не раздувают HP
+	hunters += math.min(botHunters, Config.BOTS.MAX_HUNTERS * 0.5)
 	local maxHp = Logic.maxHp(C, hunters)
 	local r: Round = {
 		Id = roundId,
@@ -531,8 +537,8 @@ function SuperpowerService.finish(outcome: string)
 		if humans[k] and n >= C.HUNTER_MIN_HITS then
 			active[k] = true
 			contested = true
-		elseif u and u.IsBot and n > 0 then
-			contested = true -- боты есть только в демо (Config.DEMO_BOTS)
+		elseif u and u.IsBot and n > 0 and Config.DEMO_BOTS then
+			contested = true -- в демо боты считаются; в живой игре награду «отбился» дают только живые охотники
 		end
 	end
 	local superActive = r.Moved >= C.SURVIVE_MIN_MOVE or r.Slams >= C.SURVIVE_MIN_SLAMS

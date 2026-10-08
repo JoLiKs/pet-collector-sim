@@ -63,6 +63,21 @@ function handlers.tp(arg)
 	local x, z = string.match(arg, "(-?[%d%.]+),(-?[%d%.]+)")
 	tp(tonumber(x), tonumber(z))
 end
+-- v3.0: look:x,z,tx,tz — встать в (x,z) лицом к (tx,tz) (камера за спиной — для скриншотов)
+function handlers.look(arg)
+	local x, z, tx, tz = string.match(arg, "(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+),(-?[%d%.]+)")
+	AntiExploit.markTeleport(player)
+	player.Character:PivotTo(
+		CFrame.lookAt(Vector3.new(tonumber(x), 4, tonumber(z)), Vector3.new(tonumber(tx), 4, tonumber(tz)))
+	)
+end
+-- v3.0: hp:0.3 — здоровье персонажа = доля от максимума (проверка зелий лечения/регенерации)
+function handlers.hp(arg)
+	local hum = player.Character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.Health = hum.MaxHealth * (tonumber(arg) or 0.5)
+	end
+end
 function handlers.tpenemy()
 	local folder = Workspace:FindFirstChild("Enemies")
 	local root = player.Character.HumanoidRootPart

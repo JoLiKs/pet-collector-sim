@@ -141,7 +141,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="RightButtons"] [data-n="InventoryBtn"]')
     g.wait(lambda: g.vis('[data-n="InventoryPanel"]') and g.p.locator('[data-n="InventoryPanel"] [data-n^="Cell_"]').count() > 0, what='inventory')
     ncell = g.p.locator('[data-n="InventoryPanel"] [data-n^="Cell_"]').count()
-    check('инвентарь: 7 ресурсов + 9 предметов', ncell == 16, ncell)
+    check('инвентарь: 7 ресурсов + 11 предметов', ncell == 18, ncell)
     kinds = page.evaluate("""(()=>{const out=new Set(); for(const c of document.querySelectorAll('[data-n="InventoryPanel"] [data-n^="Cell_"]')){
       const i=c.querySelector('[data-n="Icon"]'); if(i && i.querySelectorAll('div').length>=3) out.add(c.dataset.n);} return out.size;})()""")
     check('инвентарь: в каждой ячейке своя иконка', kinds == ncell, kinds)
@@ -159,7 +159,13 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     # --- NPC и квест
     g.cmd('tp:-30,30')
     g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='prompt')
-    page.keyboard.press('e')
+    for _ in range(3):  # повтор нажатия: под нагрузкой (боты) первый E иногда приходится на смену подсказки
+        page.keyboard.press('e')
+        try:
+            g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog', timeout=6)
+            break
+        except AssertionError:
+            pass
     g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog')
     for _ in range(4):
         if 'Accept' in g.text('[data-n="DialogBox"] [data-n="Action"]'): break
@@ -207,13 +213,20 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     open_panel('Trade')
     g.click('[data-n="TradePanel"] [data-n="TradeBot"]')
     g.wait(lambda: g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade live')
-    g.click('[data-n="TradePanel"] [data-n="Picker"] [data-n^="Add_"]'); g.p.wait_for_timeout(1500)
+    g.click('[data-n="TradePanel"] [data-n="Picker"] [data-n^="Add_"]'); g.p.wait_for_timeout(1000)
+    # предложение Тома случайное: доплачиваем монетами, чтобы обмен был ему выгоден (иначе «Tom isn't happy»)
+    for _ in range(2):
+        g.click('[data-n="TradePanel"] [data-n="Coins+10k"]'); g.p.wait_for_timeout(500)
+    g.p.wait_for_timeout(1500)
     g.click('[data-n="TradePanel"] [data-n="Ready"]')
     g.wait(lambda: g.p.locator('[data-n="TradePanel"] [data-n="Confirm"]').first.evaluate('e=>e.style.opacity!="0.5"') , what='x')
     g.shot('11_trade')
-    g.p.wait_for_timeout(4000)
-    g.click('[data-n="TradePanel"] [data-n="Confirm"]')
-    g.wait(lambda: not g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade close', timeout=60)
+    # «Подтвердить» активна после отсчёта TRADE_CONFIRM_SECONDS (виртуальное время эмулятора идёт медленнее) — жмём, пока сделка не закроется
+    for _ in range(20):
+        g.p.wait_for_timeout(2000)
+        if not g.vis('[data-n="TradePanel"] [data-n="Live"]'): break
+        g.click('[data-n="TradePanel"] [data-n="Confirm"]', timeout=3000)
+    g.wait(lambda: not g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade close', timeout=30)
     check('торговля с ботом завершена', True)
     g.p.keyboard.press('Escape')
     if g.vis('[data-n="TradePanel"]'): g.click('[data-n="TradePanel"] [data-n="Close"]')

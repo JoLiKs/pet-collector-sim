@@ -25,10 +25,17 @@ Hatch adorable pets, gather resources, battle bosses and explore a hub and five 
 NEW IN THIS UPDATE
 - (write your changelog here)
 
+AI bots (marked "AI") play on servers with few players, so the world never feels empty. They are not real players and leave as real players join.
 Pets are random. Some items can be bought with Robux. Have fun and play fair!
 ```
 
-Правила: описывайте то, что реально есть в игре; не обещайте «бесплатные Robux»; не используйте «clickbait»; не упоминайте чужие игры в тексте.
+Русская версия обязательной строки про ботов (для русского описания / перевода в Creator Hub):
+
+```
+На серверах с малым числом игроков играют ИИ-боты (с меткой «ИИ»), чтобы мир не пустовал. Это не реальные игроки — они уходят, когда заходят настоящие.
+```
+
+Правила: описывайте то, что реально есть в игре; строку про ИИ-ботов не удаляйте, пока `Config.BOTS_ENABLED = true` (см. `docs/BOTS_POLICY.md`); не обещайте «бесплатные Robux»; не используйте «clickbait»; не упоминайте чужие игры в тексте.
 
 ## 3. Иконка и превью
 - **Иконка**: квадрат, рекомендуется 512×512 PNG/JPG. Яркий крупный питомец + яйцо, без мелкого текста.
@@ -56,6 +63,7 @@ Pets are random. Some items can be bought with Robux. Have fun and play fair!
 ## 7. Чек-лист перед Public
 - [ ] Название уникально, иконка и превью свои.
 - [ ] Описание правдиво, есть changelog.
+- [ ] Если `Config.BOTS_ENABLED = true` — в описании (EN и RU) есть строка про ИИ-ботов (`docs/BOTS_POLICY.md`).
 - [ ] Анкета рейтинга заполнена (включая платные случайные предметы).
 - [ ] ID пассов и продуктов подставлены и проверены.
 - [ ] API Services не требуются в проде; DataStore работает (проверено 2 входами подряд).

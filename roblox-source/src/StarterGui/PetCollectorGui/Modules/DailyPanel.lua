@@ -22,6 +22,7 @@ local Util = require(Shared:WaitForChild("Util"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
+local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
 local New = Widgets.New
@@ -486,9 +487,11 @@ function DailyPanel.init(gui: ScreenGui)
 	end
 
 	-- раскладка под экран: в один ряд (ПК и телефон горизонтально) или 4+3 (телефон вертикально)
-	local cur = { W = 1280, H = 720, Mode = "wide", CardW = 110, CardH = 160 }
+	local cur = { W = 1280, H = 720, Mode = "wide", CardW = 110, CardH = 160, K = Theme.UI_SCALE }
 	local function layout(li)
-		local W, H = li.W, li.H
+		-- v3.0: окно в Theme.uiScale раз меньше; раскладка считается в «виртуальных» пикселях W/k × H/k
+		local k = Theme.uiScale(li)
+		local W, H = li.W / k, li.H / k
 		local portrait = li.Mode == "portrait"
 		local pad, gap = 14, 8
 		local headerH = if li.Mode == "landscape" then 50 else 62
@@ -600,7 +603,10 @@ function DailyPanel.init(gui: ScreenGui)
 			local sp = spots[i]
 			st.Position = UDim2.fromScale(sp[1], sp[2])
 		end
-		cur.W, cur.H, cur.Mode, cur.CardW, cur.CardH = W, H, li.Mode, cardW, cardH
+		cur.W, cur.H, cur.Mode, cur.CardW, cur.CardH, cur.K = li.W, li.H, li.Mode, cardW, cardH, k
+		if not root.Visible then
+			scale.Scale = k
+		end
 	end
 	Layout.onChanged(layout)
 
@@ -803,8 +809,8 @@ function DailyPanel.init(gui: ScreenGui)
 		refresh()
 		backdrop.Visible = true
 		root.Visible = true
-		scale.Scale = 0.8
-		Widgets.tween(scale, 0.22, { Scale = 1 }, Enum.EasingStyle.Back)
+		scale.Scale = 0.8 * cur.K
+		Widgets.tween(scale, 0.22, { Scale = cur.K }, Enum.EasingStyle.Back)
 		ClientState.setFlag("DailyOpen", true)
 	end
 	api.Close = close

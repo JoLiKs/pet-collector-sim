@@ -26,6 +26,10 @@ function DialogPanel.init(gui: ScreenGui)
 		Parent = gui,
 	})
 	Widgets.corner(root, 16)
+	-- v3.0: общий масштаб интерфейса; на узком экране ширина не больше экрана
+	Widgets.autoScale(root, function(lay, k)
+		root.Size = UDim2.fromOffset(math.min(640, (lay.W - 24) / k), 190)
+	end)
 	local stroke = Widgets.stroke(root, Theme.Gold, 3)
 	local nameLabel = UiKit.text(
 		root,

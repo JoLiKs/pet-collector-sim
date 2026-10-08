@@ -5,13 +5,13 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 113,
-    "transpiled": 113,
+    "total": 118,
+    "transpiled": 118,
     "failed": [],
-    "lines": 27568
+    "lines": 30180
   },
   "globals": {
-    "used": 34,
+    "used": 36,
     "supported": [
       "CFrame",
       "Color3",
@@ -19,6 +19,8 @@
       "ColorSequenceKeypoint",
       "Enum",
       "Instance",
+      "NumberRange",
+      "NumberSequence",
       "Random",
       "RaycastParams",
       "TweenInfo",
@@ -62,6 +64,8 @@
       "ColorSequence.new",
       "ColorSequenceKeypoint.new",
       "Instance.new",
+      "NumberRange.new",
+      "NumberSequence.new",
       "Random.new",
       "RaycastParams.new",
       "TweenInfo.new",
@@ -144,17 +148,21 @@
   },
   "instanceClasses": {
     "supported": [
+      "Animation",
+      "Animator",
       "Atmosphere",
       "BillboardGui",
       "Camera",
       "Folder",
       "Frame",
       "Humanoid",
+      "HumanoidDescription",
       "ImageLabel",
       "IntValue",
       "Model",
       "Motor6D",
       "Part",
+      "ParticleEmitter",
       "PointLight",
       "ProximityPrompt",
       "RemoteEvent",
@@ -194,6 +202,7 @@
       "HorizontalAlignment.Center",
       "HorizontalAlignment.Right",
       "HumanoidDisplayDistanceType.None",
+      "HumanoidRigType.R15",
       "InfoType.GamePass",
       "InfoType.Product",
       "KeyCode.E",
@@ -211,10 +220,12 @@
       "Material.Fabric",
       "Material.Glass",
       "Material.Grass",
+      "Material.Ground",
       "Material.Ice",
       "Material.Marble",
       "Material.Metal",
       "Material.Neon",
+      "Material.Pavement",
       "Material.Sand",
       "Material.Sandstone",
       "Material.Slate",
@@ -251,7 +262,9 @@
     ]
   },
   "methodsNotFound": [
-    "GetUserInfosByUserIdsAsync"
+    "CreateHumanoidModelFromDescription",
+    "GetUserInfosByUserIdsAsync",
+    "Normal"
   ],
   "warnings": [],
   "stubbedServices": [

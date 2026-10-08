@@ -3,6 +3,7 @@
 	PetFollower — отрисовка питомцев ВСЕХ игроков на клиенте.
 	Сервер лишь публикует атрибут игрока "EquippedPets" ("id:Variant,id:Variant"); модели строятся и анимируются
 	локально из примитивов (PetModel). Это дёшево для сервера и не создаёт лишней физики/репликации.
+	v3.0: так же рисуются питомцы ИИ-ботов (модели в Workspace.AiBots с тем же атрибутом).
 ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -23,9 +24,16 @@ local container = Instance.new("Folder")
 container.Name = "ClientPets"
 container.Parent = Workspace
 
-local rendered: { [Player]: Rendered } = {}
+-- владелец — игрок или модель ИИ-бота (v3.0)
+local rendered: { [Instance]: Rendered } = {}
 
-local function clear(player: Player)
+local function rootOf(owner: Instance): BasePart?
+	local character = if owner:IsA("Player") then (owner :: Player).Character else owner
+	local root = character and character:FindFirstChild("HumanoidRootPart")
+	return if root and root:IsA("BasePart") then root else nil
+end
+
+local function clear(player: Instance)
 	local r = rendered[player]
 	if r then
 		for _, entry in ipairs(r.Pets) do
@@ -35,7 +43,7 @@ local function clear(player: Player)
 	end
 end
 
-local function rebuild(player: Player)
+local function rebuild(player: Instance)
 	local attr = player:GetAttribute("EquippedPets")
 	local key = if type(attr) == "string" then attr else ""
 	local existing = rendered[player]
@@ -58,7 +66,7 @@ local function rebuild(player: Player)
 	rendered[player] = { Key = key, Pets = pets }
 end
 
-local function watch(player: Player)
+local function watch(player: Instance)
 	rebuild(player)
 	player:GetAttributeChangedSignal("EquippedPets"):Connect(function()
 		rebuild(player)
@@ -70,6 +78,25 @@ for _, p in ipairs(Players:GetPlayers()) do
 end
 Players.PlayerAdded:Connect(watch)
 Players.PlayerRemoving:Connect(clear)
+
+-- ИИ-боты: папка Workspace.AiBots появляется, когда на сервер приходит первый бот
+local function watchBots(f: Instance)
+	for _, m in ipairs(f:GetChildren()) do
+		watch(m)
+	end
+	f.ChildAdded:Connect(watch)
+	f.ChildRemoved:Connect(clear)
+end
+local botsFolder = Workspace:FindFirstChild("AiBots")
+if botsFolder then
+	watchBots(botsFolder)
+else
+	Workspace.ChildAdded:Connect(function(c: Instance)
+		if c:IsA("Folder") and c.Name == "AiBots" then
+			watchBots(c)
+		end
+	end)
+end
 
 -- Позиция питомца за спиной игрока веером
 local function slotOffset(index: number, count: number): Vector3
@@ -89,11 +116,10 @@ RunService.RenderStepped:Connect(function(dt)
 	local alpha = 1 - math.exp(-dt * 9)
 
 	for player, r in pairs(rendered) do
-		local character = player.Character
-		local root = character and character:FindFirstChild("HumanoidRootPart")
-		if root and root:IsA("BasePart") and (root.Position - camPos).Magnitude < RENDER_DISTANCE then
+		local root = rootOf(player)
+		if root and (root.Position - camPos).Magnitude < RENDER_DISTANCE then
 			local count = #r.Pets
-			local lunge = AttackFx.petLunge(player) -- рывок питомцев вместе с ударом хозяина
+			local lunge = AttackFx.petLunge(player :: any) -- рывок питомцев вместе с ударом хозяина
 			for _, entry in ipairs(r.Pets) do
 				local offset = slotOffset(entry.Index, count)
 				local bob = math.sin(t * 3 + entry.Index * 1.7) * 0.25

@@ -45,6 +45,8 @@ end
 -- «Суперсилу» включаем только в своём разделе (§ 14): случайные раунды не должны мешать остальным проверкам.
 -- (run.js применяет патчи roblox2web.config.json, поэтому DEMO_BOTS здесь = true, как в веб-демо.)
 Workspace:SetAttribute("SuperpowerPaused", true)
+-- v3.0: ИИ-боты включаем только в своём разделе (§ 15), чтобы они не меняли числа охотников и врагов в проверках
+Workspace:SetAttribute("BotsDisabled", true)
 
 local player = Players:GetPlayers()[1] or Players.PlayerAdded:Wait()
 local t0 = os.clock()
@@ -114,6 +116,64 @@ check(
 	"world has hub + 5 zones",
 	Workspace.World:FindFirstChild("Hub") ~= nil and Workspace.World:FindFirstChild("Volcano") ~= nil
 )
+-- v3.0: арки порталов миров, площадь спавна, арки возврата в биомах
+do
+	local hub = Workspace.World.Hub
+	local arches, swirls, prompts, neonArea = 0, 0, 0, 0
+	for _, zone in ipairs(ZoneData.List) do
+		local m = hub:FindFirstChild("Portal_" .. zone.Id)
+		if m then
+			arches += 1
+			local sw = m:FindFirstChild("Swirl")
+			if sw and type(sw:GetAttribute("PortalSwirl")) == "number" then
+				swirls += 1
+			end
+			for _, d in ipairs(m:GetDescendants()) do
+				if d:IsA("ProximityPrompt") then
+					prompts += 1
+				elseif d:IsA("BasePart") and d.Material == Enum.Material.Neon then
+					neonArea += d.Size.X * d.Size.Y * (1 - d.Transparency)
+				end
+			end
+		end
+	end
+	check("portal arches in hub (1 per world)", arches == #ZoneData.List, arches)
+	check(
+		"portal swirl + prompt in every arch",
+		swirls == arches and prompts == arches,
+		swirls .. "/" .. prompts
+	)
+	check("portal glow is calm (small neon runes)", neonArea / math.max(1, arches) < 12, neonArea)
+	check(
+		"portal position for bots",
+		WorldBuilder.getPortalPosition("Forest") ~= nil and WorldBuilder.getStationPosition("portal") ~= nil
+	)
+	local plaza = hub:FindFirstChild("SpawnPlaza")
+	local beds, lamps, flags, arrows = 0, 0, 0, 0
+	for _, d in ipairs(plaza and plaza:GetDescendants() or {}) do
+		if d.Name == "Soil" then
+			beds += 1
+		elseif d.Name == "Lantern" then
+			lamps += 1
+		elseif d.Name == "Flag" then
+			flags += 1
+		elseif d.Name == "Arrow" then
+			arrows += 1
+		end
+	end
+	check(
+		"spawn plaza: beds, lamps, flags, signpost",
+		beds >= 4 and lamps >= 6 and flags >= 3 and arrows >= 3
+	)
+	check("spawn plaza: pet statue on fountain", plaza and plaza:FindFirstChild("StatueHead") ~= nil)
+	local back = 0
+	for _, zone in ipairs(ZoneData.List) do
+		if Workspace.World[zone.Id]:FindFirstChild("ReturnArch") then
+			back += 1
+		end
+	end
+	check("return arch in every biome", back == #ZoneData.List, back)
+end
 check("enemies spawned", #Workspace.Enemies:GetChildren() >= 30, #Workspace.Enemies:GetChildren())
 check("nodes spawned", #Workspace.Nodes.Meadow:GetChildren() >= 9)
 check("friend bonus counts demo bot", Session.get(player).Friends == 1, Session.get(player).Friends)
@@ -745,6 +805,47 @@ check("super: survived", not SuperpowerService.isActive() and r2.Done)
 check("super: survive reward", data.Gems >= gemsS + SC.SURVIVE_REWARD.Gems and data.Coins > coins2)
 check("super: player normal again", player.Character:GetScale() == 1 and Session.get(player).SuperCoin == 1)
 check("super: walk speed restored", math.abs(player.Character.Humanoid.WalkSpeed - ws0) < 0.01)
+
+-- ===== 15. ИИ-боты малолюдного сервера (v3.0) =============================
+print(("INFO bots section at t=%.1f"):format(os.clock()))
+local BotService = require(Server.BotService)
+for _, b in ipairs(SuperBots.list()) do
+	b.Model.Parent = nil -- классические боты охоты из § 14 больше не нужны
+end
+Workspace:SetAttribute("BotsDisabled", nil)
+local tb = os.clock()
+while BotService.population().Mode ~= "low" and os.clock() - tb < 40 do
+	task.wait(0.5)
+end
+local nb = #BotService.list()
+check("bots: 10..20 AI bots on a 1-player server", nb >= 10 and nb <= 20, nb)
+check("bots: not Player objects (player list unchanged)", #Players:GetPlayers() == 1, #Players:GetPlayers())
+local aiFolder = Workspace:FindFirstChild("AiBots")
+check("bots: NPC models in Workspace.AiBots", aiFolder and #aiFolder:GetChildren() == nb)
+local a1 = BotService.list()[1]
+check(
+	"bots: humanoid rig, name tag, pets",
+	a1
+		and a1.Model:FindFirstChildOfClass("Humanoid") ~= nil
+		and a1.Model:FindFirstChild("OverheadTag", true) ~= nil
+		and (a1.Model:GetAttribute("EquippedPets") or "") ~= ""
+)
+local p0 = {}
+for _, a in ipairs(BotService.list()) do
+	p0[a.Key] = a.Root.Position
+end
+task.wait(8)
+local moved = 0
+for _, a in ipairs(BotService.list()) do
+	if p0[a.Key] and (a.Root.Position - p0[a.Key]).Magnitude > 3 then
+		moved += 1
+	end
+end
+check("bots: walk around (Humanoid:MoveTo)", moved >= math.floor(nb / 2), moved .. "/" .. nb)
+check("bots: no profile in DataService", DataService.get(a1.Model :: any) == nil)
+Workspace:SetAttribute("BotsDisabled", true)
+task.wait(1)
+check("bots: BotsDisabled removes all", #BotService.list() == 0 and #aiFolder:GetChildren() == 0)
 
 print(fails == 0 and "ALL GAME CHECKS PASSED" or ("GAME CHECKS FAILED: " .. fails))
 print("DONE")

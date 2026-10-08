@@ -5,6 +5,7 @@
 	Назначение хранится на сервере: data.Settings.Hotbar = { S3 = id, S4 = id, S5 = id } ("" — пусто).
 	  * В слот кладутся только предметы, которые применяются одним нажатием:
 	      зелье удачи и эликсир монет (UseItem: буст на 5 минут, повтор продлевает),
+	      зелье здоровья (сразу 70% здоровья) и зелье регенерации (x3 на 5 секунд, таймер на слоте) — v3.0,
 	      билеты на яйца (у своего яйца — открыть сразу, иначе — окно этого яйца).
 	  * Не кладутся: угощение и катализатор (их применяют к питомцу или при слиянии в окне «Питомцы»),
 	    кирка и клинок (действуют постоянно), ресурсы.
@@ -20,9 +21,12 @@ HotbarData.LAST = 5
 HotbarData.DEFAULT = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" }
 -- базовая длительность бустов (полоса убывания: минимум полной шкалы)
 HotbarData.BASE_SPAN = 300
+-- v3.0: своя шкала у коротких бустов (зелье регенерации — 5 секунд)
+HotbarData.SPANS = { Luck = 300, Coins = 300, Regen = 5 } :: { [string]: number }
 
 -- Kind предмета -> как он применяется из слота
-local SLOT_KINDS = { BoostLuck = "Boost", BoostCoins = "Boost", Ticket = "Ticket" }
+local SLOT_KINDS =
+	{ BoostLuck = "Boost", BoostCoins = "Boost", Heal = "Boost", Regen = "Boost", Ticket = "Ticket" }
 -- Предметы, которые применяются в окне «Питомцы» (подсказка в инвентаре вместо кнопок слотов)
 local PET_KINDS = { PetXp = true, Catalyst = true }
 
@@ -56,7 +60,7 @@ function HotbarData.isPetItem(id: any): boolean
 	return item ~= nil and PET_KINDS[item.Kind] == true
 end
 
--- Какой буст даёт предмет: "Luck" | "Coins" | nil
+-- Какой буст (с таймером) даёт предмет: "Luck" | "Coins" | "Regen" | nil (зелье здоровья — мгновенное)
 function HotbarData.boostOf(id: any): string?
 	local item = type(id) == "string" and RecipeData.Items[id] or nil
 	if not item then
@@ -66,6 +70,8 @@ function HotbarData.boostOf(id: any): string?
 		return "Luck"
 	elseif item.Kind == "BoostCoins" then
 		return "Coins"
+	elseif item.Kind == "Regen" then
+		return "Regen"
 	end
 	return nil
 end
@@ -151,17 +157,23 @@ function HotbarData.boosts(b: any, now: number): { [string]: { Mult: number, Lef
 	if c2 > now then
 		out.Coins = { Mult = 2, Left = c2 - now, Ends = c2 }
 	end
+	local rg = tonumber(b.Regen) or 0
+	if rg > now then
+		local def = RecipeData.Items.regen_potion
+		out.Regen = { Mult = def and def.Value or 3, Left = rg - now, Ends = rg }
+	end
 	return out
 end
 
--- Полная шкала полосы убывания: растёт при продлении (время прибавилось), не меньше BASE_SPAN.
-function HotbarData.span(prevSpan: number?, prevLeft: number?, left: number): number
+-- Полная шкала полосы убывания: растёт при продлении (время прибавилось), не меньше base (BASE_SPAN).
+function HotbarData.span(prevSpan: number?, prevLeft: number?, left: number, base: number?): number
+	local b = base or HotbarData.BASE_SPAN
 	if left <= 0 then
-		return HotbarData.BASE_SPAN
+		return b
 	end
-	local span = prevSpan or HotbarData.BASE_SPAN
+	local span = prevSpan or b
 	if prevLeft == nil or left > prevLeft + 1 then
-		span = math.max(HotbarData.BASE_SPAN, left)
+		span = math.max(b, left)
 	end
 	return math.max(span, left)
 end

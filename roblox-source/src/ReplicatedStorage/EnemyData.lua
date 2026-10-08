@@ -522,6 +522,12 @@ EnemyData.List = {
 	),
 }
 
+-- v3.0: зелья здоровья и регенерации — с любого обычного врага и босса (кроме рейд-босса события)
+EnemyData.POTION_DROPS = {
+	{ Item = "health_potion", Chance = 0.06, BossChance = 0.5 },
+	{ Item = "regen_potion", Chance = 0.04, BossChance = 0.35 },
+}
+
 EnemyData.ById = {} :: { [string]: EnemyDef }
 for _, d in ipairs(EnemyData.List) do
 	EnemyData.ById[d.Id] = d

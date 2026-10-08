@@ -7,6 +7,7 @@
 	  3, 4, 5 — быстрые слоты предметов (v2.9, HotbarData): что в них лежит, игрок выбирает в «Инвентаре»
 	      (кнопки «В слот 3/4/5»), назначение хранится на сервере (Settings.Hotbar, действие SetHotbar).
 	      Зелье удачи / эликсир монет — тап выпивает (UseItem), на слоте таймер действия буста (ММ:СС + полоса);
+	      v3.0: зелье здоровья (сразу 70% здоровья) и зелье регенерации (x3 на 5 с, таймер на слоте);
 	      билет — у своего яйца открывает его сразу, иначе открывает окно этого яйца.
 	      Нет предметов — слот тусклый (назначение сохраняется), тап подсказывает, где взять; пустой слот — «+»,
 	      тап открывает инвентарь с подсказкой «Выберите предмет для слота N».
@@ -53,7 +54,11 @@ Hotbar.SIZE = 72
 Hotbar.GAP = 8
 Hotbar.WIDTH = #Hotbar.SLOTS * Hotbar.SIZE + (#Hotbar.SLOTS - 1) * Hotbar.GAP
 -- цвета бустов на слоте
-local BOOST_COLOR = { Luck = Color3.fromRGB(90, 220, 110), Coins = Color3.fromRGB(255, 200, 50) }
+local BOOST_COLOR = {
+	Luck = Color3.fromRGB(90, 220, 110),
+	Coins = Color3.fromRGB(255, 200, 50),
+	Regen = Color3.fromRGB(255, 120, 170), -- v3.0
+}
 local IDLE = Color3.fromRGB(40, 44, 62)
 
 -- Что лежит в быстром слоте n (по серверному состоянию) и сколько этого предмета
@@ -352,7 +357,7 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [strin
 			sl.Span, sl.PrevLeft = nil, nil
 			return false
 		end
-		sl.Span = HotbarData.span(sl.Span, sl.PrevLeft, b.Left)
+		sl.Span = HotbarData.span(sl.Span, sl.PrevLeft, b.Left, HotbarData.SPANS[kind])
 		sl.PrevLeft = b.Left
 		sl.BarBack.Visible = true
 		sl.BarFill.BackgroundColor3 = BOOST_COLOR[kind]
@@ -554,13 +559,17 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [strin
 end
 
 -- Масштаб кластеров HUD (общий для Hud/Hotbar): десктоп ~1, телефон ~0.8
+-- v3.0: базовый масштаб умножается на Theme.uiScale (ПК 1/1.5, телефон 0.8)
 function Hotbar.scaleFor(lay): number
+	local base
 	if lay.Mode == "portrait" then
-		return math.clamp(lay.W / 470, 0.72, 0.9)
+		base = math.clamp(lay.W / 470, 0.72, 0.9)
 	elseif lay.Mode == "landscape" then
-		return math.clamp(lay.H / 500, 0.66, 0.85)
+		base = math.clamp(lay.H / 500, 0.66, 0.85)
+	else
+		base = math.clamp(math.min(lay.W / 1280, lay.H / 720), 0.85, 1.15)
 	end
-	return math.clamp(math.min(lay.W / 1280, lay.H / 720), 0.85, 1.15)
+	return base * Theme.uiScale(lay)
 end
 
 return Hotbar

@@ -10,6 +10,7 @@ local Util = require(Shared.Util)
 
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
+local HealthService = require(script.Parent.HealthService)
 local Notify = require(script.Parent.Notify)
 local Progress = require(script.Parent.Progress)
 local Router = require(script.Parent.Router)
@@ -82,6 +83,22 @@ local function use(player: Player, itemId: any): (boolean, any)
 	elseif item.Kind == "BoostCoins" then
 		Economy.takeItem(player, itemId, 1)
 		data.Boosts.Coins2 = math.max(data.Boosts.Coins2 or 0, now) + (item.Seconds or 300)
+	elseif item.Kind == "Heal" then
+		-- v3.0: при полном здоровье зелье не тратится
+		local ok, err = HealthService.heal(player, item.Value or 0.7)
+		if not ok then
+			return false, err
+		end
+		Economy.takeItem(player, itemId, 1)
+		Notify.send(player, Locale.m("item.healed", { item = item.Name }), "reward")
+		return true, nil
+	elseif item.Kind == "Regen" then
+		local ok, err = HealthService.addRegen(player, data, item.Value or 3, item.Seconds or 5)
+		if not ok then
+			return false, err
+		end
+		Economy.takeItem(player, itemId, 1)
+		State.markCore(player)
 	else
 		return false, "craft.use_from_pets"
 	end

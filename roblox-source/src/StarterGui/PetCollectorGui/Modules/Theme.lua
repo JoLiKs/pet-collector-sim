@@ -19,4 +19,17 @@ Theme.Disabled = c3(90, 96, 120)
 Theme.Font = Enum.Font.FredokaOne
 Theme.FontBody = Enum.Font.GothamBold
 
+-- v3.0: общий масштаб интерфейса. На ПК всё в 1.5 раза меньше (1/1.5),
+-- на телефонах мягче (1/1.25), чтобы текст читался и кнопки оставались >= 36 px.
+Theme.UI_SCALE = 1 / 1.5
+Theme.UI_SCALE_TOUCH = 0.8
+Theme.MIN_TAP = 36
+
+function Theme.uiScale(lay: any?): number
+	if lay and (lay.Mode == "portrait" or lay.Mode == "landscape") then
+		return Theme.UI_SCALE_TOUCH
+	end
+	return Theme.UI_SCALE
+end
+
 return Theme

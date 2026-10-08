@@ -1,6 +1,7 @@
 --!strict
 --[[
-	SuperBots — серверные боты-игроки для события «Суперсила» (только при Config.DEMO_BOTS).
+	SuperBots — серверные боты-игроки для события «Суперсила» (только при Config.DEMO_BOTS и выключенных ИИ-ботах;
+	v3.0: при Config.BOTS_ENABLED в охоте участвуют ИИ-боты BotService, а отсюда берутся риг и поведение).
 	Нужны, когда игрок на сервере один (веб-демо): 2–3 бота бегают по хабу, охотятся на суперигрока
 	(подбегают и бьют — урон считает SuperpowerService) и сами иногда становятся суперигроками,
 	которых должен останавливать живой игрок. Риг — стандартный R6 (Motor6D, Humanoid:MoveTo), как у игроков.
@@ -207,6 +208,10 @@ local function think(b: Bot, now: number)
 	end
 end
 
+-- v3.0: риг и поведение в охоте переиспользует BotService (ИИ-боты малолюдных серверов)
+SuperBots.buildRig = buildRig
+SuperBots.think = think
+
 function SuperBots.list(): { Bot }
 	return bots
 end
@@ -280,8 +285,10 @@ function SuperBots.spawn()
 	end)
 end
 
+-- Три классических бота охоты — только если ИИ-боты (BotService) выключены: те сами участвуют в «Суперсиле».
 function SuperBots.init()
-	if Config.DEMO_BOTS then
+	local aiBots = Config.BOTS_ENABLED and Workspace:GetAttribute("BotsDisabled") ~= true
+	if Config.DEMO_BOTS and not aiBots then
 		SuperBots.spawn()
 	end
 end

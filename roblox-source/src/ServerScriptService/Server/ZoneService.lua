@@ -84,6 +84,9 @@ local function teleport(player: Player, zoneId: any): (boolean, any)
 	return true, nil
 end
 
+-- v3.0: телепорт из арки портала (те же проверки, что у кнопки в окне «Миры»)
+ZoneService.travel = teleport
+
 function ZoneService.init()
 	Router.register("UnlockZone", 3, 3, unlock)
 	Router.register("Teleport", 1.5, 2, teleport)

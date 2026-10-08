@@ -5,6 +5,7 @@
 	Тексты — ключи Locale (inv.*) с аргументами; форматирует окно (InventoryPanel).
 ]]
 local Config = require(script.Parent.Config)
+local EnemyData = require(script.Parent.EnemyData)
 local RecipeData = require(script.Parent.RecipeData)
 local ResourceData = require(script.Parent.ResourceData)
 local ZoneData = require(script.Parent.ZoneData)
@@ -18,6 +19,8 @@ export type Line = { Key: string, Zones: { string }?, Recipe: any? }
 InventoryData.ITEM_USE = {
 	BoostLuck = "inv.use_boost_luck",
 	BoostCoins = "inv.use_boost_coins",
+	Heal = "inv.use_heal",
+	Regen = "inv.use_regen",
 	PetXp = "craft.use_pets",
 	Catalyst = "craft.use_fusion",
 	Tool = "craft.passive",
@@ -100,6 +103,11 @@ function InventoryData.sources(id: string): { Line }
 	for _, r in ipairs(RecipeData.Recipes) do
 		if r.Item == id then
 			table.insert(out, { Key = "inv.src_craft", Recipe = r })
+		end
+	end
+	for _, pd in ipairs(EnemyData.POTION_DROPS) do
+		if pd.Item == id then
+			table.insert(out, { Key = "inv.src_potion_drop" })
 		end
 	end
 	if table.find(ResourceData.ChestItems, id) then

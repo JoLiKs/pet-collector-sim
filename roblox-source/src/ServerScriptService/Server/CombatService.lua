@@ -337,6 +337,17 @@ local function reward(player: Player, e: Enemy)
 		table.insert(lootBits, resName("Fragment"))
 		orbCount += 1
 	end
+	-- v3.0: зелья здоровья и регенерации (EnemyData.POTION_DROPS)
+	if e.Special ~= "raid" then
+		for _, pd in ipairs(EnemyData.POTION_DROPS) do
+			if rng:NextNumber() < (if def.Boss then pd.BossChance else pd.Chance) then
+				Economy.addItem(player, pd.Item, 1)
+				local it = RecipeData.Items[pd.Item]
+				table.insert(lootBits, Locale.nameIn(lang, it and it.Name or pd.Item))
+				orbCount += 1
+			end
+		end
+	end
 	if def.Boss and e.Special ~= "raid" then
 		Economy.addBpXp(player, 20)
 	end
@@ -742,6 +753,59 @@ function CombatService.debugDamage(player: Player, enemyId: string, amount: numb
 	if e then
 		damageEnemy(e, amount, player, "debug")
 	end
+end
+
+-- ---------------------------------------------------------------------------
+-- v3.0: ИИ-боты (BotService) дерутся только с «ничьими» рядовыми врагами:
+-- живые игроки этого врага не били и рядом с ним никого нет — боты не отнимают добычу и не мешают.
+-- Награды за таких врагов никто не получает (у ботов нет профиля).
+-- ---------------------------------------------------------------------------
+local BOT_FREE_RADIUS = 35
+
+local function playerNear(pos: Vector3, radius: number): boolean
+	for _, p in ipairs(Players:GetPlayers()) do
+		local r = rootOf(p)
+		if r and (r.Position - pos).Magnitude <= radius then
+			return true
+		end
+	end
+	return false
+end
+
+local function botFree(e: Enemy): boolean
+	return not e.Dead and not e.Def.Boss and e.Special == nil and next(e.Damage) == nil
+end
+
+function CombatService.botTarget(pos: Vector3, range: number): (string?, Vector3?)
+	local best: Enemy? = nil
+	local bd = range
+	for _, e in ipairs(order) do
+		if botFree(e) then
+			local d = (e.Pos - pos).Magnitude
+			if d < bd and not playerNear(e.Pos, BOT_FREE_RADIUS) then
+				best, bd = e, d
+			end
+		end
+	end
+	if best then
+		return best.Id, best.Pos
+	end
+	return nil, nil
+end
+
+-- Удар бота: frac — доля максимального здоровья. Возвращает (попал, убил).
+function CombatService.botHit(id: string, frac: number): (boolean, boolean)
+	local e = enemies[id]
+	if not e or not botFree(e) or playerNear(e.Pos, BOT_FREE_RADIUS) then
+		return false, false
+	end
+	e.Hp = math.max(0, e.Hp - e.MaxHp * frac)
+	updateBar(e)
+	if e.Hp <= 0 then
+		die(e)
+		return true, true
+	end
+	return true, false
 end
 
 -- ---------------------------------------------------------------------------

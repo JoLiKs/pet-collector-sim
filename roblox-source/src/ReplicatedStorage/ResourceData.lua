@@ -85,7 +85,8 @@ ResourceData.CHEST_RESPAWN = 120
 ResourceData.CHESTS_PER_ZONE = 2
 -- Сундук: случайная добыча
 -- Предметы, которые может дать сундук (Kind = "Item"); их же показывает окно «Инвентарь»
-ResourceData.ChestItems = { "catalyst", "luck_potion", "coin_elixir", "xp_treat" }
+ResourceData.ChestItems =
+	{ "catalyst", "luck_potion", "coin_elixir", "xp_treat", "health_potion", "regen_potion" }
 ResourceData.ChestLoot = {
 	{ Kind = "Coins", Weight = 40 },
 	{ Kind = "Gems", Weight = 12 },

@@ -14,7 +14,6 @@ local TutorialData = require(Shared:WaitForChild("TutorialData"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
-local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
@@ -63,16 +62,17 @@ function TutorialHud.init(gui: ScreenGui)
 		Parent = box,
 	})
 
-	Layout.onChanged(function(li)
+	-- v3.0: общий масштаб (Theme.uiScale); на телефоне ширина делится на k — плашка той же ширины
+	Widgets.autoScale(box, function(li, k)
 		if li.Mode == "portrait" then
 			box.AnchorPoint = Vector2.new(0.5, 0)
 			box.Position = UDim2.new(0.5, 0, 0.45, 132)
-			box.Size = UDim2.fromOffset(math.max(200, li.W - 24), 48)
+			box.Size = UDim2.fromOffset(math.max(200, li.W - 24) / k, 48)
 			tsc.MinTextSize = 11
 		elseif li.Mode == "landscape" then
 			box.AnchorPoint = Vector2.new(0.5, 1)
 			box.Position = UDim2.new(0.5, 0, 1, -74)
-			box.Size = UDim2.fromOffset(math.min(330, li.W - 420), 42)
+			box.Size = UDim2.fromOffset(math.min(330, li.W - 420) / k, 42)
 			tsc.MinTextSize = 10
 		else
 			box.AnchorPoint = Vector2.new(0.5, 1)

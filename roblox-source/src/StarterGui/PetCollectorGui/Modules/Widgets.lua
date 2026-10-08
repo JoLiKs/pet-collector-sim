@@ -322,23 +322,31 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 		"UISizeConstraint",
 		{ MaxSize = Vector2.new(760, 540), MinSize = Vector2.new(300, 240), Parent = root }
 	)
-	local scale = New("UIScale", { Parent = root })
+	local scale = New("UIScale", { Name = "UiScale", Parent = root })
+	-- v3.0: содержимое панели в Theme.uiScale раз меньше. На ПК панель занимает меньше места,
+	-- на телефоне размеры делятся на k, чтобы панель по-прежнему занимала тот же прямоугольник.
+	local k = Theme.UI_SCALE
 	-- телефон (v2.4): панель почти во всю ширину; вертикально — чуть выше центра, снизу место для тостов
 	Layout.onChanged(function(lay)
+		k = Theme.uiScale(lay)
+		local function fit(xs: number, xo: number, ys: number, yo: number): UDim2
+			return UDim2.new(xs / k, xo / k, ys / k, yo / k)
+		end
 		if lay.Mode == "portrait" then
-			root.Size = UDim2.new(1, -16, 0.68, 0)
+			root.Size = fit(1, -16, 0.68, 0)
 			root.Position = UDim2.fromScale(0.5, 0.46)
 		elseif lay.Mode == "landscape" and lay.Touch then
 			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
-			root.Size = UDim2.new(1, -140, 1, -24)
+			root.Size = fit(1, -140, 1, -24)
 			root.Position = UDim2.new(0.5, -55, 0.5, 0)
 		elseif lay.Mode == "landscape" then
-			root.Size = UDim2.new(0.84, 0, 1, -24)
+			root.Size = fit(0.84, 0, 1, -24)
 			root.Position = UDim2.fromScale(0.5, 0.5)
 		else
 			root.Size = UDim2.fromScale(0.62, 0.72)
 			root.Position = UDim2.fromScale(0.5, 0.5)
 		end
+		scale.Scale = k
 	end)
 
 	local header = New("Frame", {
@@ -392,14 +400,28 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 
 	function api.Open()
 		root.Visible = true
-		scale.Scale = 0.85
-		Widgets.tween(scale, 0.18, { Scale = 1 }, Enum.EasingStyle.Back)
+		scale.Scale = 0.85 * k
+		Widgets.tween(scale, 0.18, { Scale = k }, Enum.EasingStyle.Back)
 	end
 	api.Close = close
 	function api.IsOpen(): boolean
 		return root.Visible
 	end
 	return api
+end
+
+-- v3.0: общий масштаб (Theme.uiScale) для самостоятельного окна/плашки. Возвращает UIScale;
+-- onLayout(lay, k) — дополнительная раскладка с учётом k (например, деление ширины на k на телефоне).
+function Widgets.autoScale(obj: GuiObject, onLayout: ((any, number) -> ())?): UIScale
+	local sc = New("UIScale", { Name = "UiScale", Parent = obj })
+	Layout.onChanged(function(lay)
+		local k = Theme.uiScale(lay)
+		sc.Scale = k
+		if onLayout then
+			onLayout(lay, k)
+		end
+	end)
+	return sc
 end
 
 function Widgets.scroller(parent: Instance, props: { [string]: any }?): ScrollingFrame

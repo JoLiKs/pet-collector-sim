@@ -175,6 +175,8 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	luckChip.Visible = false
 	local coinChip, coinText = chip("CoinChip", 81, Theme.Gold)
 	coinChip.Visible = false
+	local regenChip, regenText = chip("RegenChip", 82, Color3.fromRGB(255, 120, 170)) -- v3.0
+	regenChip.Visible = false
 	local function boostChips(core)
 		local b = HotbarData.boosts(core.Boosts, ClientState.serverNow())
 		local hb = core.Hotbar
@@ -182,6 +184,11 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		local coinSlot = HotbarData.slotOf(hb, "coin_elixir") ~= nil
 		luckChip.Visible = b.Luck ~= nil and not luckSlot
 		coinChip.Visible = b.Coins ~= nil and not coinSlot
+		regenChip.Visible = b.Regen ~= nil and HotbarData.slotOf(hb, "regen_potion") == nil
+		if b.Regen then
+			regenText.Text =
+				L.t("hud.regen_boost", { n = b.Regen.Mult, time = Util.formatTime(b.Regen.Left) })
+		end
 		if b.Luck then
 			luckText.Text = L.t("hud.luck_boost", { n = b.Luck.Mult, time = Util.formatTime(b.Luck.Left) })
 		end
@@ -255,7 +262,8 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 
 	-- ---------- раскладка (v2.5): справа снизу; на тач-экране не под кнопкой прыжка ----------
 	Layout.onChanged(function(lay)
-		local s = if lay.Mode == "wide" then 1 elseif lay.Mode == "portrait" then 0.82 else 0.78
+		local s = (if lay.Mode == "wide" then 1 elseif lay.Mode == "portrait" then 0.82 else 0.78)
+			* Theme.uiScale(lay)
 		timerScale.Scale = s
 		if lay.Mode == "portrait" then
 			timer.Position = UDim2.new(1, -10, 1, -100)
@@ -280,8 +288,8 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		ZIndex = 50,
 		Parent = gui,
 	})
-	Layout.onChanged(function(lay)
-		offline.Size = UDim2.fromOffset(math.min(420, lay.W - 24), 190)
+	Widgets.autoScale(offline, function(lay, k)
+		offline.Size = UDim2.fromOffset(math.min(420, (lay.W - 24) / k), 190)
 	end)
 	Widgets.corner(offline, 16)
 	Widgets.stroke(offline, Theme.Gold, 3)

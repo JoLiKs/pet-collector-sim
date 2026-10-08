@@ -130,7 +130,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Name = "LeftButtons",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 12, 0.45, 0),
-		Size = UDim2.fromOffset(176, 236),
+		Size = UDim2.fromOffset(176, 244),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -180,8 +180,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Color = Color3.fromRGB(150, 90, 240),
 		Icon = "☰",
 		Text = L.k("hud.more"),
-		Size = UDim2.fromOffset(120, 40),
-		MaxTextSize = 20,
+		Size = UDim2.fromOffset(120, 48), -- v3.0: 48 — на телефоне не меньше Theme.MIN_TAP
+		MaxTextSize = 22,
 		LayoutOrder = 4,
 		OnClick = function()
 			openPanel("More")
@@ -319,6 +319,11 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		local s = Hotbar.scaleFor(lay)
 		-- боковые кнопки компактнее хотбара (как в образце): на телефоне не закрывают персонажа
 		local side = s * (if lay.Mode == "wide" then 0.92 else 0.8)
+		-- v3.0: на телефоне самая низкая кнопка слева («Ещё», 48) — не меньше Theme.MIN_TAP пикселей;
+		-- на ПК (мышь) — честный масштаб 1/1.5
+		if lay.Mode ~= "wide" then
+			side = math.max(side, Theme.MIN_TAP / 48)
+		end
 		leftScale.Scale, rightScale.Scale, walletScale.Scale = side, side, s
 		if lay.Mode == "portrait" then
 			left.Position = UDim2.new(0, 10, 0.45, 0)

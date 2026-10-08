@@ -1,6 +1,7 @@
 --!strict
--- Станции хаба (верстак, лавка, алтарь, портал, торговец; v2.5: сундук наград, мастерская, святилище, табло): ProximityPrompt просит клиента открыть нужную панель.
+-- Станции хаба (v3.0: арки порталов миров portal_<Zone>; верстак, лавка, алтарь, портал, торговец; v2.5: сундук наград, мастерская, святилище, табло): ProximityPrompt просит клиента открыть нужную панель.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Locale = require(ReplicatedStorage.Shared.Locale)
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
 
@@ -41,6 +42,23 @@ local function onPrompt(player: Player, id: string)
 		if data then
 			ZoneService.moveToZone(player, ZoneData.HUB)
 			State.markCore(player)
+		end
+	elseif string.sub(id, 1, 7) == "portal_" then
+		-- v3.0: арка мира в хабе: открыт — телепорт, закрыт — окно «Миры» и подсказка с требованием
+		local zoneId = string.sub(id, 8)
+		local zone = ZoneData.ById[zoneId]
+		local data = DataService.get(player)
+		if not zone or not data then
+			return
+		end
+		if data.Zones[zoneId] then
+			local ok, err = ZoneService.travel(player, zoneId)
+			if not ok and type(err) == "string" then
+				Notify.send(player, err, "error")
+			end
+		else
+			Remotes.getEvent("OpenUi"):FireClient(player, "Worlds")
+			Notify.send(player, Locale.m("zone.portal_locked", { zone = zone.Name }), "info")
 		end
 	end
 end

@@ -31,6 +31,8 @@ local WB_STUB = [[
 local WB = {}
 function WB.getEggPosition(id) return Vector3.new(0, 0, 0) end
 function WB.getZoneSpawn() return CFrame.new(0, 5, 0) end
+function WB.getStationPosition() return Vector3.new(10, 0, 10) end
+function WB.getPortalPosition() return Vector3.new(0, 0, 80) end
 function WB.onEggPrompt() end
 function WB.setBoard() end
 function WB.clearPlayer() end
@@ -4314,6 +4316,479 @@ test("v2.9 Хотбар: миграция старых сохранений и �
 		"профиль v2.8 загружен, слоты по умолчанию"
 	)
 end)
+
+test(
+	"v3.0 Зелья здоровья и регенерации: данные, слоты, лечение, таймер",
+	function()
+		local S = boot("V30P")
+		S.U.require("ServerScriptService/Server/CraftService").init()
+		local HS = S.U.require("ServerScriptService/Server/HealthService")
+		local H = S.U.require("ReplicatedStorage/Shared/HotbarData")
+		local RD = S.U.require("ReplicatedStorage/Shared/RecipeData")
+		local ED = S.U.require("ReplicatedStorage/Shared/EnemyData")
+		local RES = S.U.require("ReplicatedStorage/Shared/ResourceData")
+		local INV = S.U.require("ReplicatedStorage/Shared/InventoryData")
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		-- данные
+		local hp, rg = RD.Items.health_potion, RD.Items.regen_potion
+		check(
+			hp and hp.Kind == "Heal" and hp.Value >= 0.5 and hp.Value <= 1,
+			"зелье здоровья: лечит большую часть"
+		)
+		check(
+			rg and rg.Kind == "Regen" and rg.Value == 3 and rg.Seconds == 5,
+			"зелье регенерации: x3 на 5 с"
+		)
+		local recipes = {}
+		for _, r in ipairs(RD.Recipes) do
+			recipes[r.Item] = r
+		end
+		check(recipes.health_potion and recipes.regen_potion, "есть рецепты на верстаке")
+		check(
+			table.find(RES.ChestItems, "health_potion") and table.find(RES.ChestItems, "regen_potion"),
+			"есть в сундуках"
+		)
+		local drops = {}
+		for _, d in ipairs(ED.POTION_DROPS) do
+			drops[d.Item] = d
+			check(
+				d.Chance > 0 and d.Chance < 0.2 and d.BossChance > d.Chance,
+				"шанс выпадения " .. d.Item
+			)
+		end
+		check(drops.health_potion and drops.regen_potion, "выпадают с врагов")
+		local srcKeys = {}
+		for _, line in ipairs(INV.sources("regen_potion")) do
+			srcKeys[line.Key] = true
+		end
+		check(
+			srcKeys["inv.src_craft"] and srcKeys["inv.src_potion_drop"] and srcKeys["inv.src_chests"],
+			"инвентарь: где взять"
+		)
+		for _, lang in ipairs({ "ru", "en" }) do
+			for _, k in ipairs({
+				"hotbar.short.health_potion",
+				"hotbar.short.regen_potion",
+				"item.hp_full",
+				"inv.use_heal",
+				"inv.use_regen",
+				"hud.regen_boost",
+			}) do
+				local v = L.get(lang, k, { n = 3, time = "0:05", item = "x" })
+				check(type(v) == "string" and v ~= k and v ~= "", lang .. ": " .. k)
+			end
+		end
+		-- слоты
+		check(
+			H.canAssign("health_potion") and H.canAssign("regen_potion"),
+			"оба зелья кладутся в быстрый слот"
+		)
+		check(
+			H.boostOf("regen_potion") == "Regen" and H.boostOf("health_potion") == nil,
+			"таймер — только у регенерации"
+		)
+		check(
+			H.span(nil, nil, 5, H.SPANS.Regen) == 5 and H.span(5, 4, 9, 5) == 9,
+			"шкала регенерации 5 с, продление растит шкалу"
+		)
+		-- сервер
+		local data, _, p = S.join(3001, "Medic")
+		local hum = p.Character:FindFirstChildOfClass("Humanoid")
+		hum.MaxHealth = 100
+		hum.Health = 100
+		local function call(...)
+			ADVANCE(2)
+			return S.invoke(p, ...)
+		end
+		check(
+			call("SetHotbar", 5, "health_potion").ok and data.Settings.Hotbar.S5 == "health_potion",
+			"лечение в слот 5"
+		)
+		S.Economy.addItem(p, "health_potion", 2)
+		S.Economy.addItem(p, "regen_potion", 2)
+		local r = call("UseItem", "health_potion")
+		check(
+			not r.ok and data.Items.health_potion == 2,
+			"при полном здоровье зелье не тратится"
+		)
+		hum.Health = 20
+		check(call("UseItem", "health_potion").ok, "выпил зелье здоровья")
+		check(
+			math.abs(hum.Health - 90) < 0.01 and data.Items.health_potion == 1,
+			"+70% здоровья сразу: " .. hum.Health
+		)
+		hum.Health = 50
+		check(
+			call("UseItem", "health_potion").ok and hum.Health == 100,
+			"не больше максимума"
+		)
+		-- регенерация: базовая 1%/с, с зельем x3
+		hum.Health = 10
+		HS.tick(1)
+		check(math.abs(hum.Health - 11) < 0.01, "база: 1% в секунду, сейчас " .. hum.Health)
+		check(call("UseItem", "regen_potion").ok, "выпил зелье регенерации")
+		check(HS.regenMultiplier(p) == 3, "множитель x3")
+		local b = H.boosts(data.Boosts, os.time())
+		check(
+			b.Regen and b.Regen.Mult == 3 and b.Regen.Left >= 4 and b.Regen.Left <= 5,
+			"таймер на слоте ~5 с"
+		)
+		local h0 = hum.Health
+		HS.tick(1)
+		check(math.abs(hum.Health - h0 - 3) < 0.01, "x3: 3% в секунду")
+		-- повтор продлевает
+		ADVANCE(1)
+		check(S.invoke(p, "UseItem", "regen_potion").ok, "второе зелье регенерации")
+		b = H.boosts(data.Boosts, os.time())
+		check(
+			b.Regen and b.Regen.Left >= 6,
+			"продление: осталось " .. tostring(b.Regen and b.Regen.Left)
+		)
+		ADVANCE(12)
+		check(HS.regenMultiplier(p) == 1, "действие закончилось")
+		check(H.boosts(data.Boosts, os.time()).Regen == nil, "таймер исчез")
+		check(not call("UseItem", "regen_potion").ok, "зелий регенерации 0 — отказ")
+		hum.Health = 0
+		S.Economy.addItem(p, "health_potion", 1)
+		check(
+			not call("UseItem", "health_potion").ok and data.Items.health_potion == 1,
+			"мёртвому не тратится"
+		)
+		-- крафт
+		data.Resources.Herb = 10
+		data.Resources.Wood = 10
+		data.Resources.Stone = 10
+		check(
+			call("Craft", "r_heal", 1).ok and data.Items.health_potion == 3,
+			"рецепт зелья здоровья (x2)"
+		)
+		check(
+			call("Craft", "r_regen", 1).ok and data.Items.regen_potion == 2,
+			"рецепт зелья регенерации (x2)"
+		)
+	end
+)
+
+test(
+	"v3.0 ИИ-боты: численность 10–20, по одному, порог 5 живых",
+	function()
+		local S = boot("V30B")
+		local BL = S.U.require("ReplicatedStorage/Shared/BotLogic")
+		local cfg = S.Config.BOTS
+		check(cfg.MIN == 10 and cfg.MAX == 20 and cfg.REAL_THRESHOLD == 5, "пороги из ТЗ")
+		check(
+			cfg.STEP_GAP[1] == 60 and cfg.STEP_GAP[2] == 120,
+			"уход/возвращение раз в 1–2 минуты"
+		)
+		check(S.Config.BOTS_ENABLED == true, "флаг BOTS_ENABLED")
+		local r = Random.new(7)
+		local function rnd()
+			return r:NextNumber()
+		end
+		local function rint(a, b)
+			return r:NextInteger(a, b)
+		end
+		for trial = 1, 20 do
+			local p = BL.newPop()
+			local t = 0
+			local real = 1
+			-- старт: быстро до цели 10..20
+			for _ = 1, 200 do
+				t += 0.5
+				BL.step(p, cfg, t, real, rnd, rint)
+			end
+			check(
+				p.Count >= 10 and p.Count <= 20 and p.Mode == "low",
+				"старт: " .. p.Count .. " ботов (" .. trial .. ")"
+			)
+			-- обычная жизнь: всегда в пределах 10..20, меняется по одному
+			local minC, maxC, changes = p.Count, p.Count, 0
+			local last = p.Count
+			local lastChangeAt = nil
+			local minGap = math.huge
+			local oneByOne = true
+			for _ = 1, 4000 do
+				t += 0.5
+				local a = BL.step(p, cfg, t, real, rnd, rint)
+				if a then
+					oneByOne = oneByOne and math.abs(p.Count - last) == 1
+					if lastChangeAt then
+						minGap = math.min(minGap, t - lastChangeAt)
+					end
+					lastChangeAt = t
+					changes += 1
+					last = p.Count
+				end
+				minC, maxC = math.min(minC, p.Count), math.max(maxC, p.Count)
+			end
+			check(oneByOne, "по одному")
+			check(minC >= 10 and maxC <= 20, ("в пределах 10..20: %d..%d"):format(minC, maxC))
+			check(
+				changes > 5 and minGap >= cfg.CHURN_GAP[1] - 0.5,
+				"уходят/приходят через случайные интервалы: "
+					.. changes
+					.. " "
+					.. minGap
+			)
+			-- 5 живых: уходят по одному раз в 60–120 с
+			real = 5
+			local leaves, prevAt, gaps = 0, t, {}
+			local noJoin = true
+			while p.Count > 0 and leaves < 40 do
+				t += 0.5
+				local a = BL.step(p, cfg, t, real, rnd, rint)
+				noJoin = noJoin and a ~= "join"
+				if a == "leave" then
+					leaves += 1
+					table.insert(gaps, t - prevAt)
+					prevAt = t
+				end
+			end
+			check(noJoin, "при 5 живых никто не приходит")
+			check(p.Count == 0, "все ушли")
+			local okGaps = true
+			for _, g in ipairs(gaps) do
+				if g < 59.5 or g > 120.5 then
+					okGaps = false
+				end
+			end
+			check(okGaps, "интервал ухода 1–2 минуты")
+			-- 4 живых: возвращаются по одному
+			real = 4
+			local back, firstAt = 0, nil
+			local t0 = t
+			for _ = 1, 6000 do
+				t += 0.5
+				local a = BL.step(p, cfg, t, real, rnd, rint)
+				if a == "join" then
+					back += 1
+					firstAt = firstAt or t
+				end
+				if p.Mode == "low" then
+					break
+				end
+			end
+			check(
+				back >= 10 and firstAt and firstAt - t0 >= 59.5,
+				"возвращаются постепенно: " .. back
+			)
+		end
+		-- 4 живых — боты есть; ровно 5 — уходят
+		local p = BL.newPop()
+		check(BL.step(p, cfg, 0, 4, rnd, rint) == "join", "4 живых: боты приходят")
+		local q = BL.newPop()
+		check(
+			BL.step(q, cfg, 0, 5, rnd, rint) == nil and q.Mode == "drain",
+			"5 живых: ботов не будет"
+		)
+		-- имена и прокачка
+		local used = {}
+		for _ = 1, 40 do
+			local n = BL.makeName(rint, used)
+			check(type(n) == "string" and #n >= 3 and #n <= 20 and not string.find(n, "%s"), "ник: " .. n)
+		end
+		local b = { Level = 1, Xp = 0, Rebirths = 0 }
+		BL.addXp(b, 100000)
+		check(b.Level == BL.REBIRTH_LEVEL and BL.canRebirth(b), "прокачка до ребёрта")
+		check(BL.rebirth(b) and b.Level == 1 and b.Rebirths == 1, "ребёрт")
+		check(
+			BL.zonesOpen({ Level = 1, Rebirths = 0 }, 5) == 1
+				and BL.zonesOpen({ Level = 25, Rebirths = 3 }, 5) == 5,
+			"миры по уровню"
+		)
+	end
+)
+
+test("v3.0 ИИ-боты: NPC-модели, не Player, без DataStore и рейтингов", function()
+	local S = boot("V30BS")
+	local BS = S.U.require("ServerScriptService/Server/BotService")
+	local Players = S.U.Players or game:GetService("Players")
+	BS.makeModel = function(name)
+		local m = NEW_NODE("Model", "Bot_" .. name)
+		local hrp = NEW_NODE("Part", "HumanoidRootPart")
+		hrp.Position = Vector3.new(0, 3, 30)
+		hrp.Parent = m
+		local head = NEW_NODE("Part", "Head")
+		head.Parent = m
+		local hum = NEW_NODE("Humanoid")
+		hum.Health = 100
+		hum.MoveTo = function() end
+		hum.Parent = m
+		return m, hrp, hum
+	end
+	local _, _, p1 = S.join(3101, "Solo")
+	local writes0 = BACKEND.Writes
+	local players0 = #Players:GetPlayers()
+	local t = 0
+	for _ = 1, 120 do
+		t += 0.5
+		BS.populationStep(t)
+	end
+	local n = #BS.list()
+	check(n >= 10 and n <= 20, "1 живой игрок: ботов " .. n)
+	check(
+		#Players:GetPlayers() == players0,
+		"боты не объекты Player (список игроков не изменился)"
+	)
+	local ws = S.U.Workspace
+	local f = ws:FindFirstChild("AiBots")
+	check(
+		f and #f:GetChildren() == n,
+		"модели в Workspace.AiBots: " .. tostring(f and #f:GetChildren()) .. " / " .. n
+	)
+	local a = BS.list()[1]
+	check(
+		a.Model:GetAttribute("AiBot") == true and a.Model:GetAttribute("EquippedPets") ~= nil,
+		"у бота метка и питомцы"
+	)
+	local tag = a.Model:FindFirstChild("Head"):FindFirstChild("OverheadTag")
+	check(tag and tag:FindFirstChild("NameLabel"), "ник над головой")
+	local lvl = tag and tag:FindFirstChild("LevelLabel")
+	check(lvl and lvl.Text and string.find(lvl.Text, "%d"), "уровень над головой")
+	-- мысли ботов не падают
+	local warns0 = #(WARNINGS or {})
+	for _ = 1, 20 do
+		t += 0.25
+		BS.thinkAll(t)
+	end
+	check(
+		#(WARNINGS or {}) == warns0,
+		"думают без ошибок: " .. tostring((WARNINGS or {})[warns0 + 1])
+	)
+	check(BACKEND.Writes == writes0, "у ботов нет DataStore (записей не было)")
+	local LB = S.U.require("ServerScriptService/Server/LeaderboardService")
+	local _ = LB
+	for _, x in ipairs(BS.list()) do
+		check(S.Data.get(x.Model) == nil, "нет профиля у " .. x.Name)
+	end
+	-- 5 живых: уходят по одному
+	for i = 2, 5 do
+		S.join(3100 + i, "Real" .. i)
+	end
+	local counts = {}
+	local oneByOne = true
+	for _ = 1, 2 * 60 * 50 do
+		t += 0.5
+		local before = #BS.list()
+		BS.populationStep(t)
+		local after = #BS.list()
+		oneByOne = oneByOne and (after == before or after == before - 1)
+		if after < before then
+			table.insert(counts, t)
+		end
+		if after == 0 then
+			break
+		end
+	end
+	check(oneByOne, "уходят строго по одному")
+	check(#BS.list() == 0, "при 5 живых все боты ушли: " .. #BS.list())
+	check(#counts >= 10 and counts[2] - counts[1] >= 59.5, "раз в 1–2 минуты")
+	-- выключатель
+	local _ = p1
+	ws:SetAttribute("BotsDisabled", true)
+	BS.populationStep(t + 1)
+	check(#BS.list() == 0, "BotsDisabled — ботов нет")
+end)
+
+test(
+	"v3.0 Порталы: арки миров в хабе (требование на табличке, телепорт/окно «Миры»), спокойное свечение",
+	function()
+		local S = boot("V30PT")
+		local WD = S.U.require("ServerScriptService/Server/WorldDecor")
+		local ZD = S.U.require("ReplicatedStorage/Shared/ZoneData")
+		-- табличка: требование для каждого мира
+		local k1 = WD.requirement(ZD.ById.Meadow)
+		local k2, a2 = WD.requirement(ZD.ById.Forest)
+		local k3, a3 = WD.requirement(ZD.ById.Volcano)
+		check(k1 == "world.portal_free", "Луг: открыт сразу")
+		check(k2 == "world.portal_cost" and a2 and a2.price == "5K", "Лес: цена 5K монет")
+		check(
+			k3 == "world.portal_cost_rb" and a3 and a3.n == 1,
+			"Кальдера: монеты и 1 перерождение"
+		)
+		for _, lang in ipairs({ "Ru", "En" }) do
+			local L = S.U.require("ReplicatedStorage/Shared/Locale" .. lang)
+			local ok = true
+			for _, key in ipairs({
+				"world.portal_free",
+				"world.portal_cost",
+				"world.portal_cost_rb",
+				"world.sign_portals",
+				"world.sign_eggs",
+				"world.return_hub",
+				"zone.portal_locked",
+			}) do
+				ok = ok and type(L.Strings[key]) == "string"
+			end
+			check(ok, "ключи порталов есть в Locale" .. lang)
+		end
+		-- арки: по одной на мир, на дуге за спавном, смотрят на центр хаба, не пересекаются
+		local origins = WD.portalOrigins()
+		local n, minGap, facing = 0, math.huge, true
+		local list = {}
+		for id, cf in pairs(origins) do
+			n += 1
+			check(ZD.ById[id] ~= nil, "арка для мира " .. id)
+			facing = facing and math.abs(cf.Position.Magnitude - WD.ARC_RADIUS) < 0.5 and cf.Position.Z > 30
+			table.insert(list, cf.Position)
+			check(cf.Position.Magnitude < ZD.HUB_RADIUS - 8, "арка " .. id .. " внутри хаба")
+		end
+		for i = 1, #list do
+			for j = i + 1, #list do
+				minGap = math.min(minGap, (list[i] - list[j]).Magnitude)
+			end
+		end
+		check(n == #ZD.List, "арок столько же, сколько миров: " .. n)
+		check(
+			facing,
+			"все арки на дуге за точкой спавна (радиус "
+				.. WD.ARC_RADIUS
+				.. ")"
+		)
+		check(
+			minGap > 24,
+			"арки не налезают друг на друга (мин. " .. math.floor(minGap) .. ")"
+		)
+		-- яркость: свет и частицы приглушены
+		check(WD.LIGHT_BRIGHTNESS <= 1 and WD.LIGHT_RANGE <= 14, "PointLight приглушён")
+		check(WD.PARTICLE_RATE <= 5, "частиц немного")
+		check(WD.RUNE_TRANSPARENCY >= 0.3, "руны полупрозрачные (Neon не слепит)")
+		-- подсказка арки: закрыт — окно «Миры» и сообщение; открыт — телепорт
+		local St = S.U.require("ServerScriptService/Server/StationService")
+		local ZS = S.U.require("ServerScriptService/Server/ZoneService")
+		local d, _, p = S.join(9301, "Portal")
+		local ui = S.Remotes.getEvent("OpenUi")
+		local note = S.Remotes.getEvent("Notify")
+		local moved = nil
+		local origMove = ZS.moveToZone
+		ZS.moveToZone = function(_, z)
+			moved = z
+		end
+		d.Zones.Forest = nil
+		local u0, n0 = #FIRED(ui), #FIRED(note)
+		St._onPrompt(p, "portal_Forest")
+		local fu = FIRED(ui)
+		check(
+			#fu == u0 + 1 and fu[#fu].Args[1] == "Worlds",
+			"закрытый мир: открывается окно «Миры»"
+		)
+		check(#FIRED(note) == n0 + 1, "закрытый мир: сообщение с требованием")
+		check(
+			moved == nil and d.CurrentZone ~= "Forest",
+			"закрытый мир: без телепорта"
+		)
+		d.Zones.Forest = true
+		St._onPrompt(p, "portal_Forest")
+		check(
+			moved == "Forest" and d.CurrentZone == "Forest",
+			"открытый мир: телепорт через арку"
+		)
+		moved = nil
+		St._onPrompt(p, "portal_Nowhere")
+		check(moved == nil, "неизвестный мир игнорируется")
+		ZS.moveToZone = origMove
+	end
+)
 
 -- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))

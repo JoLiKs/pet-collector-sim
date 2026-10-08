@@ -14,7 +14,8 @@ export type Recipe = {
 	Unlock: number?,
 }
 
--- Kind: "BoostLuck" | "BoostCoins" | "PetXp" | "Catalyst" | "Tool" | "Weapon" | "Ticket"
+-- Kind: "BoostLuck" | "BoostCoins" | "Heal" | "Regen" | "PetXp" | "Catalyst" | "Tool" | "Weapon" | "Ticket"
+-- v3.0: Heal — сразу Value доли максимального здоровья; Regen — регенерация xValue на Seconds секунд.
 RecipeData.Items = {
 	luck_potion = {
 		Id = "luck_potion",
@@ -31,6 +32,21 @@ RecipeData.Items = {
 		Kind = "BoostCoins",
 		Value = 2,
 		Seconds = 300,
+	},
+	health_potion = {
+		Id = "health_potion",
+		Name = "Health Potion",
+		Desc = "Instantly restores 70% of your health.",
+		Kind = "Heal",
+		Value = 0.7,
+	},
+	regen_potion = {
+		Id = "regen_potion",
+		Name = "Regeneration Potion",
+		Desc = "Health regeneration x3 for 5 seconds.",
+		Kind = "Regen",
+		Value = 3,
+		Seconds = 5,
 	},
 	xp_treat = {
 		Id = "xp_treat",
@@ -82,6 +98,8 @@ RecipeData.Items = {
 RecipeData.ItemOrder = {
 	"luck_potion",
 	"coin_elixir",
+	"health_potion",
+	"regen_potion",
 	"xp_treat",
 	"catalyst",
 	"pickaxe",
@@ -94,6 +112,8 @@ RecipeData.ItemOrder = {
 RecipeData.Recipes = {
 	{ Id = "r_luck", Item = "luck_potion", Count = 1, Cost = { Herb = 5, Crystal = 1 } },
 	{ Id = "r_coin", Item = "coin_elixir", Count = 1, Cost = { Herb = 3, Ore = 2 } },
+	{ Id = "r_heal", Item = "health_potion", Count = 2, Cost = { Herb = 3, Wood = 2 } },
+	{ Id = "r_regen", Item = "regen_potion", Count = 2, Cost = { Herb = 2, Stone = 3 } },
 	{ Id = "r_treat", Item = "xp_treat", Count = 3, Cost = { Wood = 4, Herb = 2 } },
 	{ Id = "r_catalyst", Item = "catalyst", Count = 1, Cost = { Ore = 5, Crystal = 2 } },
 	{ Id = "r_pick", Item = "pickaxe", Count = 1, Cost = { Wood = 10, Ore = 8 }, Coins = 500 },

@@ -4,7 +4,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
 
-local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
@@ -138,11 +137,12 @@ function Toasts.init(gui: ScreenGui)
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = container,
 	})
-	Layout.onChanged(function(lay)
+	-- v3.0: общий масштаб (Theme.uiScale); ширина делится на k — на телефоне тосты не сужаются
+	Widgets.autoScale(container, function(lay, k)
 		-- телефон горизонтально: уже, чтобы не задевать кнопки по краям
 		container.Size = if lay.Mode == "landscape"
-			then UDim2.new(0.5, 0, 0, 160)
-			else UDim2.new(1, -24, 0, 200)
+			then UDim2.new(0.5 / k, 0, 0, 160)
+			else UDim2.new(1 / k, -24 / k, 0, 200)
 	end)
 	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
 		if type(text) == "string" or type(text) == "table" then
