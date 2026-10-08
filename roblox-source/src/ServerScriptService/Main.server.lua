@@ -43,6 +43,8 @@ require(Server.EventService).init()
 require(Server.Monetization).init()
 require(Server.LeaderboardService).init()
 require(Server.LanguageService).init()
+require(Server.SettingsService).init() -- v3.1: звуковые настройки
+require(Server.SeaChestService).init() -- v3.1: морской сундук в хабе раз в 5 минут
 require(Server.TutorialService).init()
 require(Server.ToolService).init() -- v2.5: меч и магнит в StarterPack (до первого появления персонажа)
 require(Server.PlayerService).init()

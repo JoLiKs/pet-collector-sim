@@ -53,11 +53,15 @@ def assign(page, g, item, slot):
         g.click(S(5)) if cap(g, 5) == 'Пусто' else open_inv.click()
         g.wait(lambda: g.vis(INV), what='inventory')
     g.click(INV + ' [data-n="Cell_%s"]' % item); page.wait_for_timeout(400)
-    g.click(INV + ' [data-n="ToSlot%d"]' % slot)
+    # v3.1: из пустого слота N предмет кладётся сразу (одним тапом), кнопки «В слот N» уже не нужны
+    if g.vis(INV + ' [data-n="ToSlot%d"]' % slot):
+        g.click(INV + ' [data-n="ToSlot%d"]' % slot)
     g.wait(lambda: cnt(g, slot).startswith('×') and cap(g, slot) not in ('Пусто', ''), what='slot %d' % slot)
 
-def ui_layout(page, w, h, label, tap=36):
-    r = page.evaluate("""([w,h,tap])=>{
+def ui_layout(page, w, h, label, tap=36, left_tap=None):
+    # v3.1: левые кнопки на ПК намеренно в 2.5 раза ниже (мышь) — для них свой порог left_tap
+    left_tap = left_tap or tap
+    r = page.evaluate("""([w,h,tap,ltap])=>{
       const vis=e=>{const s=getComputedStyle(e); const r=e.getBoundingClientRect(); return s.visibility!=='hidden'&&s.display!=='none'&&r.width>0&&r.height>0&&+s.opacity>0.05;};
       const out=[], small=[], tiny=[];
       for(const n of ['Hotbar','Currency','Timer','ShopBtn','IndexBtn','MoreBtn','JumpBtn']){
@@ -65,13 +69,13 @@ def ui_layout(page, w, h, label, tap=36):
         if(r.left<-1||r.top<-1||r.right>w+1||r.bottom>h+1) out.push(n+':'+[r.left,r.top,r.right,r.bottom].map(Math.round));
       }
       for(const e of document.querySelectorAll('[data-n="Hotbar"] [data-n^="Slot"], [data-n$="Btn"]')){
-        if(!vis(e)) continue; const r=e.getBoundingClientRect(); if(Math.min(r.width,r.height)<tap-0.5) small.push((e.dataset.n||'?')+':'+Math.round(r.width)+'x'+Math.round(r.height));
+        if(!vis(e)) continue; const r=e.getBoundingClientRect(); const lim=e.closest('[data-n="LeftButtons"]')?ltap:tap; if(Math.min(r.width,r.height)<lim-0.5) small.push((e.dataset.n||'?')+':'+Math.round(r.width)+'x'+Math.round(r.height));
       }
       for(const e of document.querySelectorAll('[data-n="Hotbar"] *, [data-n="Currency"] *')){
         if(!vis(e)||!e.childNodes.length||![...e.childNodes].some(c=>c.nodeType===3&&c.textContent.trim())) continue;
         const fs=parseFloat(getComputedStyle(e).fontSize); if(fs<9) tiny.push((e.dataset.n||e.tagName)+':'+fs);
       }
-      return {out, small, tiny};}""", [w, h, tap])
+      return {out, small, tiny};}""", [w, h, tap, left_tap])
     check('%s: HUD в пределах экрана' % label, not r['out'], r['out'])
     check('%s: кнопки и слоты >= %d px' % (label, tap), not r['small'], r['small'])
     check('%s: текст хотбара/кошелька не мельче 9 px' % label, not r['tiny'], r['tiny'][:6])
@@ -167,7 +171,7 @@ with serve('/tmp/gw_ui') as url:
         h3 = page.evaluate(HP); dt = page.evaluate('R2W.ENV.rt.now') - t0
         check('реген x3: +~15%% за 5 с (%.2f → %.2f за %.1f с)' % (h2, h3, dt), h3 - h2 >= 0.12, (h2, h3, dt))
         check('реген закончился — слот снова «Реген»', cap(g, 4) == 'Реген', cap(g, 4))
-        ui_layout(page, 1280, 720, '1280×720 (мышь)', tap=24)
+        ui_layout(page, 1280, 720, '1280×720 (мышь)', tap=24, left_tap=14)
         check('ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0, page.evaluate('R2W.ENV.errorCount'))
         check('в консоли нет ошибок', not errs, errs[:3])
     for (w, h) in [(390, 844), (844, 390)]:

@@ -1229,6 +1229,34 @@ function WorldBuilder.getPortalPosition(zoneId: string): Vector3?
 	return stationPositions["portal_" .. zoneId]
 end
 
+-- v3.1: «занятые» места хаба (круги { Pos, R }) — сюда не ставим морской сундук: точка появления, фонтан,
+-- арки-порталы, станции и NPC, яйца, табло, вывеска с логотипом
+function WorldBuilder.getHubBlockers(): { { Pos: Vector3, R: number } }
+	local list = {
+		{ Pos = Vector3.new(0, 0, 26), R = 22 }, -- площадь спавна
+		{ Pos = Vector3.new(0, 0, 0), R = 17 }, -- фонтан
+		{ Pos = Vector3.new(0, 0, -50), R = 12 }, -- вывеска с логотипом
+	}
+	local function flat(v: Vector3): Vector3
+		return Vector3.new(v.X, 0, v.Z)
+	end
+	for id, pos in pairs(stationPositions) do
+		if flat(pos).Magnitude <= ZoneData.HUB_RADIUS then
+			local portal = string.sub(id, 1, 7) == "portal_"
+			table.insert(
+				list,
+				{ Pos = flat(pos), R = if portal then 16 elseif id == "board" then 16 else 12 }
+			)
+		end
+	end
+	for _, pos in pairs(eggPositions) do
+		if flat(pos).Magnitude <= ZoneData.HUB_RADIUS then
+			table.insert(list, { Pos = flat(pos), R = 14 })
+		end
+	end
+	return list
+end
+
 function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())
 	table.insert(eggCallbacks, cb)
 end

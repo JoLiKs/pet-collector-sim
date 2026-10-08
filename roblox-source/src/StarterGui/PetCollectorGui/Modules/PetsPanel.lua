@@ -45,7 +45,7 @@ local function nextOf(list: { string }, current: string): string
 end
 
 function PetsPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Pets")
+	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local filters = { Element = "All", Role = "All", Rarity = "All", Sort = "Power", FavOnly = false }
@@ -91,7 +91,7 @@ function PetsPanel.init(gui: ScreenGui)
 			Text = filterText(key, filters[key]),
 			Color = Theme.BgLight,
 			Size = UDim2.new(0.2, -6, 0, 26),
-			Position = UDim2.new((index - 1) * 0.2, 10 + (index - 1) * 0, 0, 34),
+			Position = UDim2.new((index - 1) * 0.2, 10 - (index - 1) * 4, 0, 34),
 			ZIndex = 23,
 			MaxTextSize = 15,
 			Parent = body,
@@ -119,7 +119,7 @@ function PetsPanel.init(gui: ScreenGui)
 		Text = L.k("pets.favorites"),
 		Color = Theme.BgLight,
 		Size = UDim2.new(0.2, -6, 0, 26),
-		Position = UDim2.new(0.8, 10, 0, 34),
+		Position = UDim2.new(0.8, -6, 0, 34),
 		ZIndex = 23,
 		MaxTextSize = 15,
 		Parent = body,
@@ -319,7 +319,8 @@ function PetsPanel.init(gui: ScreenGui)
 	}
 	local filterOrder = { "Element", "Role", "Rarity", "Sort" }
 	Layout.onChanged(function(li)
-		local narrow = li.Mode == "portrait"
+		-- v3.1: окно на ПК стало в 1.5 раза уже — используем компактную (вертикальную) раскладку
+		local narrow = li.Mode ~= "landscape"
 		if narrow then
 			info.Size = UDim2.new(1, -24, 0, 20)
 			modeBtn.AnchorPoint = Vector2.new(0, 0)
@@ -371,10 +372,10 @@ function PetsPanel.init(gui: ScreenGui)
 			for i, key in ipairs(filterOrder) do
 				local b = filterBtns[key]
 				b.Size = UDim2.new(0.2, -6, 0, 26)
-				b.Position = UDim2.new((i - 1) * 0.2, 10, 0, 34)
+				b.Position = UDim2.new((i - 1) * 0.2, 10 - (i - 1) * 4, 0, 34)
 			end
 			favBtn.Size = UDim2.new(0.2, -6, 0, 26)
-			favBtn.Position = UDim2.new(0.8, 10, 0, 34)
+			favBtn.Position = UDim2.new(0.8, -6, 0, 34)
 			scroll.Position = UDim2.fromOffset(10, 66)
 			scroll.Size = UDim2.new(1, -20, 1, -66 - 134)
 			if grid then

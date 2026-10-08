@@ -73,7 +73,12 @@ local function makeTemplate(): Data
 		OfflinePending = 0,
 		AutoCollect = true,
 		-- Lang: "auto" | "en" | "ru" (см. LanguageService); Hotbar (v2.9): быстрые слоты 3..5 (HotbarData)
-		Settings = { Lang = "auto", Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" } },
+		-- Audio (v3.1): музыка вкл/выкл, громкость музыки 0..1, звуки вкл/выкл (AudioData)
+		Settings = {
+			Lang = "auto",
+			Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" },
+			Audio = { Music = true, Sfx = true, MusicVol = 0.6 },
+		},
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено

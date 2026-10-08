@@ -305,7 +305,7 @@ end
 
 -- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
 -- title — английское имя панели (Name = title .. "Panel"); заголовок берётся из ключа "panel.<title без пробелов>".
-function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
+function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts: { MinH: number? }?)
 	local root = New("Frame", {
 		Name = title .. "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -318,32 +318,23 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 	})
 	Widgets.corner(root, 16)
 	Widgets.stroke(root, Theme.BgLight, 3)
-	New(
-		"UISizeConstraint",
-		{ MaxSize = Vector2.new(760, 540), MinSize = Vector2.new(300, 240), Parent = root }
-	)
+	New("UISizeConstraint", { MinSize = Vector2.new(300, 240), Parent = root })
 	local scale = New("UIScale", { Name = "UiScale", Parent = root })
-	-- v3.0: содержимое панели в Theme.uiScale раз меньше. На ПК панель занимает меньше места,
-	-- на телефоне размеры делятся на k, чтобы панель по-прежнему занимала тот же прямоугольник.
+	-- v3.0: содержимое панели в Theme.uiScale раз меньше (k).
+	-- v3.1: и само окно в 1.5 раза меньше (Theme.panelDesign): размер задаётся явно в пикселях «до масштаба»
+	-- (без UISizeConstraint.MaxSize — итоговый размер не зависит от порядка применения ограничения и UIScale).
 	local k = Theme.UI_SCALE
-	-- телефон (v2.4): панель почти во всю ширину; вертикально — чуть выше центра, снизу место для тостов
+	-- телефон (v2.4): вертикально — чуть выше центра, снизу место для тостов
 	Layout.onChanged(function(lay)
 		k = Theme.uiScale(lay)
-		local function fit(xs: number, xo: number, ys: number, yo: number): UDim2
-			return UDim2.new(xs / k, xo / k, ys / k, yo / k)
-		end
+		local w, h = Theme.panelDesign(lay, k, opts and opts.MinH)
+		root.Size = UDim2.fromOffset(w, h)
 		if lay.Mode == "portrait" then
-			root.Size = fit(1, -16, 0.68, 0)
 			root.Position = UDim2.fromScale(0.5, 0.46)
 		elseif lay.Mode == "landscape" and lay.Touch then
 			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
-			root.Size = fit(1, -140, 1, -24)
 			root.Position = UDim2.new(0.5, -55, 0.5, 0)
-		elseif lay.Mode == "landscape" then
-			root.Size = fit(0.84, 0, 1, -24)
-			root.Position = UDim2.fromScale(0.5, 0.5)
 		else
-			root.Size = UDim2.fromScale(0.62, 0.72)
 			root.Position = UDim2.fromScale(0.5, 0.5)
 		end
 		scale.Scale = k

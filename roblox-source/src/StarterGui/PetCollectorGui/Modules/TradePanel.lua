@@ -22,7 +22,7 @@ local TradePanel = {}
 local localPlayer = Players.LocalPlayer
 
 function TradePanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Trade")
+	local panel = Widgets.panel(gui, "Trade", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	-- ---------- режим «без обмена» ----------
@@ -250,9 +250,10 @@ function TradePanel.init(gui: ScreenGui)
 		Name = "Ready",
 		Text = L.k("trade.ui.ready"),
 		Color = Theme.Blue,
-		Size = UDim2.new(0.18, 0, 0, 40),
+		Size = UDim2.new(0.17, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -330, 1, -8),
+		-- v3.1: окно стало уже — кнопки привязаны долями ширины, чтобы не наезжать на ряд питомцев
+		Position = UDim2.new(0.6, 0, 1, -8),
 		ZIndex = 23,
 		MaxTextSize = 18,
 		Parent = live,
@@ -263,7 +264,7 @@ function TradePanel.init(gui: ScreenGui)
 		Color = Theme.Green,
 		Size = UDim2.new(0.22, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -110, 1, -8),
+		Position = UDim2.new(0.84, -4, 1, -8),
 		ZIndex = 23,
 		MaxTextSize = 18,
 		Parent = live,
@@ -272,7 +273,7 @@ function TradePanel.init(gui: ScreenGui)
 		Name = "Cancel",
 		Text = L.k("trade.ui.cancel"),
 		Color = Theme.Red,
-		Size = UDim2.new(0.14, 0, 0, 40),
+		Size = UDim2.new(0.15, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -10, 1, -8),
 		ZIndex = 23,

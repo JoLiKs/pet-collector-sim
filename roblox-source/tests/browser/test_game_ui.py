@@ -232,7 +232,10 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     if g.vis('[data-n="TradePanel"]'): g.click('[data-n="TradePanel"] [data-n="Close"]')
 
     # --- события
-    g.cmd('event:GoldenRain'); g.p.wait_for_timeout(1500)
+    g.cmd('event:GoldenRain')
+    # состояние событий приходит раз в секунду виртуального времени — ждём плашку, а не фиксированные 1.5 с
+    try: g.wait(lambda: g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1, timeout=20, what='event chip')
+    except AssertionError: pass
     check('событие — компактная плашка в таймере справа снизу', g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1)
     check('во время события «через N:NN» скрыто', not g.vis('[data-n="Timer"] [data-n="NextEvent"]'))
     # станции хаба: разделы из бывшего меню открываются и у NPC/объектов (ProximityPrompt)

@@ -140,6 +140,19 @@ function HotbarData.slotOf(hb: any, id: string): number?
 	return nil
 end
 
+-- v3.1: «ключ» карточки предмета в инвентаре. Карточка (с кнопками «В слот N» / «Убрать из слота N»)
+-- пересоздаётся ТОЛЬКО когда меняется ключ: другой предмет, режим «выбор для пустого слота N» или слот,
+-- в котором лежит этот предмет. Изменения количеств (ресурсы капают каждые доли секунды, пока питомцы
+-- фармят) карточку не пересоздают — иначе кнопка под пальцем уничтожалась между нажатием и отпусканием,
+-- и Roblox не засчитывал Activated (баг «не назначается в пустой слот»).
+function HotbarData.cardKey(id: string?, pendingSlot: number?, hb: any): string
+	if not id then
+		return "none|" .. tostring(pendingSlot)
+	end
+	local inSlot = if HotbarData.canAssign(id) then HotbarData.slotOf(hb, id) else nil
+	return id .. "|" .. tostring(pendingSlot) .. "|" .. tostring(inSlot)
+end
+
 -- Активные бусты из серверного состояния data.Boosts (unix-время окончания):
 -- { Luck = { Mult, Left, Ends } | nil, Coins = { Mult, Left, Ends } | nil }.
 -- Удача: действует старший буст (x5 раньше x2, x2 ждёт в очереди) — как Economy.getLuckBoost.

@@ -22,6 +22,7 @@ Remotes.Events = {
 	"Notify", -- S->C: всплывающее сообщение (text, kind)
 	"HatchResult", -- S->C: результат открытия яиц
 	"OpenEgg", -- S->C: открыть окно яйца (eggId) — по ProximityPrompt
+	"SeaChest", -- S->C (v3.1): морской сундук — ("Spawn", pos) тихий звук | ("Open", pos) звук открытия
 	"Click", -- C->S: сбор монет
 }
 Remotes.Functions = {

@@ -137,7 +137,9 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 		local c = (20 + 6 * (n - 1)) / n
 		for i, name in ipairs(names) do
 			local b = buttons[name]
-			if li.Mode == "portrait" and (10 + n * (w + 6)) > li.W - 40 then
+			-- v3.1: окна стали меньше — делим ширину и на ПК, если вкладки не влезают в окно
+			local pw = Theme.panelDesign(li, Theme.uiScale(li))
+			if (10 + n * (w + 6)) > math.min(pw, li.W - 40) then
 				b.Size = UDim2.new(1 / n, -c, 0, 30)
 				b.Position = UDim2.new((i - 1) / n, 10 + (i - 1) * (6 - c), 0, y or 4)
 			else

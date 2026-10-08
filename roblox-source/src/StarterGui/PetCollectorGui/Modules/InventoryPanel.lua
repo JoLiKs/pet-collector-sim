@@ -7,6 +7,10 @@
 	v2.9: у предметов «одним нажатием» (зелье удачи, эликсир монет, билеты) в карточке кнопки «В слот 3 / 4 / 5»
 	(у уже назначенного — «Убрать из слота N»), действие SetHotbar; у угощения и катализатора — пояснение,
 	что они применяются в окне «Питомцы». Пустой быстрый слот открывает окно с подсказкой «Выберите предмет для слота N».
+	v3.1 (баг «не назначается в пустой слот»): карточка больше не пересоздаётся при каждом изменении количеств —
+	только при смене ключа HotbarData.cardKey (предмет / режим выбора / слот предмета); счётчик «У вас» обновляется
+	на месте. В режиме «для слота N» тап по подходящему предмету сразу кладёт его в слот N. Подтверждённое
+	назначение сразу применяется в ClientState (patchCore), слот хотбара перерисовывается без ожидания снимка.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -72,7 +76,7 @@ function InventoryPanel.lineText(line): string
 end
 
 function InventoryPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Inventory")
+	local panel = Widgets.panel(gui, "Inventory", nil, { MinH = 470 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local grid = Widgets.scroller(body, {
@@ -118,12 +122,26 @@ function InventoryPanel.init(gui: ScreenGui)
 	local cells = {}
 	local pendingSlot: number? = nil -- v2.9: окно открыто из пустого быстрого слота
 	local refreshAll: () -> () = function() end
+	local cardKey: string? = nil -- v3.1: ключ отрисованной карточки (HotbarData.cardKey)
+	local busy = false -- v3.1: одно назначение за раз (двойной тап не шлёт два запроса)
 
-	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом, состояние придёт с сервера
+	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом.
+	-- v3.1: после «ok» новое назначение сразу применяется локально (тем же HotbarData.assign, что и на сервере).
 	local function assign(slot: number, id: string)
+		if busy then
+			return
+		end
+		busy = true
 		local item = RecipeData.Items[id]
-		if Actions.call("SetHotbar", slot, id) then
+		local ok = Actions.call("SetHotbar", slot, id)
+		busy = false
+		if ok then
 			pendingSlot = nil
+			local core = ClientState.Core
+			local hb = HotbarData.assign(core and core.Hotbar, slot, id)
+			if hb then
+				ClientState.patchCore("Hotbar", hb)
+			end
 			if id == "" then
 				Toasts.show(L.m("hotbar.cleared", { n = slot }), "info")
 			else
@@ -135,9 +153,19 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 	end
 
-	local function showInfo(id: string?)
-		Widgets.clear(info)
+	local function showInfo(id: string?, force: boolean?)
 		local core = ClientState.Core
+		local key = HotbarData.cardKey(id, pendingSlot, core and core.Hotbar)
+		if not force and key == cardKey then
+			-- та же карточка: только счётчик «У вас», кнопки остаются теми же экземплярами
+			local have = info:FindFirstChild("Have")
+			if id and have and have:IsA("TextLabel") then
+				have.Text = L.t("inv.have", { n = Util.formatNumber(InventoryData.count(core, id)) })
+			end
+			return
+		end
+		cardKey = key
+		Widgets.clear(info, { "UICorner" })
 		if not id then
 			local hint = UiKit.text(
 				info,
@@ -279,6 +307,14 @@ function InventoryPanel.init(gui: ScreenGui)
 		selected = id
 		paintSelection()
 		showInfo(id)
+		-- v3.1: окно открыто из пустого слота N — подходящий предмет сразу кладётся в этот слот
+		local slot = pendingSlot
+		if slot and HotbarData.canAssign(id) then
+			local core = ClientState.Core
+			if HotbarData.slotOf(core and core.Hotbar, id) ~= slot then
+				assign(slot, id)
+			end
+		end
 	end
 
 	local function build()
@@ -384,6 +420,7 @@ function InventoryPanel.init(gui: ScreenGui)
 	L.onChanged(function()
 		build()
 		sig = ""
+		cardKey = nil
 		if panel.IsOpen() then
 			panel.Refresh()
 		end

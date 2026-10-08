@@ -46,6 +46,20 @@ Hud.LEFT = {
 		Color = Color3.fromRGB(60, 150, 255),
 	},
 }
+-- v3.1: левые кнопки компактнее в 2.5 раза. Все одной высоты LEFT_H «дизайнерских» px; ширина зависит от
+-- режима (на ПК — под подпись мелким шрифтом, на телефоне — короче, высота упирается в Theme.MIN_TAP).
+Hud.LEFT_H = 40
+Hud.LEFT_W = { wide = 190, wideMore = 120, touch = 112, touchMore = 84 }
+Hud.LEFT_SHRINK = 2.5
+-- side — масштаб боковых кнопок v3.0 (кнопка «Магазин» была 60 px высотой × side).
+-- Возвращает масштаб левой колонки и ширины кнопок (обычной и «Ещё») в «дизайнерских» px.
+function Hud.leftLayout(lay: any, side: number): (number, number, number)
+	local k = side * 60 / Hud.LEFT_SHRINK / Hud.LEFT_H
+	if lay.Mode == "wide" then
+		return k, Hud.LEFT_W.wide, Hud.LEFT_W.wideMore
+	end
+	return math.max(k, Theme.MIN_TAP / Hud.LEFT_H), Hud.LEFT_W.touch, Hud.LEFT_W.touchMore
+end
 Hud.RIGHT = {
 	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
 	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
@@ -130,40 +144,49 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Name = "LeftButtons",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 12, 0.45, 0),
-		Size = UDim2.fromOffset(176, 244),
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 4 * Hud.LEFT_H + 3 * 6),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
 	})
 	local leftScale = Widgets.New("UIScale", { Parent = left })
 	Widgets.New("UIListLayout", {
-		Padding = UDim.new(0, 10),
+		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 		Parent = left,
 	})
 	local buttons = {}
+	-- v3.1: все четыре кнопки одной высоты (Hud.LEFT_H): масштаб считается так, чтобы на ПК они были
+	-- в 2.5 раза ниже, чем в v3.0, а на телефоне — не ниже Theme.MIN_TAP; подпись занимает почти всю высоту
+	local function compact(b: TextButton)
+		local cap = b:FindFirstChild("Caption") :: GuiObject?
+		if cap then
+			cap.Size = UDim2.new(cap.Size.X.Scale, cap.Size.X.Offset, 0.8, 0)
+		end
+	end
 	for i, item in ipairs(Hud.LEFT) do
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
 			Icon = item.Icon,
 			Text = L.k(item.Text),
-			Size = UDim2.fromOffset(176, 60),
-			MaxTextSize = 28,
+			Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
+			MaxTextSize = 30,
 			LayoutOrder = i,
 			OnClick = function()
 				openPanel(item.Id)
 			end,
 			Parent = left,
 		})
+		compact(buttons[item.Id])
 	end
 	local autoBtn = Widgets.hudButton({
 		Name = "AutoToggle",
 		Color = Theme.Green,
 		Text = L.k("hud.auto_on"),
-		Size = UDim2.fromOffset(176, 34),
-		MaxTextSize = 18,
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
+		MaxTextSize = 30,
 		Radius = 17,
 		LayoutOrder = 3,
 		OnClick = function()
@@ -175,13 +198,14 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = left,
 	})
 	autoBtn.Visible = false
+	compact(autoBtn)
 	local moreBtn = Widgets.hudButton({
 		Name = "MoreBtn",
 		Color = Color3.fromRGB(150, 90, 240),
 		Icon = "☰",
 		Text = L.k("hud.more"),
-		Size = UDim2.fromOffset(120, 48), -- v3.0: 48 — на телефоне не меньше Theme.MIN_TAP
-		MaxTextSize = 22,
+		Size = UDim2.fromOffset(Hud.LEFT_W.wideMore, Hud.LEFT_H),
+		MaxTextSize = 30,
 		LayoutOrder = 4,
 		OnClick = function()
 			openPanel("More")
@@ -189,6 +213,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = left,
 	})
 	local moreDot = Widgets.dot(moreBtn)
+	compact(moreBtn)
 
 	-- ---------- справа: Яйца / Питомцы / Задания / Инвентарь ----------
 	local right = Widgets.New("Frame", {
@@ -319,12 +344,17 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		local s = Hotbar.scaleFor(lay)
 		-- боковые кнопки компактнее хотбара (как в образце): на телефоне не закрывают персонажа
 		local side = s * (if lay.Mode == "wide" then 0.92 else 0.8)
-		-- v3.0: на телефоне самая низкая кнопка слева («Ещё», 48) — не меньше Theme.MIN_TAP пикселей;
-		-- на ПК (мышь) — честный масштаб 1/1.5
-		if lay.Mode ~= "wide" then
-			side = math.max(side, Theme.MIN_TAP / 48)
+		-- v3.0: на телефоне кнопки — не меньше Theme.MIN_TAP пикселей; на ПК (мышь) — честный масштаб 1/1.5
+		local rightSide = if lay.Mode ~= "wide" then math.max(side, Theme.MIN_TAP / 48) else side
+		-- v3.1: левые кнопки (Магазин/Индекс/Авто/Ещё) в 2.5 раза ниже, чем в v3.0
+		local leftSide, w, wm = Hud.leftLayout(lay, side)
+		for _, item in ipairs(Hud.LEFT) do
+			buttons[item.Id].Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		end
-		leftScale.Scale, rightScale.Scale, walletScale.Scale = side, side, s
+		autoBtn.Size = UDim2.fromOffset(w, Hud.LEFT_H)
+		moreBtn.Size = UDim2.fromOffset(wm, Hud.LEFT_H)
+		left.Size = UDim2.fromOffset(w, 4 * Hud.LEFT_H + 3 * 6)
+		leftScale.Scale, rightScale.Scale, walletScale.Scale = leftSide, rightSide, s
 		if lay.Mode == "portrait" then
 			left.Position = UDim2.new(0, 10, 0.45, 0)
 			right.Position = UDim2.new(1, -10, 0.42, 0)

@@ -33,6 +33,7 @@ function WB.getEggPosition(id) return Vector3.new(0, 0, 0) end
 function WB.getZoneSpawn() return CFrame.new(0, 5, 0) end
 function WB.getStationPosition() return Vector3.new(10, 0, 10) end
 function WB.getPortalPosition() return Vector3.new(0, 0, 80) end
+function WB.getHubBlockers() return { { Pos = Vector3.new(0, 0, 26), R = 22 }, { Pos = Vector3.new(0, 0, 0), R = 17 } } end
 function WB.onEggPrompt() end
 function WB.setBoard() end
 function WB.clearPlayer() end
@@ -2028,8 +2029,8 @@ test(
 		-- тайминг
 		local interval, duration, first = Lg.timing(C, 1)
 		check(
-			interval == 60 and duration >= 30 and duration <= 40,
-			"60 с цикл, 30–40 с суперсилы"
+			interval == 120 and duration >= 30 and duration <= 40,
+			"120 с цикл (v3.1: в 2 раза реже), 30–40 с суперсилы"
 		)
 		check(
 			duration <= interval - C.GAP,
@@ -4050,6 +4051,107 @@ test(
 	end
 )
 
+-- v3.1: баг «предмет не назначается в пустой слот» (реальная игра)
+test(
+	"v3.1 Слоты: карточка инвентаря не пересоздаётся от счётчиков (HotbarData.cardKey)",
+	function()
+		local S = boot("A31k")
+		local H = S.U.require("ReplicatedStorage/Shared/HotbarData")
+		local hb = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" }
+		local k1 = H.cardKey("health_potion", nil, hb)
+		-- количества в ключ не входят: тот же предмет, тот же слот — та же карточка (кнопки живут)
+		check(
+			H.cardKey("health_potion", nil, H.normalize(hb)) == k1,
+			"счётчики/новый снимок — ключ тот же"
+		)
+		check(
+			H.cardKey("regen_potion", nil, hb) ~= k1,
+			"другой предмет — новая карточка"
+		)
+		check(
+			H.cardKey("health_potion", 5, hb) ~= k1,
+			"режим «для слота 5» — новая карточка"
+		)
+		local hb2 = H.assign(hb, 5, "health_potion")
+		check(
+			H.cardKey("health_potion", nil, hb2) ~= k1,
+			"предмет лёг в слот — карточка с «Убрать из слота»"
+		)
+		check(
+			H.cardKey("health_potion", nil, H.assign(hb2, 4, "health_potion"))
+				~= H.cardKey("health_potion", nil, hb2),
+			"перенос 5 -> 4 меняет карточку"
+		)
+		check(
+			H.cardKey("Wood", nil, hb) == H.cardKey("Wood", nil, hb2),
+			"ресурс: назначения слотов карточку не трогают"
+		)
+		check(
+			H.cardKey(nil, 5, hb) ~= H.cardKey(nil, nil, hb),
+			"подсказка «для слота N» отличается"
+		)
+	end
+)
+
+test(
+	"v3.1 Суперсила в 2 раза реже: INTERVAL 120 с, длительность влезает в цикл",
+	function()
+		local S = boot("A31p")
+		local C = S.U.require("ReplicatedStorage/Shared/Config").SUPERPOWER
+		check(C.INTERVAL == 120, "INTERVAL = 120 (было 60)")
+		check(C.DURATION <= C.INTERVAL - C.GAP, "DURATION <= INTERVAL - GAP")
+	end
+)
+
+test(
+	"v3.1 Слоты: назначение в ПУСТОЙ слот доходит до клиента и переживает перезаход",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A31s")
+		S.U.require("ServerScriptService/Server/CraftService").init()
+		local data, _, p = S.join(3101, "Empty5")
+		check(data.Settings.Hotbar.S5 == "", "слот 5 пуст")
+		ADVANCE(2)
+		local r = S.invoke(p, "SetHotbar", 5, "health_potion")
+		check(
+			r.ok == true and r.msg == nil,
+			"SetHotbar(5, зелье здоровья) — ok без ошибки"
+		)
+		check(data.Settings.Hotbar.S5 == "health_potion", "сервер: S5 = зелье здоровья")
+		-- клиент получает новое назначение в снимке (таблица со строковыми ключами S3..S5 — без «дыр»)
+		local ev = S.Remotes.getEvent("State")
+		S.State.push(p, false)
+		local f = FIRED(ev)
+		local core = f[#f] and f[#f].Args[1].Core
+		check(core ~= nil and core.Hotbar and core.Hotbar.S5 == "health_potion", "снимок: Hotbar.S5")
+		for k in pairs(core.Hotbar) do
+			check(
+				type(k) == "string",
+				"ключи Hotbar — строки (remote без смешанных таблиц): "
+					.. tostring(k)
+			)
+		end
+		-- пустой слот 3 -> снова назначение (из «+»)
+		ADVANCE(2)
+		check(S.invoke(p, "SetHotbar", 3, "").ok and data.Settings.Hotbar.S3 == "", "слот 3 очищен")
+		ADVANCE(2)
+		check(
+			S.invoke(p, "SetHotbar", 3, "ticket_MeadowEgg").ok
+				and data.Settings.Hotbar.S3 == "ticket_MeadowEgg",
+			"билет в пустой слот 3"
+		)
+		-- перезаход: назначения сохранились в DataStore
+		S.Data.release(p)
+		ADVANCE(2)
+		local S2 = boot("A31s2")
+		local d2 = S2.join(3101, "Empty5")
+		check(
+			d2.Settings.Hotbar.S5 == "health_potion" and d2.Settings.Hotbar.S3 == "ticket_MeadowEgg",
+			"после перезахода: S3 билет, S5 зелье здоровья"
+		)
+	end
+)
+
 -- v2.9: быстрые слоты хотбара 3..5 (HotbarData, SetHotbar, UseItem, миграция)
 test(
 	"v2.9 Хотбар: какие предметы можно положить в слот, назначение и перенос",
@@ -4787,6 +4889,428 @@ test(
 		St._onPrompt(p, "portal_Nowhere")
 		check(moved == nil, "неизвестный мир игнорируется")
 		ZS.moveToZone = origMove
+	end
+)
+
+-- v3.1: музыка и звуки (AudioData, SetAudio, миграция, ID в Config)
+test(
+	"v3.1 Звук: AudioData — настройки, ID звуков, выбор трека и кроссфейд",
+	function()
+		local S = boot("A31a")
+		local A = S.U.require("ReplicatedStorage/Shared/AudioData")
+		local d = A.normalize(nil)
+		check(
+			d.Music == true and d.Sfx == true and d.MusicVol == 0.6,
+			"по умолчанию: музыка и звуки вкл, громкость 0.6"
+		)
+		local junk = A.normalize({ Music = "yes", Sfx = 0, MusicVol = 0 / 0, Extra = 1 })
+		check(
+			junk.Music == true and junk.Sfx == true and junk.MusicVol == 0.6 and junk.Extra == nil,
+			"мусор отсекается"
+		)
+		check(
+			A.normalize({ MusicVol = 7 }).MusicVol == 1 and A.normalize({ MusicVol = -1 }).MusicVol == 0,
+			"громкость 0..1"
+		)
+		check(A.normalize({ MusicVol = 0.33 }).MusicVol == 0.3, "шаг громкости 0.1")
+		local a, err = A.set(d, "Music", false)
+		check(
+			a and a.Music == false and err == nil and d.Music == true,
+			"set: новая таблица, старая не меняется"
+		)
+		check(A.set(d, "Music", 1) == nil, "Music — только boolean")
+		check(
+			A.set(d, "MusicVol", 2) == nil and A.set(d, "MusicVol", 0 / 0) == nil,
+			"громкость вне 0..1 и NaN — отказ"
+		)
+		check(
+			A.set(d, "Lang", "en") == nil and A.set(d, nil, true) == nil,
+			"чужие ключи — отказ"
+		)
+		check(A.set(d, "MusicVol", 0.7).MusicVol == 0.7, "громкость 0.7")
+		-- ID: 0/дробь/строка — звука нет
+		check(
+			A.soundId(0) == nil and A.soundId(1.5) == nil and A.soundId("123") == nil and A.soundId(-5) == nil,
+			"нет ID — nil"
+		)
+		check(
+			A.soundId(123456789012) == "rbxassetid://123456789012",
+			"большой ID без экспоненты"
+		)
+		-- выбор трека
+		check(A.musicTarget(false, true, true) == "Calm", "вне Суперсилы — спокойная")
+		check(
+			A.musicTarget(true, true, true) == "Epic",
+			"во время Суперсилы — эпичная"
+		)
+		check(
+			A.musicTarget(true, true, false) == "Calm",
+			"эпичной нет — остаётся спокойная"
+		)
+		check(
+			A.musicTarget(false, false, true) == "Epic",
+			"есть только эпичная — играет она"
+		)
+		check(A.musicTarget(true, false, false) == nil, "нет треков — тишина")
+		-- кроссфейд: за FADE секунд доля проходит 0 -> 1, громкость по кривой равной мощности
+		local Config = S.Config
+		local mix, t = 0, 0
+		while mix < 1 and t < 100 do
+			mix = A.fadeStep(mix, 1, 0.1, Config.MUSIC.FADE)
+			t += 0.1
+		end
+		check(
+			math.abs(t - Config.MUSIC.FADE) < 0.15,
+			"кроссфейд длится FADE секунд: " .. t
+		)
+		check(
+			A.fadeStep(0.5, 0, 10, 2) == 0 and A.fadeStep(0.5, 1, 10, 2) == 1,
+			"доля не выходит за 0..1"
+		)
+		local g0, gm, g1 = A.gain(0, 1, 1), A.gain(0.5, 1, 1), A.gain(1, 1, 1)
+		check(g0 == 0 and math.abs(g1 - 1) < 1e-9, "громкость 0 -> 1")
+		check(
+			math.abs(gm * gm * 2 - 1) < 1e-6,
+			"середина кроссфейда: сумма мощностей двух треков = 1 (нет провала)"
+		)
+		check(A.gain(1, 0.4, 0.5) == 0.2, "база × ползунок")
+		-- в Config есть все ключи звуков (0 = ещё не загружено) и параметры
+		for _, k in ipairs({ "MUSIC_CALM", "MUSIC_EPIC", "CHEST_SPAWN", "CHEST_OPEN" }) do
+			local v = Config.SOUNDS[k]
+			check(type(v) == "number" and v >= 0 and v == math.floor(v), "Config.SOUNDS." .. k)
+		end
+		check(
+			Config.MUSIC.FADE > 0 and Config.MUSIC.CALM_VOLUME < Config.MUSIC.EPIC_VOLUME,
+			"спокойная тише эпичной"
+		)
+		check(
+			Config.MUSIC.CHEST_SPAWN_VOLUME <= Config.MUSIC.SFX_VOLUME,
+			"сигнал сундука тихий"
+		)
+	end
+)
+
+test(
+	"v3.1 Звук: SetAudio сохраняет настройки, уходит в Core.Audio, переживает перезаход",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A31b")
+		S.U.require("ServerScriptService/Server/SettingsService").init()
+		local data, _, p = S.join(3111, "Sound")
+		check(
+			data.Settings.Audio.Music == true and data.Settings.Audio.MusicVol == 0.6,
+			"новый профиль: музыка вкл"
+		)
+		ADVANCE(1)
+		check(S.invoke(p, "SetAudio", "Music", false).ok, "выключить музыку")
+		check(S.invoke(p, "SetAudio", "MusicVol", 0.3).ok, "громкость 0.3")
+		check(S.invoke(p, "SetAudio", "Sfx", false).ok, "выключить звуки")
+		local bad = S.invoke(p, "SetAudio", "MusicVol", "loud")
+		check(
+			bad.ok == false and data.Settings.Audio.MusicVol == 0.3,
+			"мусор отклонён, громкость прежняя"
+		)
+		check(S.invoke(p, "SetAudio", "Coins", 1e9).ok == false, "чужой ключ отклонён")
+		local ev = S.Remotes.getEvent("State")
+		S.State.push(p, false)
+		local f = FIRED(ev)
+		local core = f[#f] and f[#f].Args[1].Core
+		check(
+			core
+				and core.Audio
+				and core.Audio.Music == false
+				and core.Audio.Sfx == false
+				and core.Audio.MusicVol == 0.3,
+			"снимок: Core.Audio"
+		)
+		S.Data.release(p)
+		ADVANCE(2)
+		local S2 = boot("A31b2")
+		local d2 = S2.join(3111, "Sound")
+		check(
+			d2.Settings.Audio.Music == false and d2.Settings.Audio.MusicVol == 0.3,
+			"после перезахода настройки те же"
+		)
+		-- миграция: старый профиль без Audio / с мусором
+		local M = S.Migrations
+		local old = { Settings = { Lang = "auto", Hotbar = { S3 = "", S4 = "", S5 = "" } } }
+		M.run(old)
+		check(
+			old.Settings.Audio and old.Settings.Audio.Music == true and old.Settings.Audio.MusicVol == 0.6,
+			"миграция: Audio по умолчанию"
+		)
+		local junk = {
+			Settings = {
+				Lang = "auto",
+				Hotbar = { S3 = "", S4 = "", S5 = "" },
+				Audio = { Music = 5, MusicVol = 9 },
+			},
+		}
+		M.run(junk)
+		check(
+			junk.Settings.Audio.Music == true and junk.Settings.Audio.MusicVol == 1,
+			"миграция: мусор исправлен"
+		)
+	end
+)
+
+-- v3.1: морской сундук (SeaChestLogic, SeaChestService)
+test(
+	"v3.1 Морской сундук: место в хабе вне спавна/порталов/станций и состав награды",
+	function()
+		local S = boot("A31c")
+		local SL = S.U.require("ServerScriptService/Server/SeaChestLogic")
+		local cfg = S.Config.SEA_CHEST
+		check(cfg.INTERVAL == 300, "раз в 5 минут")
+		local blockers = {
+			{ Pos = Vector3.new(0, 0, 26), R = 22 },
+			{ Pos = Vector3.new(0, 0, 64), R = 16 },
+			{ Pos = Vector3.new(-62, 0, 8), R = 12 },
+		}
+		local rng = Random.new(5)
+		local okSpots = 0
+		for _ = 1, 200 do
+			local pos = SL.pickSpot(rng, blockers)
+			local good = pos ~= nil
+			if pos then
+				local r = Vector3.new(pos.X, 0, pos.Z).Magnitude
+				good = r >= cfg.MIN_RADIUS - 1e-6 and r <= cfg.MAX_RADIUS + 1e-6
+				for _, bl in ipairs(blockers) do
+					good = good and (Vector3.new(pos.X, 0, pos.Z) - bl.Pos).Magnitude >= bl.R + cfg.CLEARANCE
+				end
+			end
+			okSpots += if good then 1 else 0
+		end
+		check(
+			okSpots == 200,
+			"200 мест: в кольце хаба и не у спавна/портала/станции ("
+				.. okSpots
+				.. ")"
+		)
+		check(
+			SL.pickSpot(rng, blockers, function()
+				return false
+			end) == nil,
+			"мир везде занят — места нет (сундук не ставится внутрь построек)"
+		)
+		local asked = 0
+		local p2 = SL.pickSpot(rng, blockers, function(pos)
+			asked += 1
+			return pos.X > 0
+		end)
+		check(
+			p2 ~= nil and p2.X > 0 and asked >= 1,
+			"проверка мира (isFree) учитывается"
+		)
+		local function sum(loot)
+			local t = { Coins = 0, Gems = 0, Items = {}, Res = {}, Bonus = 0, Unknown = false }
+			for _, r in ipairs(loot) do
+				t.Coins += r.Coins or 0
+				t.Gems += r.Gems or 0
+				if r.Item then
+					t.Items[r.Item] = (t.Items[r.Item] or 0) + (r.ItemCount or 1)
+					t.Unknown = t.Unknown or S.RecipeData.Items[r.Item] == nil
+				end
+				for k, v in pairs(r.Res or {}) do
+					t.Res[k] = (t.Res[k] or 0) + v
+				end
+				if r.Bonus then
+					t.Bonus += 1
+				end
+			end
+			return t
+		end
+		local potions = {}
+		for _, id in ipairs(cfg.POTIONS) do
+			potions[id] = true
+		end
+		local lr = Random.new(11)
+		local bonus, n = 0, 2000
+		local bad = {}
+		local function expect(cond, msg)
+			if not cond then
+				bad[msg] = true
+			end
+		end
+		for _ = 1, n do
+			local t = sum(SL.loot(lr, { PerClick = 10, Zones = { Meadow = true } }))
+			local bonusGems = if t.Bonus > 0 then 15 else 0
+			expect(t.Coins >= 800 and t.Coins <= 1400, "монеты = сила × 80..140")
+			expect(t.Gems >= cfg.GEMS[1] and t.Gems <= cfg.GEMS[2] + bonusGems, "гемы 3..6")
+			expect(not t.Unknown, "только существующие предметы")
+			local hasPotion, hasTicket = false, false
+			for id in pairs(t.Items) do
+				hasPotion = hasPotion or potions[id] == true
+				hasTicket = hasTicket or string.sub(id, 1, 7) == "ticket_"
+			end
+			expect(hasPotion and hasTicket, "зелье и билет")
+			expect(
+				t.Items.ticket_MeadowEgg == 1,
+				"новичку — билет на луговое яйцо"
+			)
+			local kinds = 0
+			for k, v in pairs(t.Res) do
+				kinds += 1
+				expect(
+					k == "Wood" or k == "Herb" or k == "Stone",
+					"ресурсы открытого мира"
+				)
+				expect(
+					v >= cfg.RES_AMOUNT[1] + 1 and v <= cfg.RES_AMOUNT[2] + 1,
+					"количество ресурса"
+				)
+			end
+			expect(kinds == cfg.RES_KINDS, "два вида ресурсов")
+			bonus += t.Bonus
+		end
+		for msg in pairs(bad) do
+			check(false, "лут: " .. msg)
+		end
+		check(
+			next(bad) == nil,
+			"лут новичка в "
+				.. n
+				.. " сундуках: монеты, гемы, зелье, билет, 2 ресурса"
+		)
+		local rate = bonus / n
+		check(rate > 0.04 and rate < 0.10, "бонус редкий (~7%): " .. rate)
+		local t2 = sum(SL.loot(Random.new(3), {
+			PerClick = 5000,
+			Zones = { Meadow = true, Forest = true, Desert = true, Frost = true },
+		}))
+		check(t2.Coins >= 5000 * 80, "монеты растут с прогрессом")
+		check(t2.Items.ticket_FrostEgg == 1, "билет лучшего открытого мира")
+		local t3 = sum(SL.loot(Random.new(4), { PerClick = 0 / 0, Zones = nil }))
+		check(t3.Coins >= cfg.COIN_MIN and t3.Coins == t3.Coins, "минимум монет, без NaN")
+		for _, id in ipairs(cfg.POTIONS) do
+			check(
+				S.RecipeData.Items[id] ~= nil,
+				"зелье бесплатное (есть рецепт/предмет): " .. id
+			)
+		end
+		for _, b in ipairs(cfg.BONUS) do
+			check(
+				b.Item == "" or S.RecipeData.Items[b.Item] ~= nil,
+				"бонус бесплатный: " .. b.Item
+			)
+		end
+	end
+)
+
+test(
+	"v3.1 Морской сундук: открывает первый, сервер проверяет расстояние и живого игрока, боты не могут",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A31d")
+		local SC = S.U.require("ServerScriptService/Server/SeaChestService")
+		local a, _, pa = S.join(3121, "First")
+		local b, _, pb = S.join(3122, "Second")
+		local ev = S.Remotes.getEvent("SeaChest")
+		local f0 = #FIRED(ev)
+		local chest = SC.spawn(Vector3.new(40, 0, -10))
+		check(chest ~= nil and chest.Model.Parent ~= nil, "сундук поставлен")
+		local f = FIRED(ev)
+		check(
+			#f == f0 + 1 and f[#f].Args[1] == "Spawn",
+			"о появлении — только событие звука Spawn"
+		)
+		local prompt = nil
+		for _, d in ipairs(chest.Model:GetDescendants()) do
+			if d:IsA("ProximityPrompt") then
+				prompt = d
+			end
+		end
+		check(prompt ~= nil and prompt.Name == "OpenPrompt", "есть ProximityPrompt")
+		pa.Character.HumanoidRootPart.Position = Vector3.new(5, 3, 5)
+		local ok, why = SC.tryOpen(pa, chest.Id)
+		check(
+			not ok and why == "far",
+			"издалека не открыть (сервер): " .. tostring(why)
+		)
+		ADVANCE(1)
+		pa.Character.HumanoidRootPart.Position = Vector3.new(42, 3, -9)
+		pa.Character.Humanoid.Health = 0
+		ok, why = SC.tryOpen(pa, chest.Id)
+		check(not ok and why == "dead", "мёртвый не открывает")
+		pa.Character.Humanoid.Health = 100
+		ADVANCE(1)
+		local bot = MAKE_PLAYER(S.U, -77, "BotLike")
+		bot.Character = pa.Character
+		ok, why = SC.tryOpen(bot, chest.Id)
+		check(not ok and why == "nodata", "без данных (бот) — нельзя")
+		ADVANCE(1)
+		local coins0, gems0 = a.Coins, a.Gems
+		local items0 = 0
+		for _, v in pairs(a.Items) do
+			items0 += v
+		end
+		ok = SC.tryOpen(pa, chest.Id)
+		check(ok == true, "первый открыл (через Prompt.Triggered тот же путь)")
+		local items1 = 0
+		for _, v in pairs(a.Items) do
+			items1 += v
+		end
+		check(
+			a.Coins > coins0 and a.Gems > gems0 and items1 >= items0 + 2,
+			"награда: монеты, гемы, зелье и билет"
+		)
+		f = FIRED(ev)
+		check(f[#f].Args[1] == "Open", "звук открытия")
+		pb.Character.HumanoidRootPart.Position = Vector3.new(41, 3, -10)
+		local bc = b.Coins
+		ok, why = SC.tryOpen(pb, chest.Id)
+		check(
+			not ok and why == "gone" and b.Coins == bc,
+			"второму ничего — сундук уже открыт"
+		)
+		ADVANCE(1)
+		local ac = a.Coins
+		check(not SC.tryOpen(pa, chest.Id) and a.Coins == ac, "двойного открытия нет")
+		check(SC.stats.Opened == 1, "одно открытие")
+		local c2 = SC.spawn(Vector3.new(-40, 0, -30))
+		local c3 = SC.spawn(Vector3.new(-30, 0, -40))
+		check(
+			SC.current() == c3 and c3.Model.Parent ~= nil,
+			"новый сундук заменяет неоткрытый старый"
+		)
+		ADVANCE(1)
+		pb.Character.HumanoidRootPart.Position = Vector3.new(-30, 3, -40)
+		check(not SC.tryOpen(pb, c2.Id), "id старого сундука не принимается")
+		ADVANCE(1)
+		check(SC.tryOpen(pb, c3.Id) == true, "новый сундук открывается")
+		local c4 = SC.spawn(Vector3.new(60, 0, 40))
+		pa.Character.HumanoidRootPart.Position = Vector3.new(5, 3, 5)
+		ADVANCE(1)
+		SC.tryOpen(pa, c4.Id)
+		pa.Character.HumanoidRootPart.Position = Vector3.new(60, 3, 41)
+		local _, w2 = SC.tryOpen(pa, c4.Id)
+		check(w2 == "rate", "спам попыток ограничен")
+		-- касание: только персонаж настоящего игрока
+		local touched = 0
+		for _, d in ipairs(c4.Model:GetDescendants()) do
+			if d:IsA("BasePart") and d.Touched then
+				touched += 1
+			end
+		end
+		check(touched >= 1, "детали сундука слушают касание")
+		local m, fromAsset = SC.makeModel()
+		check(
+			fromAsset == false and m.PrimaryPart ~= nil,
+			"без ServerStorage.SeaChest — запасная модель"
+		)
+		local scripts, loose = 0, 0
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then
+				scripts += 1
+			end
+			if d:IsA("BasePart") and d.Anchored ~= true then
+				loose += 1
+			end
+		end
+		check(
+			scripts == 0 and loose == 0,
+			"в модели нет скриптов, детали закреплены"
+		)
 	end
 )
 

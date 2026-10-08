@@ -299,6 +299,7 @@ NodeMT.__newindex = function(t, k, v)
 		rawget(t, "_props")[k] = v
 	end
 end
+local BASE_PARTS = { Part = true, MeshPart = true, WedgePart = true, TrussPart = true }
 local function newNode(class, name)
 	local n = setmetatable(
 		{ _class = class, _props = { Name = name or class }, _children = {}, _list = {}, _attrs = {} },
@@ -310,6 +311,8 @@ local function newNode(class, name)
 		rawset(n, "_fired", {})
 	elseif class == "ProximityPrompt" then
 		rawget(n, "_props").Triggered = makeSignal()
+	elseif BASE_PARTS[class] then
+		rawget(n, "_props").Touched = makeSignal() -- v3.1: морской сундук открывается касанием
 	end
 	return n
 end
@@ -336,7 +339,6 @@ function Methods.GetChildren(self)
 	return rawget(self, "_list")
 end
 function Methods.Destroy() end
-local BASE_PARTS = { Part = true, MeshPart = true, WedgePart = true, TrussPart = true }
 function Methods.IsA(self, class)
 	local c = rawget(self, "_class")
 	return c == class or class == "Instance" or (class == "BasePart" and BASE_PARTS[c] == true)
@@ -350,6 +352,9 @@ function Methods.SetAttribute(self, k, v)
 end
 function Methods.GetAttribute(self, k)
 	return rawget(self, "_attrs")[k]
+end
+function Methods.FireAllClients(self, ...)
+	table.insert(rawget(self, "_fired"), { Player = "all", Args = { ... } })
 end
 function Methods.FireClient(self, player, ...)
 	table.insert(rawget(self, "_fired"), { Player = player, Args = { ... } })
@@ -367,6 +372,16 @@ function Methods.GetPlayerByUserId(self, id)
 	return nil
 end
 function Methods.PivotTo() end
+function Methods.FindFirstAncestorOfClass(self, class)
+	local p = rawget(self, "_parent")
+	while p do
+		if rawget(p, "_class") == class then
+			return p
+		end
+		p = rawget(p, "_parent")
+	end
+	return nil
+end
 -- масштаб модели (Model:ScaleTo/GetScale) и pivot — для Суперсилы
 function Methods.ScaleTo(self, s)
 	assert(type(s) == "number" and s > 0, "ScaleTo: scale must be > 0")

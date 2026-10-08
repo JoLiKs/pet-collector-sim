@@ -36,6 +36,13 @@
       }
     },
 
+    "ServerStorage": {
+      "$className": "ServerStorage",
+      "SeaChest": {
+        "$path": "assets/models/SeaChest.rbxmx"
+      }
+    },
+
     "ServerScriptService": {
       "$className": "ServerScriptService",
       "$path": "src/ServerScriptService"

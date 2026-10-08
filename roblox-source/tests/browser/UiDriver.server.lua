@@ -285,6 +285,46 @@ function handlers.item(arg)
 	local id, n = string.match(arg, "^([%w_]+)=?(%d*)$")
 	Economy.addItem(player, id, tonumber(n) or 1)
 end
+-- v3.1: ресурс (res:Wood=5) и «фарм» в фоне (farm:on/off) — счётчики меняются, как у игрока в мире
+function handlers.res(arg)
+	local id, n = string.match(arg, "^([%w_]+)=?(%d*)$")
+	Economy.addResource(player, id, tonumber(n) or 1)
+end
+local farming = false
+function handlers.farm(arg)
+	local on = arg ~= "off"
+	local start = on and not farming
+	farming = on
+	if start then
+		task.spawn(function()
+			while farming do
+				Economy.addResource(player, "Wood", 1)
+				task.wait(0.2)
+			end
+		end)
+	end
+end
+-- v3.1: открыть окно по имени (как станции хаба: событие OpenUi)
+-- v3.1: chest:auto — морской сундук в случайном свободном месте хаба (как по таймеру);
+-- chest:x,z — в точке; chest:open — открыть ближайший от имени игрока (тот же серверный путь, что у Prompt)
+function handlers.chest(arg)
+	local SeaChestService = require(Server.SeaChestService)
+	if arg == "auto" then
+		local c = SeaChestService.spawn()
+		Workspace:SetAttribute("SeaChestAt", c and string.format("%d,%d", c.Pos.X, c.Pos.Z) or "none")
+	elseif arg == "open" then
+		local c = SeaChestService.current()
+		local ok, why = SeaChestService.tryOpen(player, c and c.Id)
+		Workspace:SetAttribute("SeaChestOpen", if ok then "ok" else tostring(why))
+	else
+		local x, z = string.match(arg, "^(-?[%d.]+),(-?[%d.]+)$")
+		local c = SeaChestService.spawn(Vector3.new(tonumber(x), 0, tonumber(z)))
+		Workspace:SetAttribute("SeaChestAt", c and string.format("%d,%d", c.Pos.X, c.Pos.Z) or "none")
+	end
+end
+function handlers.ui(arg)
+	require(game:GetService("ReplicatedStorage").Shared.Remotes).getEvent("OpenUi"):FireClient(player, arg)
+end
 function handlers.boost(arg)
 	local kind, sec = string.match(arg, "^(%w+)=(%d+)$")
 	Economy.addLuckBoost(DataService.get(player), kind, tonumber(sec))

@@ -54,6 +54,27 @@ Config.PRODUCT_IDS = {
 --     -> откройте декаль -> ID картинки (Image) из Toolbox/Asset Manager (Studio: View -> Asset Manager -> Images
 --     -> ПКМ -> Copy Asset ID). Подробно: docs/ICON_AND_BADGES.md.
 -- ============================================================================
+-- ============================================================================
+-- 2b. ЗВУКИ (Audio asset ID, v3.1). 0 = звука нет: игра работает молча, без ошибок.
+--     Файлы — оригинальная процедурная музыка из tools/music/synth.py (assets/audio/*.ogg).
+--     Загрузка: Creator Hub -> Development Items -> Audio -> Upload, или
+--     python3 tools/upload_audio.py assets/audio/<файл>.ogg "<название>" (Open Cloud, ключ с правом asset:write).
+--     Затем впишите ID сюда.
+-- ============================================================================
+Config.SOUNDS = {
+	MUSIC_CALM = 0, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
+	MUSIC_EPIC = 0, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
+	CHEST_SPAWN = 0, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
+	CHEST_OPEN = 0, -- assets/audio/chest_open.ogg — открытие сундука
+}
+Config.MUSIC = {
+	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
+	EPIC_VOLUME = 0.45,
+	FADE = 2.5, -- секунд кроссфейда между темами
+	SFX_VOLUME = 0.5,
+	CHEST_SPAWN_VOLUME = 0.25, -- сигнал сундука намеренно тихий (слышен рядом)
+}
+
 Config.ASSETS = {
 	LOGO = 0, -- логотип (assets/icon_512.png): экран загрузки и табличка в хабе
 	-- иконки валют/ресурсов (необязательно: без ID рисуются примитивами Icons.lua)
@@ -245,7 +266,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.0.0"
+Config.VERSION = "3.1.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -339,9 +360,36 @@ Config.BOTS = {
 	AI_BADGE = true, -- метка «ИИ» у имени над головой
 	BOT_HIT = 0.14, -- доля здоровья врага за удар бота (только враги, которых не бьют живые игроки)
 }
+-- v3.1: морской сундук в хабе — появляется раз в INTERVAL секунд в случайном свободном месте, о нём сообщает
+-- только тихий звук. Забирает первый открывший (ProximityPrompt или касание); всё решает сервер.
+-- Награда средняя: монеты по прогрессу (сборов текущей силы), немного гемов, зелье, ресурсы, билет на яйцо
+-- и маленький шанс бонуса. Только то, что можно добыть в игре бесплатно (никаких платных предметов).
+Config.SEA_CHEST = {
+	ENABLED = true,
+	INTERVAL = 300, -- 5 минут
+	FIRST_DELAY = 90, -- первый сундук после старта сервера
+	OPEN_DISTANCE = 12, -- проверка сервера: игрок не дальше (studs) от сундука
+	PROMPT_HOLD = 0.5,
+	MIN_RADIUS = 24, -- кольцо хаба, где ищется место (центр — фонтан)
+	MAX_RADIUS = 92,
+	CLEARANCE = 6, -- свободный радиус вокруг сундука (не в зданиях и декоре)
+	COIN_CLICKS = { 80, 140 }, -- монеты = сила сбора × случайно из диапазона (ежедневная награда — 500)
+	COIN_MIN = 50,
+	GEMS = { 3, 6 },
+	POTIONS = { "luck_potion", "coin_elixir", "health_potion", "regen_potion" },
+	RES_KINDS = 2, -- сколько видов ресурсов
+	RES_AMOUNT = { 3, 6 }, -- + номер лучшего открытого мира
+	BONUS_CHANCE = 0.07, -- «что-то получше»
+	BONUS = { -- Item = "" — бонус гемами
+		{ Item = "catalyst", Count = 1, Gems = 0 },
+		{ Item = "", Count = 0, Gems = 15 },
+		{ Item = "xp_treat", Count = 3, Gems = 0 },
+	},
+}
+
 Config.SUPERPOWER = {
 	ENABLED = true,
-	INTERVAL = 60, -- секунд между выборами суперигрока
+	INTERVAL = 120, -- секунд между выборами суперигрока (v3.1: в 2 раза реже, было 60)
 	DURATION = 35, -- длительность суперсилы (обрезается до INTERVAL - GAP)
 	GAP = 5, -- минимальная пауза между концом суперсилы и следующим выбором
 	FIRST_DELAY = 25, -- первый выбор после старта сервера

@@ -9,6 +9,8 @@ build_rbxlx.py — собирает Roblox place-файл (.rbxlx, XML) из Roj
   * Name.client.lua     -> LocalScript
   * папка с init.*.lua  -> скрипт с дочерними объектами
   * Name.meta.json / init.meta.json -> className и properties
+  * Name.rbxmx (XML-модель, v3.1) -> вставляется как есть: корень получает имя из проекта, referent'ы
+    переименовываются (уникальны в плейсе), раздел SharedStrings переносится в конец документа
 Использование:  python3 tools/build_rbxlx.py [--project default.project.json] [--out build/PetCollectorSimulator.rbxlx]
 Только стандартная библиотека Python 3.
 """
@@ -17,6 +19,7 @@ import json
 import os
 import re
 import sys
+import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
 
 SCRIPT_EXTS = (".lua", ".luau")
@@ -46,6 +49,34 @@ class Node:
         self.props = {}
         self.source = None
         self.children = []
+        self.raw = None  # (Item-элемент, [SharedString-элементы]) для .rbxmx
+
+
+_MODEL_N = [0]
+
+
+def build_from_rbxmx(path, name):
+    """XML-модель Roblox: первый Item верхнего уровня с переименованными referent'ами."""
+    root = ET.parse(path).getroot()
+    item = root.find("Item")
+    if item is None:
+        raise ValueError(f"{path}: в модели нет Item")
+    _MODEL_N[0] += 1
+    prefix = "RBXMODEL%02d" % _MODEL_N[0]
+    for el in item.iter("Item"):
+        if el.get("referent") is not None:
+            el.set("referent", prefix + el.get("referent"))
+    for ref in item.iter("Ref"):
+        if ref.text and ref.text.strip() not in ("", "null"):
+            ref.text = prefix + ref.text.strip()
+    props = item.find("Properties")
+    nm = props.find("string[@name='Name']") if props is not None else None
+    if nm is not None:
+        nm.text = name
+    node = Node(item.get("class"), name)
+    shared = root.find("SharedStrings")
+    node.raw = (item, list(shared) if shared is not None else [])
+    return node
 
 
 def read_text(path):
@@ -88,6 +119,8 @@ def apply_meta(node, meta):
 
 
 def build_from_path(path, name, override_class=None):
+    if os.path.isfile(path) and path.endswith(".rbxmx"):
+        return build_from_rbxmx(path, name)
     if os.path.isfile(path):
         cls, base = script_class(os.path.basename(path))
         if cls is None:
@@ -135,7 +168,9 @@ def build_from_project(node_json, name, root_dir):
         class_name = name
     if path:
         node = build_from_path(os.path.join(root_dir, path), name, class_name)
-        if class_name:
+        if node is None:
+            raise ValueError(f"{path}: не удалось собрать (неподдерживаемый файл)")
+        if class_name and node.raw is None:
             node.class_name = class_name
     else:
         node = Node(class_name or "Folder", name)
@@ -152,6 +187,7 @@ class Writer:
     def __init__(self):
         self.out = []
         self.counter = 0
+        self.shared = {}
 
     def referent(self):
         self.counter += 1
@@ -178,6 +214,12 @@ class Writer:
 
     def write_node(self, node, depth):
         pad = "\t" * depth
+        if node.raw is not None:
+            item, shared = node.raw
+            self.out.append(pad + ET.tostring(item, encoding="unicode").strip())
+            for sh in shared:
+                self.shared[sh.get("md5")] = ET.tostring(sh, encoding="unicode").strip()
+            return
         self.out.append(f'{pad}<Item class="{node.class_name}" referent="{self.referent()}">')
         self.out.append(f"{pad}\t<Properties>")
         self.out.append(f'{pad}\t\t<string name="Name">{escape(node.name)}</string>')
@@ -203,6 +245,11 @@ class Writer:
         self.out.append("\t<Meta name=\"ExplicitAutoJoints\">true</Meta>")
         for child in root.children:
             self.write_node(child, 1)
+        if self.shared:
+            self.out.append("\t<SharedStrings>")
+            for key in sorted(self.shared):
+                self.out.append("\t\t" + self.shared[key])
+            self.out.append("\t</SharedStrings>")
         self.out.append("</roblox>")
         return "\n".join(self.out) + "\n"
 

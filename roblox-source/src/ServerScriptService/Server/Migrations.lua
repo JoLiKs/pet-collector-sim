@@ -1,6 +1,7 @@
 --!strict
 -- Миграции данных игрока между версиями шаблона. Чистая функция над таблицей — покрыта тестами.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local AudioData = require(ReplicatedStorage.Shared.AudioData)
 local DailyData = require(ReplicatedStorage.Shared.DailyData)
 local HotbarData = require(ReplicatedStorage.Shared.HotbarData)
 
@@ -69,6 +70,18 @@ function Migrations.run(data: { [string]: any }): boolean
 	local fixed = HotbarData.normalize(hb)
 	if type(hb) ~= "table" or hb.S3 ~= fixed.S3 or hb.S4 ~= fixed.S4 or hb.S5 ~= fixed.S5 then
 		data.Settings.Hotbar = fixed
+		changed = true
+	end
+	-- v3.1: звуковые настройки (музыка, громкость, звуки) — без мусора
+	local au = data.Settings.Audio
+	local okAudio = AudioData.normalize(au)
+	if
+		type(au) ~= "table"
+		or au.Music ~= okAudio.Music
+		or au.Sfx ~= okAudio.Sfx
+		or au.MusicVol ~= okAudio.MusicVol
+	then
+		data.Settings.Audio = okAudio
 		changed = true
 	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)

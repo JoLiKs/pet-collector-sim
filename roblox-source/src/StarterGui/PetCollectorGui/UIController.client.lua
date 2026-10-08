@@ -73,6 +73,7 @@ Hud.eggPanel = panels.Egg
 Hud.invPanel = panels.Inventory
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
+require(Modules:WaitForChild("Music")).init(gui) -- v3.1: фоновая музыка и кроссфейд на «Суперсилу»
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)
 
 -- Смена языка: привязанные тексты (L.k) перерисовывает сам Locale, остальное — повторный снимок состояния

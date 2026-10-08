@@ -55,6 +55,19 @@ function ClientState.refresh()
 	end
 end
 
+-- v3.1: мгновенно применить подтверждённое сервером изменение (например, назначение быстрого слота),
+-- не дожидаясь следующего снимка; следующий снимок от сервера всё равно перезапишет Core целиком.
+function ClientState.patchCore(key: string, value: any)
+	local core = ClientState.Core
+	if type(core) ~= "table" then
+		return
+	end
+	core[key] = value
+	for _, fn in ipairs(coreListeners) do
+		task.spawn(fn, core)
+	end
+end
+
 -- Серверное время (unix) с поправкой, чтобы таймеры были одинаковыми у всех
 function ClientState.serverNow(): number
 	return os.time() + ClientState.TimeOffset

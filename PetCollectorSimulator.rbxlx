@@ -734,6 +734,98 @@ return AttackFx
 			</Item>
 			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
 				<Properties>
+					<string name="Name">AudioData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	AudioData (v3.1) — общие правила звука для сервера и клиента.
+	  * настройки игрока data.Settings.Audio = { Music = bool, Sfx = bool, MusicVol = 0..1 (шаг 0.1) };
+	  * soundId: ID из Config.SOUNDS -> "rbxassetid://ID" или nil (0, не число, дробь — звука нет, игра молчит
+	    без ошибок: так музыку можно выключить, не дожидаясь загрузки ассетов);
+	  * musicTarget: какой трек должен звучать (эпичный во время «Суперсилы», иначе спокойный; если нужного
+	    нет — запасной из имеющихся);
+	  * fadeStep / gain: плавный кроссфейд (равная мощность, чтобы на стыке не было провала громкости).
+]]
+local AudioData = {}
+
+AudioData.DEFAULT = { Music = true, Sfx = true, MusicVol = 0.6 }
+AudioData.VOL_STEP = 0.1
+AudioData.KEYS = { Music = "boolean", Sfx = "boolean", MusicVol = "number" }
+
+local function round(v: number): number
+	-- делением, а не умножением на 0.1: 6 / 10 == 0.6 точно (6 * 0.1 даёт 0.6000000000000001)
+	local k = math.floor(1 / AudioData.VOL_STEP + 0.5)
+	return math.floor(v * k + 0.5) / k
+end
+
+-- копия настроек с подставленными значениями по умолчанию и отсечёнными мусорными полями
+function AudioData.normalize(a: any): { Music: boolean, Sfx: boolean, MusicVol: number }
+	local src = if type(a) == "table" then a else {}
+	local vol = src.MusicVol
+	if type(vol) ~= "number" or vol ~= vol then
+		vol = AudioData.DEFAULT.MusicVol
+	end
+	return {
+		Music = if type(src.Music) == "boolean" then src.Music else AudioData.DEFAULT.Music,
+		Sfx = if type(src.Sfx) == "boolean" then src.Sfx else AudioData.DEFAULT.Sfx,
+		MusicVol = math.clamp(round(vol), 0, 1),
+	}
+end
+
+-- сервер: изменить одно поле; возвращает новые настройки или nil, ключ ошибки
+function AudioData.set(a: any, key: any, value: any): (any, string?)
+	if type(key) ~= "string" or AudioData.KEYS[key] == nil then
+		return nil, "err.bad_request"
+	end
+	if type(value) ~= AudioData.KEYS[key] then
+		return nil, "err.bad_request"
+	end
+	if key == "MusicVol" and (value ~= value or value < 0 or value > 1) then
+		return nil, "err.bad_request"
+	end
+	local out = AudioData.normalize(a)
+	out[key] = if key == "MusicVol" then math.clamp(round(value), 0, 1) else value
+	return out, nil
+end
+
+function AudioData.soundId(id: any): string?
+	if type(id) == "number" and id > 0 and id == math.floor(id) and id < 2 ^ 53 then
+		return "rbxassetid://" .. string.format("%d", id)
+	end
+	return nil
+end
+
+-- "Epic" | "Calm" | nil
+function AudioData.musicTarget(hunt: boolean, hasCalm: boolean, hasEpic: boolean): string?
+	if hunt and hasEpic then
+		return "Epic"
+	end
+	if hasCalm then
+		return "Calm"
+	end
+	return if hasEpic then "Epic" else nil
+end
+
+-- сдвиг «доли» трека к цели (0 или 1) за dt при длительности кроссфейда fade секунд
+function AudioData.fadeStep(mix: number, target: number, dt: number, fade: number): number
+	local step = if fade > 0 then dt / fade else 1
+	if mix < target then
+		return math.min(target, mix + step)
+	end
+	return math.max(target, mix - step)
+end
+
+-- громкость Sound: кривая равной мощности × базовая громкость трека × ползунок игрока (vol 0..1).
+-- Выключение музыки — это цель 0 для всех треков (плавное затухание), а не мгновенный ноль.
+function AudioData.gain(mix: number, base: number, vol: number): number
+	return math.sin(math.clamp(mix, 0, 1) * math.pi / 2) * base * math.clamp(vol, 0, 1)
+end
+
+return AudioData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+				<Properties>
 					<string name="Name">BattlePassData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 -- Батл-пасс сезона: бесплатные и премиум-награды (премиум = геймпасс BATTLE_PASS).
@@ -825,7 +917,7 @@ return BattlePassData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
 				<Properties>
 					<string name="Name">BotLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1062,7 +1154,7 @@ return BotLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
 				<Properties>
 					<string name="Name">Config</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1121,6 +1213,27 @@ Config.PRODUCT_IDS = {
 --     -> откройте декаль -> ID картинки (Image) из Toolbox/Asset Manager (Studio: View -> Asset Manager -> Images
 --     -> ПКМ -> Copy Asset ID). Подробно: docs/ICON_AND_BADGES.md.
 -- ============================================================================
+-- ============================================================================
+-- 2b. ЗВУКИ (Audio asset ID, v3.1). 0 = звука нет: игра работает молча, без ошибок.
+--     Файлы — оригинальная процедурная музыка из tools/music/synth.py (assets/audio/*.ogg).
+--     Загрузка: Creator Hub -> Development Items -> Audio -> Upload, или
+--     python3 tools/upload_audio.py assets/audio/<файл>.ogg "<название>" (Open Cloud, ключ с правом asset:write).
+--     Затем впишите ID сюда.
+-- ============================================================================
+Config.SOUNDS = {
+	MUSIC_CALM = 0, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
+	MUSIC_EPIC = 0, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
+	CHEST_SPAWN = 0, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
+	CHEST_OPEN = 0, -- assets/audio/chest_open.ogg — открытие сундука
+}
+Config.MUSIC = {
+	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
+	EPIC_VOLUME = 0.45,
+	FADE = 2.5, -- секунд кроссфейда между темами
+	SFX_VOLUME = 0.5,
+	CHEST_SPAWN_VOLUME = 0.25, -- сигнал сундука намеренно тихий (слышен рядом)
+}
+
 Config.ASSETS = {
 	LOGO = 0, -- логотип (assets/icon_512.png): экран загрузки и табличка в хабе
 	-- иконки валют/ресурсов (необязательно: без ID рисуются примитивами Icons.lua)
@@ -1312,7 +1425,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.0.0"
+Config.VERSION = "3.1.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -1406,9 +1519,36 @@ Config.BOTS = {
 	AI_BADGE = true, -- метка «ИИ» у имени над головой
 	BOT_HIT = 0.14, -- доля здоровья врага за удар бота (только враги, которых не бьют живые игроки)
 }
+-- v3.1: морской сундук в хабе — появляется раз в INTERVAL секунд в случайном свободном месте, о нём сообщает
+-- только тихий звук. Забирает первый открывший (ProximityPrompt или касание); всё решает сервер.
+-- Награда средняя: монеты по прогрессу (сборов текущей силы), немного гемов, зелье, ресурсы, билет на яйцо
+-- и маленький шанс бонуса. Только то, что можно добыть в игре бесплатно (никаких платных предметов).
+Config.SEA_CHEST = {
+	ENABLED = true,
+	INTERVAL = 300, -- 5 минут
+	FIRST_DELAY = 90, -- первый сундук после старта сервера
+	OPEN_DISTANCE = 12, -- проверка сервера: игрок не дальше (studs) от сундука
+	PROMPT_HOLD = 0.5,
+	MIN_RADIUS = 24, -- кольцо хаба, где ищется место (центр — фонтан)
+	MAX_RADIUS = 92,
+	CLEARANCE = 6, -- свободный радиус вокруг сундука (не в зданиях и декоре)
+	COIN_CLICKS = { 80, 140 }, -- монеты = сила сбора × случайно из диапазона (ежедневная награда — 500)
+	COIN_MIN = 50,
+	GEMS = { 3, 6 },
+	POTIONS = { "luck_potion", "coin_elixir", "health_potion", "regen_potion" },
+	RES_KINDS = 2, -- сколько видов ресурсов
+	RES_AMOUNT = { 3, 6 }, -- + номер лучшего открытого мира
+	BONUS_CHANCE = 0.07, -- «что-то получше»
+	BONUS = { -- Item = "" — бонус гемами
+		{ Item = "catalyst", Count = 1, Gems = 0 },
+		{ Item = "", Count = 0, Gems = 15 },
+		{ Item = "xp_treat", Count = 3, Gems = 0 },
+	},
+}
+
 Config.SUPERPOWER = {
 	ENABLED = true,
-	INTERVAL = 60, -- секунд между выборами суперигрока
+	INTERVAL = 120, -- секунд между выборами суперигрока (v3.1: в 2 раза реже, было 60)
 	DURATION = 35, -- длительность суперсилы (обрезается до INTERVAL - GAP)
 	GAP = 5, -- минимальная пауза между концом суперсилы и следующим выбором
 	FIRST_DELAY = 25, -- первый выбор после старта сервера
@@ -1507,7 +1647,7 @@ return Config
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
 				<Properties>
 					<string name="Name">DailyData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1725,7 +1865,7 @@ return DailyData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
 				<Properties>
 					<string name="Name">EnemyData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2339,7 +2479,7 @@ return EnemyData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
 				<Properties>
 					<string name="Name">EnemyVisual</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3283,7 +3423,7 @@ return EnemyVisual
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
 				<Properties>
 					<string name="Name">EventData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3381,7 +3521,7 @@ return EventData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
 				<Properties>
 					<string name="Name">Formulas</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3504,7 +3644,7 @@ return Formulas
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
 				<Properties>
 					<string name="Name">HotbarData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3649,6 +3789,19 @@ function HotbarData.slotOf(hb: any, id: string): number?
 	return nil
 end
 
+-- v3.1: «ключ» карточки предмета в инвентаре. Карточка (с кнопками «В слот N» / «Убрать из слота N»)
+-- пересоздаётся ТОЛЬКО когда меняется ключ: другой предмет, режим «выбор для пустого слота N» или слот,
+-- в котором лежит этот предмет. Изменения количеств (ресурсы капают каждые доли секунды, пока питомцы
+-- фармят) карточку не пересоздают — иначе кнопка под пальцем уничтожалась между нажатием и отпусканием,
+-- и Roblox не засчитывал Activated (баг «не назначается в пустой слот»).
+function HotbarData.cardKey(id: string?, pendingSlot: number?, hb: any): string
+	if not id then
+		return "none|" .. tostring(pendingSlot)
+	end
+	local inSlot = if HotbarData.canAssign(id) then HotbarData.slotOf(hb, id) else nil
+	return id .. "|" .. tostring(pendingSlot) .. "|" .. tostring(inSlot)
+end
+
 -- Активные бусты из серверного состояния data.Boosts (unix-время окончания):
 -- { Luck = { Mult, Left, Ends } | nil, Coins = { Mult, Left, Ends } | nil }.
 -- Удача: действует старший буст (x5 раньше x2, x2 ждёт в очереди) — как Economy.getLuckBoost.
@@ -3710,7 +3863,7 @@ return HotbarData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
 				<Properties>
 					<string name="Name">Icons</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4264,7 +4417,7 @@ return Icons
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
 				<Properties>
 					<string name="Name">InventoryData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4417,7 +4570,7 @@ return InventoryData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
 				<Properties>
 					<string name="Name">Locale</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4833,7 +4986,7 @@ return Locale
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">LocaleEn</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4956,6 +5109,9 @@ LocaleEn.Strings = {
 	["event.raid_won"] = "{name} defeated! You dealt {dmg} damage: {reward}",
 	["event.raid_low"] = "The Colossus fell, but you did too little damage for a reward.",
 	["chest.reward"] = "Chest: {reward}",
+	["world.sea_chest"] = "Sea Chest",
+	["seachest.reward"] = "Sea Chest: {reward}",
+	["seachest.bonus"] = "✨ bonus: {reward}",
 	["prompt.gather"] = "Gather",
 	["prompt.open"] = "Open",
 	["board.unavailable"] = "Leaderboard unavailable",
@@ -5134,7 +5290,7 @@ LocaleEn.Strings = {
 	["hotbar.short.health_potion"] = "Heal",
 	["hotbar.short.regen_potion"] = "Regen",
 	["hotbar.short.ticket"] = "Ticket",
-	["hotbar.pick_slot"] = "Choose an item for slot {n}",
+	["hotbar.pick_slot"] = "Choose an item for slot {n}: tap a potion or ticket and it goes straight into the slot",
 	["hotbar.none_boost"] = "No {item} left. Get more: hub workbench, quests, daily reward",
 	["hotbar.none_ticket"] = "No {item} left. Tickets drop from enemies and bosses and come in the daily reward",
 	["hotbar.go_to_egg"] = "Walk up to the {egg} to hatch it with a ticket",
@@ -5171,6 +5327,13 @@ LocaleEn.Strings = {
 	["settings.detected"] = "Detected country: {country}",
 	["settings.detected_none"] = "Country not detected — using the device language",
 	["settings.hint"] = "Auto picks Russian for RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM (UA — by device language). Your manual choice is saved.",
+	["settings.audio"] = "Sound",
+	["settings.music_on"] = "🎵 Music: on",
+	["settings.music_off"] = "🎵 Music: off",
+	["settings.sfx_on"] = "🔔 Sounds: on",
+	["settings.sfx_off"] = "🔔 Sounds: off",
+	["settings.music_volume"] = "Music volume",
+	["settings.music_missing"] = "Music will play once the audio files are added to the game (Config.SOUNDS).",
 	-- market
 	["hatch.title"] = "You hatched!",
 	["hatch.ok"] = "Awesome!",
@@ -5447,7 +5610,7 @@ return LocaleEn
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">LocaleRu</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5570,6 +5733,9 @@ LocaleRu.Strings = {
 	["event.raid_won"] = "{name} повержен! Ваш урон: {dmg}. Награда: {reward}",
 	["event.raid_low"] = "Колосс пал, но вашего урона не хватило для награды.",
 	["chest.reward"] = "Сундук: {reward}",
+	["world.sea_chest"] = "Морской сундук",
+	["seachest.reward"] = "Морской сундук: {reward}",
+	["seachest.bonus"] = "✨ бонус: {reward}",
 	["prompt.gather"] = "Собрать",
 	["prompt.open"] = "Открыть",
 	["board.unavailable"] = "Таблица лидеров недоступна",
@@ -5748,7 +5914,7 @@ LocaleRu.Strings = {
 	["hotbar.short.health_potion"] = "Лечение",
 	["hotbar.short.regen_potion"] = "Реген",
 	["hotbar.short.ticket"] = "Билет",
-	["hotbar.pick_slot"] = "Выберите предмет для слота {n}",
+	["hotbar.pick_slot"] = "Выберите предмет для слота {n}: нажмите на зелье или билет — он сразу ляжет в слот",
 	["hotbar.none_boost"] = "Нет предмета «{item}». Где взять: верстак в хабе, задания, ежедневная награда",
 	["hotbar.none_ticket"] = "Нет предмета «{item}». Билеты выпадают с врагов и боссов и бывают в ежедневной награде",
 	["hotbar.go_to_egg"] = "Подойдите к яйцу «{egg}», чтобы открыть его билетом",
@@ -5785,6 +5951,13 @@ LocaleRu.Strings = {
 	["settings.detected"] = "Определена страна: {country}",
 	["settings.detected_none"] = "Страна не определена — используется язык устройства",
 	["settings.hint"] = "«Авто» включает русский для RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM (UA — по языку устройства). Ручной выбор сохраняется.",
+	["settings.audio"] = "Звук",
+	["settings.music_on"] = "🎵 Музыка: вкл",
+	["settings.music_off"] = "🎵 Музыка: выкл",
+	["settings.sfx_on"] = "🔔 Звуки: вкл",
+	["settings.sfx_off"] = "🔔 Звуки: выкл",
+	["settings.music_volume"] = "Громкость музыки",
+	["settings.music_missing"] = "Музыка появится, когда в игру будут добавлены звуковые файлы (Config.SOUNDS).",
 	-- market
 	["hatch.title"] = "Из яйца вылупился:",
 	["hatch.ok"] = "Класс!",
@@ -6445,7 +6618,7 @@ return LocaleRu
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
 					<string name="Name">Logo</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6561,7 +6734,7 @@ return Logo
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7070,7 +7243,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7411,7 +7584,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7725,7 +7898,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">Prices</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7822,7 +7995,7 @@ return Prices
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8108,7 +8281,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8278,7 +8451,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8305,6 +8478,7 @@ Remotes.Events = {
 	"Notify", -- S->C: всплывающее сообщение (text, kind)
 	"HatchResult", -- S->C: результат открытия яиц
 	"OpenEgg", -- S->C: открыть окно яйца (eggId) — по ProximityPrompt
+	"SeaChest", -- S->C (v3.1): морской сундук — ("Spawn", pos) тихий звук | ("Open", pos) звук открытия
 	"Click", -- C->S: сбор монет
 }
 Remotes.Functions = {
@@ -8360,7 +8534,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8463,7 +8637,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8631,7 +8805,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8905,7 +9079,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9173,7 +9347,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9386,7 +9560,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9540,7 +9714,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9594,7 +9768,7 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9675,7 +9849,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9802,7 +9976,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9943,11 +10117,452 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000002C">
+	<Item class="ServerStorage" referent="RBX0000000000000000000000000000002D">
+		<Properties>
+			<string name="Name">ServerStorage</string>
+		</Properties>
+		<Item class="Model" referent="RBXMODEL010">
+    <Properties>
+      <string name="Name">SeaChest</string>
+      <BinaryString name="AttributesSerialize">BAAAABAAAABSQlhfQUlfR0VORVJBVEVEAwEUAAAAUkJYX0FJX0dFTkVSQVRJT05fSUQCJAAAADRiOGI3ZWI2LTQxZjItNDFlYy04NzFkLWNhMTYwZmU3ZTBkNhYAAABSQlhfQUlfR0VORVJBVElPTl9UWVBFAgwAAABHZW5lcmF0ZU1lc2gRAAAAUkJYX0FJX01PREVMX0ZMT1cCBAAAAG1lc2g=</BinaryString>
+      <SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+      <token name="LevelOfDetail">0</token>
+      <CoordinateFrame name="ModelMeshCFrame">
+        <X>0</X>
+        <Y>0</Y>
+        <Z>0</Z>
+        <R00>1</R00>
+        <R01>0</R01>
+        <R02>0</R02>
+        <R10>0</R10>
+        <R11>1</R11>
+        <R12>0</R12>
+        <R20>0</R20>
+        <R21>0</R21>
+        <R22>1</R22>
+      </CoordinateFrame>
+      <SharedString name="ModelMeshData">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+      <Vector3 name="ModelMeshSize">
+        <X>0</X>
+        <Y>0</Y>
+        <Z>0</Z>
+      </Vector3>
+      <token name="ModelStreamingMode">0</token>
+      <bool name="NeedsPivotMigration">false</bool>
+      <Ref name="PrimaryPart">RBXMODEL011</Ref>
+      <bool name="DefinesCapabilities">false</bool>
+      <float name="ScaleFactor">1</float>
+      <SharedString name="SlimHash">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+      <int64 name="SourceAssetId">-1</int64>
+      <BinaryString name="Tags">QXNzaXN0YW50LWNhbGxfZmU1YTVkZmQzZWQxNDI0YTkxNjA0NzgxAEFzc2lzdGFudEFJR2VuZXJhdGVkQXNzZXQ=</BinaryString>
+      <OptionalCoordinateFrame name="WorldPivotData">
+        <CFrame>
+          <X>71.784584</X>
+          <Y>1.5048234</Y>
+          <Z>-35.19977</Z>
+          <R00>1</R00>
+          <R01>0</R01>
+          <R02>0</R02>
+          <R10>0</R10>
+          <R11>1</R11>
+          <R12>0</R12>
+          <R20>0</R20>
+          <R21>0</R21>
+          <R22>1</R22>
+        </CFrame>
+      </OptionalCoordinateFrame>
+    </Properties>
+    <Item class="Model" referent="RBXMODEL012">
+      <Properties>
+        <string name="Name">lid</string>
+        <BinaryString name="AttributesSerialize" />
+        <SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+        <token name="LevelOfDetail">0</token>
+        <CoordinateFrame name="ModelMeshCFrame">
+          <X>0</X>
+          <Y>0</Y>
+          <Z>0</Z>
+          <R00>1</R00>
+          <R01>0</R01>
+          <R02>0</R02>
+          <R10>0</R10>
+          <R11>1</R11>
+          <R12>0</R12>
+          <R20>0</R20>
+          <R21>0</R21>
+          <R22>1</R22>
+        </CoordinateFrame>
+        <SharedString name="ModelMeshData">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+        <Vector3 name="ModelMeshSize">
+          <X>0</X>
+          <Y>0</Y>
+          <Z>0</Z>
+        </Vector3>
+        <token name="ModelStreamingMode">0</token>
+        <bool name="NeedsPivotMigration">false</bool>
+        <Ref name="PrimaryPart">null</Ref>
+        <bool name="DefinesCapabilities">false</bool>
+        <float name="ScaleFactor">1</float>
+        <SharedString name="SlimHash">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+        <int64 name="SourceAssetId">-1</int64>
+        <BinaryString name="Tags" />
+        <OptionalCoordinateFrame name="WorldPivotData">
+          <CFrame>
+            <X>71.784584</X>
+            <Y>1.5048234</Y>
+            <Z>-35.19977</Z>
+            <R00>1</R00>
+            <R01>0</R01>
+            <R02>0</R02>
+            <R10>0</R10>
+            <R11>1</R11>
+            <R12>0</R12>
+            <R20>0</R20>
+            <R21>0</R21>
+            <R22>1</R22>
+          </CFrame>
+        </OptionalCoordinateFrame>
+      </Properties>
+      <Item class="MeshPart" referent="RBXMODEL013">
+        <Properties>
+          <string name="Name">lid_geom</string>
+          <SharedString name="AeroMeshData">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+          <bool name="Anchored">false</bool>
+          <BinaryString name="AttributesSerialize" />
+          <bool name="AudioCanCollide">true</bool>
+          <float name="BackParamA">-0.5</float>
+          <float name="BackParamB">0.5</float>
+          <token name="BackSurface">0</token>
+          <token name="BackSurfaceInput">0</token>
+          <float name="BottomParamA">-0.5</float>
+          <float name="BottomParamB">0.5</float>
+          <token name="BottomSurface">0</token>
+          <token name="BottomSurfaceInput">0</token>
+          <CoordinateFrame name="CFrame">
+            <X>71.770996</X>
+            <Y>2.194336</Y>
+            <Z>-35.175537</Z>
+            <R00>0.99727106</R00>
+            <R01>-0.047180712</R01>
+            <R02>0.056784056</R02>
+            <R10>0.015182087</R10>
+            <R11>0.88377166</R11>
+            <R12>0.46767205</R12>
+            <R20>-0.07224924</R20>
+            <R21>-0.4655337</R21>
+            <R22>0.8820762</R22>
+          </CoordinateFrame>
+          <bool name="CanCollide">true</bool>
+          <bool name="CanQuery">true</bool>
+          <bool name="CanTouch">true</bool>
+          <SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+          <bool name="CastShadow">true</bool>
+          <string name="CollisionGroup">Default</string>
+          <int name="CollisionGroupId">0</int>
+          <Color3uint8 name="Color3uint8">10724005</Color3uint8>
+          <PhysicalProperties name="CustomPhysicalProperties">
+            <CustomPhysics>false</CustomPhysics>
+          </PhysicalProperties>
+          <bool name="DoubleSided">false</bool>
+          <bool name="EnableFluidForces">true</bool>
+          <token name="FluidFidelityInternal">0</token>
+          <float name="FrontParamA">-0.5</float>
+          <float name="FrontParamB">0.5</float>
+          <token name="FrontSurface">0</token>
+          <token name="FrontSurfaceInput">0</token>
+          <bool name="HasJointOffset">false</bool>
+          <bool name="HasSkinnedMesh">false</bool>
+          <bool name="InertiaMigrated">false</bool>
+          <Vector3 name="InitialSize">
+            <X>2.2180178</X>
+            <Y>1.1614779</Y>
+            <Z>1.4404695</Z>
+          </Vector3>
+          <Vector3 name="JointOffset">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <float name="LeftParamA">-0.5</float>
+          <float name="LeftParamB">0.5</float>
+          <token name="LeftSurface">0</token>
+          <token name="LeftSurfaceInput">0</token>
+          <bool name="Locked">false</bool>
+          <bool name="Massless">false</bool>
+          <token name="Material">256</token>
+          <string name="MaterialVariantSerialized" />
+          <Content name="MeshContent">
+            <uri>rbxassetid://98119130916148</uri>
+          </Content>
+          <SharedString name="PhysicalConfigData">ps2SmT544cOG0bIvKMc/sA==</SharedString>
+          <BinaryString name="PhysicsData">
+          </BinaryString>
+          <CoordinateFrame name="PivotOffset">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+            <R00>1</R00>
+            <R01>0</R01>
+            <R02>0</R02>
+            <R10>0</R10>
+            <R11>1</R11>
+            <R12>0</R12>
+            <R20>0</R20>
+            <R21>0</R21>
+            <R22>1</R22>
+          </CoordinateFrame>
+          <float name="Reflectance">0</float>
+          <token name="RenderFidelity">0</token>
+          <float name="RightParamA">-0.5</float>
+          <float name="RightParamB">0.5</float>
+          <token name="RightSurface">0</token>
+          <token name="RightSurfaceInput">0</token>
+          <int name="RootPriority">0</int>
+          <Vector3 name="RotVelocity">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <bool name="DefinesCapabilities">false</bool>
+          <Vector3 name="size">
+            <X>2.2180178</X>
+            <Y>1.1614779</Y>
+            <Z>1.4404695</Z>
+          </Vector3>
+          <int64 name="SourceAssetId">-1</int64>
+          <BinaryString name="Tags" />
+          <Content name="TextureContent">
+            <uri>rbxassetid://107406817021668</uri>
+          </Content>
+          <float name="TopParamA">-0.5</float>
+          <float name="TopParamB">0.5</float>
+          <token name="TopSurface">0</token>
+          <token name="TopSurfaceInput">0</token>
+          <float name="Transparency">0</float>
+          <Vector3 name="UnscaledCofm">
+            <X>-0.0032988174</X>
+            <Y>0.119550794</Y>
+            <Z>0.19770928</Z>
+          </Vector3>
+          <Vector3 name="UnscaledVolInertiaDiags">
+            <X>0.16962597</X>
+            <Y>0.45704266</Y>
+            <Z>0.42790493</Z>
+          </Vector3>
+          <Vector3 name="UnscaledVolInertiaOffDiags">
+            <X>-0.00036259796</X>
+            <Y>0.0003749751</Y>
+            <Z>0.052794874</Z>
+          </Vector3>
+          <float name="UnscaledVolume">0.80107147</float>
+          <Vector3 name="Velocity">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <int name="VertexCount">0</int>
+        </Properties>
+      </Item>
+    </Item>
+    <Item class="Model" referent="RBXMODEL014">
+      <Properties>
+        <string name="Name">body</string>
+        <BinaryString name="AttributesSerialize" />
+        <SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+        <token name="LevelOfDetail">0</token>
+        <CoordinateFrame name="ModelMeshCFrame">
+          <X>0</X>
+          <Y>0</Y>
+          <Z>0</Z>
+          <R00>1</R00>
+          <R01>0</R01>
+          <R02>0</R02>
+          <R10>0</R10>
+          <R11>1</R11>
+          <R12>0</R12>
+          <R20>0</R20>
+          <R21>0</R21>
+          <R22>1</R22>
+        </CoordinateFrame>
+        <SharedString name="ModelMeshData">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+        <Vector3 name="ModelMeshSize">
+          <X>0</X>
+          <Y>0</Y>
+          <Z>0</Z>
+        </Vector3>
+        <token name="ModelStreamingMode">0</token>
+        <bool name="NeedsPivotMigration">false</bool>
+        <Ref name="PrimaryPart">null</Ref>
+        <bool name="DefinesCapabilities">false</bool>
+        <float name="ScaleFactor">1</float>
+        <SharedString name="SlimHash">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+        <int64 name="SourceAssetId">-1</int64>
+        <BinaryString name="Tags" />
+        <OptionalCoordinateFrame name="WorldPivotData">
+          <CFrame>
+            <X>71.784584</X>
+            <Y>1.5048234</Y>
+            <Z>-35.19977</Z>
+            <R00>1</R00>
+            <R01>0</R01>
+            <R02>0</R02>
+            <R10>0</R10>
+            <R11>1</R11>
+            <R12>0</R12>
+            <R20>0</R20>
+            <R21>0</R21>
+            <R22>1</R22>
+          </CFrame>
+        </OptionalCoordinateFrame>
+      </Properties>
+      <Item class="MeshPart" referent="RBXMODEL011">
+        <Properties>
+          <string name="Name">body_geom</string>
+          <SharedString name="AeroMeshData">rxNJufX5oaagQE3qNtzJSQ==</SharedString>
+          <bool name="Anchored">false</bool>
+          <BinaryString name="AttributesSerialize" />
+          <bool name="AudioCanCollide">true</bool>
+          <float name="BackParamA">-0.5</float>
+          <float name="BackParamB">0.5</float>
+          <token name="BackSurface">0</token>
+          <token name="BackSurfaceInput">0</token>
+          <float name="BottomParamA">-0.5</float>
+          <float name="BottomParamB">0.5</float>
+          <token name="BottomSurface">0</token>
+          <token name="BottomSurfaceInput">0</token>
+          <CoordinateFrame name="CFrame">
+            <X>71.791504</X>
+            <Y>1.0292969</Y>
+            <Z>-35.23047</Z>
+            <R00>0.9999974</R00>
+            <R01>-0.0019503733</R01>
+            <R02>-0.0011804857</R02>
+            <R10>0.0019550768</R10>
+            <R11>0.9999901</R11>
+            <R12>0.0039963806</R12>
+            <R20>0.0011726796</R20>
+            <R21>-0.003998678</R21>
+            <R22>0.9999913</R22>
+          </CoordinateFrame>
+          <bool name="CanCollide">true</bool>
+          <bool name="CanQuery">true</bool>
+          <bool name="CanTouch">true</bool>
+          <SecurityCapabilities name="Capabilities">0</SecurityCapabilities>
+          <bool name="CastShadow">true</bool>
+          <string name="CollisionGroup">Default</string>
+          <int name="CollisionGroupId">0</int>
+          <Color3uint8 name="Color3uint8">10724005</Color3uint8>
+          <PhysicalProperties name="CustomPhysicalProperties">
+            <CustomPhysics>false</CustomPhysics>
+          </PhysicalProperties>
+          <bool name="DoubleSided">false</bool>
+          <bool name="EnableFluidForces">true</bool>
+          <token name="FluidFidelityInternal">0</token>
+          <float name="FrontParamA">-0.5</float>
+          <float name="FrontParamB">0.5</float>
+          <token name="FrontSurface">0</token>
+          <token name="FrontSurfaceInput">0</token>
+          <bool name="HasJointOffset">false</bool>
+          <bool name="HasSkinnedMesh">false</bool>
+          <bool name="InertiaMigrated">false</bool>
+          <Vector3 name="InitialSize">
+            <X>2.8803368</X>
+            <Y>2.1504848</Y>
+            <Z>2.3388405</Z>
+          </Vector3>
+          <Vector3 name="JointOffset">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <float name="LeftParamA">-0.5</float>
+          <float name="LeftParamB">0.5</float>
+          <token name="LeftSurface">0</token>
+          <token name="LeftSurfaceInput">0</token>
+          <bool name="Locked">false</bool>
+          <bool name="Massless">false</bool>
+          <token name="Material">256</token>
+          <string name="MaterialVariantSerialized" />
+          <Content name="MeshContent">
+            <uri>rbxassetid://108277060201883</uri>
+          </Content>
+          <SharedString name="PhysicalConfigData">e0w/ZqfEv4mZCVNh80AbYg==</SharedString>
+          <BinaryString name="PhysicsData">
+          </BinaryString>
+          <CoordinateFrame name="PivotOffset">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+            <R00>1</R00>
+            <R01>0</R01>
+            <R02>0</R02>
+            <R10>0</R10>
+            <R11>1</R11>
+            <R12>0</R12>
+            <R20>0</R20>
+            <R21>0</R21>
+            <R22>1</R22>
+          </CoordinateFrame>
+          <float name="Reflectance">0</float>
+          <token name="RenderFidelity">0</token>
+          <float name="RightParamA">-0.5</float>
+          <float name="RightParamB">0.5</float>
+          <token name="RightSurface">0</token>
+          <token name="RightSurfaceInput">0</token>
+          <int name="RootPriority">0</int>
+          <Vector3 name="RotVelocity">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <bool name="DefinesCapabilities">false</bool>
+          <Vector3 name="size">
+            <X>2.8803368</X>
+            <Y>2.1504848</Y>
+            <Z>2.3388405</Z>
+          </Vector3>
+          <int64 name="SourceAssetId">-1</int64>
+          <BinaryString name="Tags" />
+          <Content name="TextureContent">
+            <uri>rbxassetid://129623133634323</uri>
+          </Content>
+          <float name="TopParamA">-0.5</float>
+          <float name="TopParamB">0.5</float>
+          <token name="TopSurface">0</token>
+          <token name="TopSurfaceInput">0</token>
+          <float name="Transparency">0</float>
+          <Vector3 name="UnscaledCofm">
+            <X>0.002695712</X>
+            <Y>-0.16094883</Y>
+            <Z>-0.005985226</Z>
+          </Vector3>
+          <Vector3 name="UnscaledVolInertiaDiags">
+            <X>2.6260872</X>
+            <Y>3.4325635</Y>
+            <Z>3.6615171</Z>
+          </Vector3>
+          <Vector3 name="UnscaledVolInertiaOffDiags">
+            <X>-0.0068672523</X>
+            <Y>0.0050089406</Y>
+            <Z>0.048675846</Z>
+          </Vector3>
+          <float name="UnscaledVolume">5.4912925</float>
+          <Vector3 name="Velocity">
+            <X>0</X>
+            <Y>0</Y>
+            <Z>0</Z>
+          </Vector3>
+          <int name="VertexCount">0</int>
+        </Properties>
+      </Item>
+    </Item>
+  </Item>
+	</Item>
+	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000002E">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX0000000000000000000000000000002D">
+		<Item class="Script" referent="RBX0000000000000000000000000000002F">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -9996,6 +10611,8 @@ require(Server.EventService).init()
 require(Server.Monetization).init()
 require(Server.LeaderboardService).init()
 require(Server.LanguageService).init()
+require(Server.SettingsService).init() -- v3.1: звуковые настройки
+require(Server.SeaChestService).init() -- v3.1: морской сундук в хабе раз в 5 минут
 require(Server.TutorialService).init()
 require(Server.ToolService).init() -- v2.5: меч и магнит в StarterPack (до первого появления персонажа)
 require(Server.PlayerService).init()
@@ -10004,11 +10621,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX0000000000000000000000000000002E">
+		<Item class="Folder" referent="RBX00000000000000000000000000000030">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10149,7 +10766,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">Badges</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10214,7 +10831,7 @@ return Badges
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10315,7 +10932,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">BotService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11214,7 +11831,7 @@ return BotService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11297,7 +11914,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12245,7 +12862,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12383,7 +13000,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12416,7 +13033,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12554,7 +13171,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12632,7 +13249,12 @@ local function makeTemplate(): Data
 		OfflinePending = 0,
 		AutoCollect = true,
 		-- Lang: "auto" | "en" | "ru" (см. LanguageService); Hotbar (v2.9): быстрые слоты 3..5 (HotbarData)
-		Settings = { Lang = "auto", Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" } },
+		-- Audio (v3.1): музыка вкл/выкл, громкость музыки 0..1, звуки вкл/выкл (AudioData)
+		Settings = {
+			Lang = "auto",
+			Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" },
+			Audio = { Music = true, Sfx = true, MusicVol = 0.6 },
+		},
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено
@@ -13043,7 +13665,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13533,7 +14155,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13789,7 +14411,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13838,7 +14460,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">HealthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13962,7 +14584,7 @@ return HealthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14043,7 +14665,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14136,7 +14758,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14306,12 +14928,13 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 -- Миграции данных игрока между версиями шаблона. Чистая функция над таблицей — покрыта тестами.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local AudioData = require(ReplicatedStorage.Shared.AudioData)
 local DailyData = require(ReplicatedStorage.Shared.DailyData)
 local HotbarData = require(ReplicatedStorage.Shared.HotbarData)
 
@@ -14382,6 +15005,18 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Settings.Hotbar = fixed
 		changed = true
 	end
+	-- v3.1: звуковые настройки (музыка, громкость, звуки) — без мусора
+	local au = data.Settings.Audio
+	local okAudio = AudioData.normalize(au)
+	if
+		type(au) ~= "table"
+		or au.Music ~= okAudio.Music
+		or au.Sfx ~= okAudio.Sfx
+		or au.MusicVol ~= okAudio.MusicVol
+	then
+		data.Settings.Audio = okAudio
+		changed = true
+	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
 	local function bad(v: any): boolean
 		return type(v) ~= "number" or v ~= v or v < 0 or v == math.huge
@@ -14414,7 +15049,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14707,7 +15342,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14731,7 +15366,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14806,7 +15441,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15219,7 +15854,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15530,7 +16165,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15667,7 +16302,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15856,7 +16491,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15964,7 +16599,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16351,7 +16986,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16438,7 +17073,501 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+				<Properties>
+					<string name="Name">SeaChestLogic</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SeaChestLogic (v3.1) — чистые правила морского сундука (покрыты тестами):
+	  * pickSpot — случайная точка в кольце хаба вне «занятых» кругов (спавн, порталы, станции, яйца…)
+	    и, если передана проверка isFree, без пересечения с постройками и декором;
+	  * loot — состав награды по прогрессу игрока (монеты от силы сбора, ресурсы и билет по открытым мирам).
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Config = require(ReplicatedStorage.Shared.Config)
+local DailyData = require(ReplicatedStorage.Shared.DailyData)
+local RecipeData = require(ReplicatedStorage.Shared.RecipeData)
+local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
+
+local SeaChestLogic = {}
+
+export type Blocker = { Pos: Vector3, R: number }
+
+function SeaChestLogic.isClear(pos: Vector3, blockers: { Blocker }, clearance: number): boolean
+	local flat = Vector3.new(pos.X, 0, pos.Z)
+	for _, b in ipairs(blockers) do
+		local bp = Vector3.new(b.Pos.X, 0, b.Pos.Z)
+		if (flat - bp).Magnitude < b.R + clearance then
+			return false
+		end
+	end
+	return true
+end
+
+-- rng: Random; isFree(pos) — необязательная проверка мира (GetPartBoundsInBox на сервере)
+function SeaChestLogic.pickSpot(
+	rng: Random,
+	blockers: { Blocker },
+	isFree: ((Vector3) -> boolean)?,
+	tries: number?
+): Vector3?
+	local cfg = Config.SEA_CHEST
+	for _ = 1, tries or 60 do
+		local a = rng:NextNumber(0, math.pi * 2)
+		-- равномерно по площади кольца, а не по радиусу (иначе сундук чаще у центра)
+		local r = math.sqrt(rng:NextNumber(cfg.MIN_RADIUS ^ 2, cfg.MAX_RADIUS ^ 2))
+		local pos = Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
+		if SeaChestLogic.isClear(pos, blockers, cfg.CLEARANCE) and (isFree == nil or isFree(pos)) then
+			return pos
+		end
+	end
+	return nil
+end
+
+local function zoneIndex(zones: { [string]: any }?): number
+	local best = 1
+	for i, z in ipairs(ZoneData.List) do
+		if i == 1 or (zones and zones[z.Id]) then
+			best = math.max(best, i)
+		end
+	end
+	return best
+end
+
+-- Награда: список «порций» в формате Economy.grant ({ Coins } | { Gems } | { Res } | { Item, ItemCount }).
+-- ctx = { PerClick, Zones }
+function SeaChestLogic.loot(rng: Random, ctx: { [string]: any }): { { [string]: any } }
+	local cfg = Config.SEA_CHEST
+	local per = math.max(1, tonumber(ctx.PerClick) or 1)
+	local idx = zoneIndex(ctx.Zones)
+	local out: { { [string]: any } } = {}
+	table.insert(out, {
+		Coins = math.max(
+			cfg.COIN_MIN,
+			math.floor(per * rng:NextInteger(cfg.COIN_CLICKS[1], cfg.COIN_CLICKS[2]))
+		),
+	})
+	table.insert(out, { Gems = rng:NextInteger(cfg.GEMS[1], cfg.GEMS[2]) })
+	table.insert(out, { Item = cfg.POTIONS[rng:NextInteger(1, #cfg.POTIONS)], ItemCount = 1 })
+	-- ресурсы: из открытых миров (у лучшего мира — свои), разные виды
+	local pool, seen = {}, {}
+	for i, z in ipairs(ZoneData.List) do
+		if i <= idx then
+			for _, res in ipairs(z.Resources) do
+				if not seen[res] then
+					seen[res] = true
+					table.insert(pool, res)
+				end
+			end
+		end
+	end
+	local res: { [string]: number } = {}
+	for _ = 1, math.min(cfg.RES_KINDS, #pool) do
+		local k = table.remove(pool, rng:NextInteger(1, #pool)) :: string
+		res[k] = rng:NextInteger(cfg.RES_AMOUNT[1], cfg.RES_AMOUNT[2]) + idx
+	end
+	table.insert(out, { Res = res })
+	table.insert(out, { Item = DailyData.ticketFor(ctx.Zones), ItemCount = 1 })
+	if rng:NextNumber() < cfg.BONUS_CHANCE then
+		local b = cfg.BONUS[rng:NextInteger(1, #cfg.BONUS)]
+		if b.Item ~= "" then
+			table.insert(out, { Item = b.Item, ItemCount = math.max(1, b.Count), Bonus = true })
+		else
+			table.insert(out, { Gems = b.Gems, Bonus = true })
+		end
+	end
+	-- страховка: только существующие бесплатные предметы
+	for i = #out, 1, -1 do
+		local it = out[i].Item
+		if it and not RecipeData.Items[it] then
+			table.remove(out, i)
+		end
+	end
+	return out
+end
+
+return SeaChestLogic
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+				<Properties>
+					<string name="Name">SeaChestService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SeaChestService (v3.1) — морской сундук в хабе.
+	  * раз в Config.SEA_CHEST.INTERVAL секунд появляется в случайном свободном месте хаба (SeaChestLogic.pickSpot:
+	    вне спавна, порталов, станций, NPC и яиц + проверка мира GetPartBoundsInBox — не внутри построек и декора);
+	    неоткрытый старый сундук при этом исчезает;
+	  * о появлении сообщает только тихий звук в точке сундука (Remotes "SeaChest" -> клиент, Config.SOUNDS.CHEST_SPAWN);
+	  * открыть: ProximityPrompt или касание. Всё решает сервер: живой персонаж настоящего игрока с загруженными
+	    данными, не дальше OPEN_DISTANCE, не чаще раза в 0.3 с; первый открывший получает награду, сундук сразу
+	    помечается открытым (одна выдача). ИИ-боты — не Player, поэтому открыть не могут;
+	  * модель — ServerStorage.SeaChest (assets/models/SeaChest.rbxmx через Rojo — XML-копия присланного
+	    assets/models/source/SeaChest.rbxm; скрипты, если появятся, удаляются).
+	    Нет модели (веб-демо: roblox2web не читает .rbxm/.rbxmx) — сундук собирается из деталей.
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
+local TweenService = game:GetService("TweenService")
+local Workspace = game:GetService("Workspace")
+
+local Config = require(ReplicatedStorage.Shared.Config)
+local Locale = require(ReplicatedStorage.Shared.Locale)
+local Remotes = require(ReplicatedStorage.Shared.Remotes)
+
+local DataService = require(script.Parent.DataService)
+local Economy = require(script.Parent.Economy)
+local Notify = require(script.Parent.Notify)
+local SeaChestLogic = require(script.Parent.SeaChestLogic)
+local Session = require(script.Parent.Session)
+local State = require(script.Parent.State)
+local WorldBuilder = require(script.Parent.WorldBuilder)
+
+local SeaChestService = {}
+
+type Chest = { Model: Model, Pos: Vector3, Opened: boolean, Id: number, Lid: BasePart? }
+
+local rng = Random.new()
+local folder: Folder? = nil
+local current: Chest? = nil
+local counter = 0
+local lastTry: { [Player]: number } = {}
+
+SeaChestService.stats = { Spawned = 0, Opened = 0 }
+
+local function getFolder(): Folder
+	if folder and folder.Parent then
+		return folder
+	end
+	local f = Instance.new("Folder")
+	f.Name = "SeaChests"
+	f.Parent = Workspace
+	folder = f
+	return f
+end
+
+local function part(
+	m: Model,
+	name: string,
+	size: Vector3,
+	cf: CFrame,
+	color: Color3,
+	mat: Enum.Material
+): BasePart
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.CFrame = cf
+	p.Color = color
+	p.Material = mat
+	p.Anchored = true
+	p.TopSurface = Enum.SurfaceType.Smooth
+	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.Parent = m
+	return p
+end
+
+-- запасная модель (дно на y = 0): тёмное дерево, бирюзовые «морские» полосы и ракушка-замок
+local function buildFallback(): Model
+	local m = Instance.new("Model")
+	local wood, band = Color3.fromRGB(110, 72, 44), Color3.fromRGB(70, 190, 185)
+	local body =
+		part(m, "body_geom", Vector3.new(3.6, 2.2, 2.6), CFrame.new(0, 1.1, 0), wood, Enum.Material.Wood)
+	part(
+		m,
+		"lid_geom",
+		Vector3.new(3.7, 1, 2.7),
+		CFrame.new(0, 2.7, 0),
+		Color3.fromRGB(125, 84, 50),
+		Enum.Material.Wood
+	)
+	for _, dx in ipairs({ -1.2, 1.2 }) do
+		part(m, "Band", Vector3.new(0.35, 3.25, 2.75), CFrame.new(dx, 1.62, 0), band, Enum.Material.Metal)
+	end
+	part(
+		m,
+		"Shell",
+		Vector3.new(0.7, 0.7, 0.3),
+		CFrame.new(0, 2.1, -1.4),
+		Color3.fromRGB(255, 225, 200),
+		Enum.Material.SmoothPlastic
+	)
+	m.PrimaryPart = body
+	return m
+end
+
+local function lidOf(m: Model): BasePart?
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") and (d.Name == "lid_geom" or d.Name == "Lid") then
+			return d
+		end
+	end
+	return nil
+end
+
+function SeaChestService.makeModel(): (Model, boolean)
+	local src = ServerStorage:FindFirstChild("SeaChest")
+	local m: Model
+	local fromAsset = false
+	if src and src:IsA("Model") then
+		m = src:Clone()
+		fromAsset = true
+		-- в присланной модели скриптов нет (проверено), но на всякий случай: никакого чужого кода в мире
+		for _, d in ipairs(m:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then
+				d:Destroy()
+			end
+		end
+		pcall(function()
+			m:ScaleTo(1.4) -- модель ~2.9 studs — чуть крупнее, чтобы сундук было видно в хабе
+		end)
+	else
+		m = buildFallback()
+	end
+	m.Name = "SeaChest"
+	local biggest: BasePart? = nil
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Anchored = true
+			d.CanCollide = true
+			d.CanTouch = true
+			if not biggest or d.Size.Magnitude > biggest.Size.Magnitude then
+				biggest = d
+			end
+		end
+	end
+	if not m.PrimaryPart and biggest then
+		m.PrimaryPart = biggest
+	end
+	return m, fromAsset
+end
+
+local function groundY(pos: Vector3): number
+	local ok, y = pcall(function()
+		local params = RaycastParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		params.FilterDescendantsInstances = { getFolder() }
+		local hit = Workspace:Raycast(pos + Vector3.new(0, 30, 0), Vector3.new(0, -60, 0), params)
+		return if hit then hit.Position.Y else 0
+	end)
+	return if ok and type(y) == "number" and y < 10 then y else 0
+end
+
+-- проверка мира: в объёме сундука нет видимых/твёрдых деталей (здания, деревья, фонари, NPC, порталы)
+local function isFree(pos: Vector3): boolean
+	local ok, free = pcall(function()
+		local params = OverlapParams.new()
+		params.FilterType = Enum.RaycastFilterType.Exclude
+		local skip: { Instance } = { getFolder() }
+		for _, p in ipairs(Players:GetPlayers()) do
+			if p.Character then
+				table.insert(skip, p.Character)
+			end
+		end
+		for _, name in ipairs({ "AiBots", "Pets", "GoldenRain" }) do
+			local f = Workspace:FindFirstChild(name)
+			if f then
+				table.insert(skip, f)
+			end
+		end
+		params.FilterDescendantsInstances = skip
+		local c = Config.SEA_CHEST.CLEARANCE
+		local parts =
+			Workspace:GetPartBoundsInBox(CFrame.new(pos + Vector3.new(0, 4, 0)), Vector3.new(c, 6, c), params)
+		for _, p in ipairs(parts) do
+			if p:IsA("BasePart") and (p.CanCollide or p.Transparency < 0.95) then
+				return false
+			end
+		end
+		return true
+	end)
+	return not ok or free == true
+end
+
+function SeaChestService.current(): Chest?
+	return current
+end
+
+function SeaChestService.despawn()
+	local c = current
+	current = nil
+	if c and c.Model.Parent then
+		c.Model:Destroy()
+	end
+end
+
+-- поставить сундук в точку pos (y игнорируется — по земле); без pos — случайное свободное место хаба
+function SeaChestService.spawn(pos: Vector3?): Chest?
+	local spot = pos or SeaChestLogic.pickSpot(rng, WorldBuilder.getHubBlockers(), isFree)
+	if not spot then
+		return nil
+	end
+	SeaChestService.despawn()
+	counter += 1
+	local m, fromAsset = SeaChestService.makeModel()
+	local ground = Vector3.new(spot.X, groundY(spot), spot.Z)
+	local yaw = CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0)
+	local ok = pcall(function()
+		local bcf, size = m:GetBoundingBox()
+		local lift = m:GetPivot().Position.Y - (bcf.Position.Y - size.Y / 2)
+		m:PivotTo(CFrame.new(ground + Vector3.new(0, lift, 0)) * yaw)
+	end)
+	if not ok and m.PrimaryPart then
+		m.PrimaryPart.CFrame = CFrame.new(ground + Vector3.new(0, 1.1, 0))
+	end
+	m:SetAttribute("SeaChest", counter)
+	m:SetAttribute("FromAsset", fromAsset)
+	local chest: Chest = { Model = m, Pos = ground, Opened = false, Id = counter, Lid = lidOf(m) }
+	local body = m.PrimaryPart
+	if body then
+		local prompt = Instance.new("ProximityPrompt")
+		prompt.Name = "OpenPrompt"
+		Locale.setWorld(prompt, "prompt.open", nil, "ActionText")
+		Locale.setWorld(prompt, "world.sea_chest", nil, "ObjectText")
+		prompt.HoldDuration = Config.SEA_CHEST.PROMPT_HOLD
+		prompt.MaxActivationDistance = 10
+		prompt.RequiresLineOfSight = false
+		prompt.KeyboardKeyCode = Enum.KeyCode.E
+		prompt.Parent = body
+		prompt.Triggered:Connect(function(player: Player)
+			SeaChestService.tryOpen(player, chest.Id)
+		end)
+	end
+	for _, d in ipairs(m:GetDescendants()) do
+		if d:IsA("BasePart") then
+			d.Touched:Connect(function(hit: BasePart)
+				local model = hit:FindFirstAncestorOfClass("Model")
+				local player = model and Players:GetPlayerFromCharacter(model)
+				if player then
+					SeaChestService.tryOpen(player, chest.Id)
+				end
+			end)
+		end
+	end
+	m.Parent = getFolder()
+	current = chest
+	SeaChestService.stats.Spawned += 1
+	Remotes.getEvent("SeaChest"):FireAllClients("Spawn", ground)
+	return chest
+end
+
+local function describeAll(loot: { { [string]: any } }, lang: string): string
+	local parts = {}
+	for _, r in ipairs(loot) do
+		local s = Economy.describe(r, lang)
+		if r.Bonus then
+			s = Locale.get(lang, "seachest.bonus", { reward = s })
+		end
+		table.insert(parts, s)
+	end
+	return table.concat(parts, ", ")
+end
+
+local function openAnim(c: Chest)
+	local lid = c.Lid
+	if lid then
+		pcall(function()
+			lid.CanCollide = false
+			TweenService:Create(lid, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
+				CFrame = lid.CFrame * CFrame.new(0, 1.2, 0.6) * CFrame.Angles(math.rad(-35), 0, 0),
+			}):Play()
+		end)
+	end
+	task.delay(2.5, function()
+		if c.Model.Parent then
+			for _, d in ipairs(c.Model:GetDescendants()) do
+				if d:IsA("BasePart") then
+					d.CanCollide = false
+					pcall(function()
+						TweenService:Create(d, TweenInfo.new(0.8), { Transparency = 1 }):Play()
+					end)
+				end
+			end
+		end
+		task.delay(0.9, function()
+			if c.Model.Parent then
+				c.Model:Destroy()
+			end
+		end)
+	end)
+end
+
+-- Попытка открыть. Возвращает ok и причину отказа (для тестов): gone | rate | nodata | dead | far
+function SeaChestService.tryOpen(player: Player, chestId: number?): (boolean, string?)
+	local c = current
+	if not c or c.Opened or (chestId ~= nil and chestId ~= c.Id) then
+		return false, "gone"
+	end
+	local now = os.clock()
+	if now - (lastTry[player] or -1) < 0.3 then
+		return false, "rate"
+	end
+	lastTry[player] = now
+	local data = DataService.get(player)
+	local session = Session.get(player)
+	if not data or not session or not session.Ready or player.Parent ~= Players then
+		return false, "nodata"
+	end
+	local char = player.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local hum = char and char:FindFirstChildOfClass("Humanoid")
+	if not root or not hum or hum.Health <= 0 then
+		return false, "dead"
+	end
+	local d = Vector3.new(root.Position.X - c.Pos.X, 0, root.Position.Z - c.Pos.Z)
+	if d.Magnitude > Config.SEA_CHEST.OPEN_DISTANCE or math.abs(root.Position.Y - c.Pos.Y) > 20 then
+		return false, "far"
+	end
+	-- первый открывший: помечаем до выдачи (дальше нет yield — вторая выдача невозможна)
+	c.Opened = true
+	current = nil
+	local loot = SeaChestLogic.loot(rng, { PerClick = Economy.getPerClick(player, data), Zones = data.Zones })
+	for _, r in ipairs(loot) do
+		Economy.grant(player, r)
+	end
+	State.markCore(player)
+	SeaChestService.stats.Opened += 1
+	c.Model:SetAttribute("OpenedBy", player.UserId)
+	for _, dsc in ipairs(c.Model:GetDescendants()) do
+		if dsc:IsA("ProximityPrompt") then
+			dsc.Enabled = false
+		end
+	end
+	Notify.send(
+		player,
+		Locale.m("seachest.reward", { reward = describeAll(loot, Locale.langOf(player)) }),
+		"reward"
+	)
+	Remotes.getEvent("SeaChest"):FireAllClients("Open", c.Pos)
+	openAnim(c)
+	return true, nil
+end
+
+function SeaChestService.init()
+	Players.PlayerRemoving:Connect(function(p)
+		lastTry[p] = nil
+	end)
+	if not Config.SEA_CHEST.ENABLED or Workspace:GetAttribute("SeaChestPaused") == true then
+		return
+	end
+	task.spawn(function()
+		task.wait(Config.SEA_CHEST.FIRST_DELAY)
+		while true do
+			if Workspace:GetAttribute("SeaChestPaused") ~= true then
+				SeaChestService.spawn()
+			end
+			task.wait(Config.SEA_CHEST.INTERVAL)
+		end
+	end)
+end
+
+return SeaChestService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16521,7 +17650,47 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+				<Properties>
+					<string name="Name">SettingsService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	SettingsService (v3.1) — звуковые настройки игрока: SetAudio(key, value).
+	Хранятся в data.Settings.Audio (переживают перезаход), уходят клиенту в Core.Audio. Валидация — AudioData.set.
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local AudioData = require(ReplicatedStorage.Shared.AudioData)
+
+local DataService = require(script.Parent.DataService)
+local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
+
+local SettingsService = {}
+
+function SettingsService.setAudio(player: Player, key: any, value: any): (boolean, string?)
+	local data = DataService.get(player)
+	if not data then
+		return false, "err.bad_request"
+	end
+	local audio, err = AudioData.set(data.Settings.Audio, key, value)
+	if not audio then
+		return false, err
+	end
+	data.Settings.Audio = audio
+	State.markCore(player)
+	return true, nil
+end
+
+function SettingsService.init()
+	-- ползунок громкости нажимают часто: 4 в секунду, запас 10
+	Router.register("SetAudio", 4, 10, SettingsService.setAudio)
+end
+
+return SettingsService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16565,7 +17734,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16626,7 +17795,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16749,6 +17918,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		AutoCollect = data.AutoCollect,
 		LangSetting = data.Settings and data.Settings.Lang or "auto",
 		Hotbar = data.Settings and data.Settings.Hotbar, -- v2.9: быстрые слоты 3..5
+		Audio = data.Settings and data.Settings.Audio, -- v3.1: музыка/звуки
 		Passes = passes,
 		Premium = session ~= nil and session.Premium,
 		PaidRandomRestricted = session == nil or session.PaidRandomRestricted,
@@ -16875,7 +18045,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16953,7 +18123,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16982,7 +18152,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17284,7 +18454,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18149,7 +19319,7 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
 				<Properties>
 					<string name="Name">ToolService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18312,7 +19482,7 @@ return ToolService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18845,7 +20015,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18922,7 +20092,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18979,7 +20149,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -20213,6 +21383,34 @@ function WorldBuilder.getPortalPosition(zoneId: string): Vector3?
 	return stationPositions["portal_" .. zoneId]
 end
 
+-- v3.1: «занятые» места хаба (круги { Pos, R }) — сюда не ставим морской сундук: точка появления, фонтан,
+-- арки-порталы, станции и NPC, яйца, табло, вывеска с логотипом
+function WorldBuilder.getHubBlockers(): { { Pos: Vector3, R: number } }
+	local list = {
+		{ Pos = Vector3.new(0, 0, 26), R = 22 }, -- площадь спавна
+		{ Pos = Vector3.new(0, 0, 0), R = 17 }, -- фонтан
+		{ Pos = Vector3.new(0, 0, -50), R = 12 }, -- вывеска с логотипом
+	}
+	local function flat(v: Vector3): Vector3
+		return Vector3.new(v.X, 0, v.Z)
+	end
+	for id, pos in pairs(stationPositions) do
+		if flat(pos).Magnitude <= ZoneData.HUB_RADIUS then
+			local portal = string.sub(id, 1, 7) == "portal_"
+			table.insert(
+				list,
+				{ Pos = flat(pos), R = if portal then 16 elseif id == "board" then 16 else 12 }
+			)
+		end
+	end
+	for _, pos in pairs(eggPositions) do
+		if flat(pos).Magnitude <= ZoneData.HUB_RADIUS then
+			table.insert(list, { Pos = flat(pos), R = 14 })
+		end
+	end
+	return list
+end
+
 function WorldBuilder.onEggPrompt(cb: (Player, string) -> ())
 	table.insert(eggCallbacks, cb)
 end
@@ -20240,7 +21438,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 				<Properties>
 					<string name="Name">WorldDecor</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21152,7 +22350,7 @@ return WorldDecor
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21255,15 +22453,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000005A">
+	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000005F">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX0000000000000000000000000000005B">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000060">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005C">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000061">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21321,7 +22519,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005D">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000062">
 				<Properties>
 					<string name="Name">EnemyVisuals</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21821,7 +23019,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005E">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000063">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21983,7 +23181,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005F">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000064">
 				<Properties>
 					<string name="Name">PortalSwirl</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -22043,7 +23241,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000060">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000065">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -22150,22 +23348,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000061">
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000066">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000062">
+		<Item class="ScreenGui" referent="RBX00000000000000000000000000000067">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX00000000000000000000000000000063">
+			<Item class="Folder" referent="RBX00000000000000000000000000000068">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22198,7 +23396,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22297,7 +23495,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22357,6 +23555,19 @@ function ClientState.refresh()
 	end
 end
 
+-- v3.1: мгновенно применить подтверждённое сервером изменение (например, назначение быстрого слота),
+-- не дожидаясь следующего снимка; следующий снимок от сервера всё равно перезапишет Core целиком.
+function ClientState.patchCore(key: string, value: any)
+	local core = ClientState.Core
+	if type(core) ~= "table" then
+		return
+	end
+	core[key] = value
+	for _, fn in ipairs(coreListeners) do
+		task.spawn(fn, core)
+	end
+end
+
 -- Серверное время (unix) с поправкой, чтобы таймеры были одинаковыми у всех
 function ClientState.serverNow(): number
 	return os.time() + ClientState.TimeOffset
@@ -22402,7 +23613,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22659,7 +23870,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23160,16 +24371,18 @@ function DailyPanel.init(gui: ScreenGui)
 		local pad, gap = 14, 8
 		local headerH = if li.Mode == "landscape" then 50 else 62
 		local winW, cols, rows
+		-- v3.1: окно меньше (Theme.PANEL_SHRINK): ПК — в 1.5 раза по ширине, телефон — мягче (текст читается)
 		if portrait then
-			winW = math.min(W - 16, 520)
+			winW = math.min(W - 16, 520) * 0.86
 			cols, rows = 4, 2
 		elseif li.Mode == "landscape" then
-			winW = math.min(W - 24, 960)
+			winW = math.min(W - 24, 960) / 1.3
 			cols, rows = 7, 1
 		else
-			winW = math.min(W - 80, 940)
+			winW = math.min(W - 80, 940) / Theme.PANEL_SHRINK
 			cols, rows = 7, 1
 		end
+		winW = math.floor(winW)
 		local cardW = math.floor((winW - 2 * pad - (cols - 1) * gap) / cols)
 		local cardH = math.floor(cardW * (if portrait then 1.62 else 1.48))
 		local btnH = if li.Mode == "landscape" then 44 else 54
@@ -23518,7 +24731,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23709,7 +24922,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23741,7 +24954,7 @@ local function formatChance(percent: number): string
 end
 
 function EggPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Egg")
+	local panel = Widgets.panel(gui, "Egg", nil, { MinH = 440 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
 	L.unbind(titleLabel, "Text") -- заголовок — имя яйца (ставится в render)
@@ -24021,7 +25234,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24440,7 +25653,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24643,7 +25856,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25224,7 +26437,7 @@ return Hotbar
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25275,6 +26488,20 @@ Hud.LEFT = {
 		Color = Color3.fromRGB(60, 150, 255),
 	},
 }
+-- v3.1: левые кнопки компактнее в 2.5 раза. Все одной высоты LEFT_H «дизайнерских» px; ширина зависит от
+-- режима (на ПК — под подпись мелким шрифтом, на телефоне — короче, высота упирается в Theme.MIN_TAP).
+Hud.LEFT_H = 40
+Hud.LEFT_W = { wide = 190, wideMore = 120, touch = 112, touchMore = 84 }
+Hud.LEFT_SHRINK = 2.5
+-- side — масштаб боковых кнопок v3.0 (кнопка «Магазин» была 60 px высотой × side).
+-- Возвращает масштаб левой колонки и ширины кнопок (обычной и «Ещё») в «дизайнерских» px.
+function Hud.leftLayout(lay: any, side: number): (number, number, number)
+	local k = side * 60 / Hud.LEFT_SHRINK / Hud.LEFT_H
+	if lay.Mode == "wide" then
+		return k, Hud.LEFT_W.wide, Hud.LEFT_W.wideMore
+	end
+	return math.max(k, Theme.MIN_TAP / Hud.LEFT_H), Hud.LEFT_W.touch, Hud.LEFT_W.touchMore
+end
 Hud.RIGHT = {
 	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
 	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
@@ -25359,40 +26586,49 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Name = "LeftButtons",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 12, 0.45, 0),
-		Size = UDim2.fromOffset(176, 244),
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 4 * Hud.LEFT_H + 3 * 6),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
 	})
 	local leftScale = Widgets.New("UIScale", { Parent = left })
 	Widgets.New("UIListLayout", {
-		Padding = UDim.new(0, 10),
+		Padding = UDim.new(0, 6),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		VerticalAlignment = Enum.VerticalAlignment.Center,
 		Parent = left,
 	})
 	local buttons = {}
+	-- v3.1: все четыре кнопки одной высоты (Hud.LEFT_H): масштаб считается так, чтобы на ПК они были
+	-- в 2.5 раза ниже, чем в v3.0, а на телефоне — не ниже Theme.MIN_TAP; подпись занимает почти всю высоту
+	local function compact(b: TextButton)
+		local cap = b:FindFirstChild("Caption") :: GuiObject?
+		if cap then
+			cap.Size = UDim2.new(cap.Size.X.Scale, cap.Size.X.Offset, 0.8, 0)
+		end
+	end
 	for i, item in ipairs(Hud.LEFT) do
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
 			Icon = item.Icon,
 			Text = L.k(item.Text),
-			Size = UDim2.fromOffset(176, 60),
-			MaxTextSize = 28,
+			Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
+			MaxTextSize = 30,
 			LayoutOrder = i,
 			OnClick = function()
 				openPanel(item.Id)
 			end,
 			Parent = left,
 		})
+		compact(buttons[item.Id])
 	end
 	local autoBtn = Widgets.hudButton({
 		Name = "AutoToggle",
 		Color = Theme.Green,
 		Text = L.k("hud.auto_on"),
-		Size = UDim2.fromOffset(176, 34),
-		MaxTextSize = 18,
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
+		MaxTextSize = 30,
 		Radius = 17,
 		LayoutOrder = 3,
 		OnClick = function()
@@ -25404,13 +26640,14 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = left,
 	})
 	autoBtn.Visible = false
+	compact(autoBtn)
 	local moreBtn = Widgets.hudButton({
 		Name = "MoreBtn",
 		Color = Color3.fromRGB(150, 90, 240),
 		Icon = "☰",
 		Text = L.k("hud.more"),
-		Size = UDim2.fromOffset(120, 48), -- v3.0: 48 — на телефоне не меньше Theme.MIN_TAP
-		MaxTextSize = 22,
+		Size = UDim2.fromOffset(Hud.LEFT_W.wideMore, Hud.LEFT_H),
+		MaxTextSize = 30,
 		LayoutOrder = 4,
 		OnClick = function()
 			openPanel("More")
@@ -25418,6 +26655,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = left,
 	})
 	local moreDot = Widgets.dot(moreBtn)
+	compact(moreBtn)
 
 	-- ---------- справа: Яйца / Питомцы / Задания / Инвентарь ----------
 	local right = Widgets.New("Frame", {
@@ -25548,12 +26786,17 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		local s = Hotbar.scaleFor(lay)
 		-- боковые кнопки компактнее хотбара (как в образце): на телефоне не закрывают персонажа
 		local side = s * (if lay.Mode == "wide" then 0.92 else 0.8)
-		-- v3.0: на телефоне самая низкая кнопка слева («Ещё», 48) — не меньше Theme.MIN_TAP пикселей;
-		-- на ПК (мышь) — честный масштаб 1/1.5
-		if lay.Mode ~= "wide" then
-			side = math.max(side, Theme.MIN_TAP / 48)
+		-- v3.0: на телефоне кнопки — не меньше Theme.MIN_TAP пикселей; на ПК (мышь) — честный масштаб 1/1.5
+		local rightSide = if lay.Mode ~= "wide" then math.max(side, Theme.MIN_TAP / 48) else side
+		-- v3.1: левые кнопки (Магазин/Индекс/Авто/Ещё) в 2.5 раза ниже, чем в v3.0
+		local leftSide, w, wm = Hud.leftLayout(lay, side)
+		for _, item in ipairs(Hud.LEFT) do
+			buttons[item.Id].Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		end
-		leftScale.Scale, rightScale.Scale, walletScale.Scale = side, side, s
+		autoBtn.Size = UDim2.fromOffset(w, Hud.LEFT_H)
+		moreBtn.Size = UDim2.fromOffset(wm, Hud.LEFT_H)
+		left.Size = UDim2.fromOffset(w, 4 * Hud.LEFT_H + 3 * 6)
+		leftScale.Scale, rightScale.Scale, walletScale.Scale = leftSide, rightSide, s
 		if lay.Mode == "portrait" then
 			left.Position = UDim2.new(0, 10, 0.45, 0)
 			right.Position = UDim2.new(1, -10, 0.42, 0)
@@ -25608,7 +26851,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26061,7 +27304,7 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
 					<Properties>
 						<string name="Name">IndexPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26263,7 +27506,7 @@ return IndexPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
 					<Properties>
 						<string name="Name">InventoryPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26275,6 +27518,10 @@ return IndexPanel
 	v2.9: у предметов «одним нажатием» (зелье удачи, эликсир монет, билеты) в карточке кнопки «В слот 3 / 4 / 5»
 	(у уже назначенного — «Убрать из слота N»), действие SetHotbar; у угощения и катализатора — пояснение,
 	что они применяются в окне «Питомцы». Пустой быстрый слот открывает окно с подсказкой «Выберите предмет для слота N».
+	v3.1 (баг «не назначается в пустой слот»): карточка больше не пересоздаётся при каждом изменении количеств —
+	только при смене ключа HotbarData.cardKey (предмет / режим выбора / слот предмета); счётчик «У вас» обновляется
+	на месте. В режиме «для слота N» тап по подходящему предмету сразу кладёт его в слот N. Подтверждённое
+	назначение сразу применяется в ClientState (patchCore), слот хотбара перерисовывается без ожидания снимка.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -26340,7 +27587,7 @@ function InventoryPanel.lineText(line): string
 end
 
 function InventoryPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Inventory")
+	local panel = Widgets.panel(gui, "Inventory", nil, { MinH = 470 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local grid = Widgets.scroller(body, {
@@ -26386,12 +27633,26 @@ function InventoryPanel.init(gui: ScreenGui)
 	local cells = {}
 	local pendingSlot: number? = nil -- v2.9: окно открыто из пустого быстрого слота
 	local refreshAll: () -> () = function() end
+	local cardKey: string? = nil -- v3.1: ключ отрисованной карточки (HotbarData.cardKey)
+	local busy = false -- v3.1: одно назначение за раз (двойной тап не шлёт два запроса)
 
-	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом, состояние придёт с сервера
+	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом.
+	-- v3.1: после «ok» новое назначение сразу применяется локально (тем же HotbarData.assign, что и на сервере).
 	local function assign(slot: number, id: string)
+		if busy then
+			return
+		end
+		busy = true
 		local item = RecipeData.Items[id]
-		if Actions.call("SetHotbar", slot, id) then
+		local ok = Actions.call("SetHotbar", slot, id)
+		busy = false
+		if ok then
 			pendingSlot = nil
+			local core = ClientState.Core
+			local hb = HotbarData.assign(core and core.Hotbar, slot, id)
+			if hb then
+				ClientState.patchCore("Hotbar", hb)
+			end
 			if id == "" then
 				Toasts.show(L.m("hotbar.cleared", { n = slot }), "info")
 			else
@@ -26403,9 +27664,19 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 	end
 
-	local function showInfo(id: string?)
-		Widgets.clear(info)
+	local function showInfo(id: string?, force: boolean?)
 		local core = ClientState.Core
+		local key = HotbarData.cardKey(id, pendingSlot, core and core.Hotbar)
+		if not force and key == cardKey then
+			-- та же карточка: только счётчик «У вас», кнопки остаются теми же экземплярами
+			local have = info:FindFirstChild("Have")
+			if id and have and have:IsA("TextLabel") then
+				have.Text = L.t("inv.have", { n = Util.formatNumber(InventoryData.count(core, id)) })
+			end
+			return
+		end
+		cardKey = key
+		Widgets.clear(info, { "UICorner" })
 		if not id then
 			local hint = UiKit.text(
 				info,
@@ -26547,6 +27818,14 @@ function InventoryPanel.init(gui: ScreenGui)
 		selected = id
 		paintSelection()
 		showInfo(id)
+		-- v3.1: окно открыто из пустого слота N — подходящий предмет сразу кладётся в этот слот
+		local slot = pendingSlot
+		if slot and HotbarData.canAssign(id) then
+			local core = ClientState.Core
+			if HotbarData.slotOf(core and core.Hotbar, id) ~= slot then
+				assign(slot, id)
+			end
+		end
 	end
 
 	local function build()
@@ -26652,6 +27931,7 @@ function InventoryPanel.init(gui: ScreenGui)
 	L.onChanged(function()
 		build()
 		sig = ""
+		cardKey = nil
 		if panel.IsOpen() then
 			panel.Refresh()
 		end
@@ -26697,7 +27977,7 @@ return InventoryPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26815,7 +28095,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27140,7 +28420,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
 					<Properties>
 						<string name="Name">MorePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27281,7 +28561,147 @@ return MorePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
+					<Properties>
+						<string name="Name">Music</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	Music (v3.1) — фоновая музыка и короткие звуки на клиенте.
+	  * спокойная тема (Config.SOUNDS.MUSIC_CALM) всё время, эпичная (MUSIC_EPIC) — пока идёт «Суперсила»
+	    (атрибут gui HuntActive от HuntHud); между ними плавный кроссфейд Config.MUSIC.FADE секунд;
+	  * настройки игрока Core.Audio (AudioData): музыка вкл/выкл, громкость, звуки вкл/выкл;
+	  * ID = 0 — трека нет: модуль ничего не создаёт и не играет (никаких ошибок и пустых Sound);
+	  * Sound создаются на клиенте в SoundService — слышит только этот игрок.
+	Music.sfx(key, pos?) — короткий звук из Config.SOUNDS (если звуки включены); с pos — в точке мира.
+	Звуки морского сундука (Remotes "SeaChest"): тихий сигнал появления и звук открытия.
+]]
+local Debris = game:GetService("Debris")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local SoundService = game:GetService("SoundService")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AudioData = require(Shared:WaitForChild("AudioData"))
+local Config = require(Shared:WaitForChild("Config"))
+local Remotes = require(Shared:WaitForChild("Remotes"))
+
+local ClientState = require(script.Parent.ClientState)
+
+local Music = {}
+
+local tracks: { [string]: { Sound: Sound, Mix: number, Base: number } } = {}
+local settings = AudioData.normalize(nil)
+local hunt = false
+
+function Music.settings()
+	return settings
+end
+
+function Music.target(): string?
+	if not settings.Music then
+		return nil
+	end
+	return AudioData.musicTarget(hunt, tracks.Calm ~= nil, tracks.Epic ~= nil)
+end
+
+local function step(dt: number)
+	local target = Music.target()
+	for name, t in pairs(tracks) do
+		t.Mix = AudioData.fadeStep(t.Mix, if name == target then 1 else 0, dt, Config.MUSIC.FADE)
+		local s = t.Sound
+		s.Volume = AudioData.gain(t.Mix, t.Base, settings.MusicVol)
+		if t.Mix > 0 and not s.IsPlaying then
+			if s.IsPaused and name == "Calm" then
+				s:Resume() -- спокойная тема продолжает с того же места
+			else
+				s.TimePosition = 0 -- эпичная — каждый раз с начала
+				s:Play()
+			end
+		elseif t.Mix <= 0 and s.IsPlaying then
+			s:Pause()
+		end
+	end
+end
+
+function Music.init(gui: ScreenGui)
+	local folder = Instance.new("Folder")
+	folder.Name = "PcsMusic"
+	folder.Parent = SoundService
+	for name, key in pairs({ Calm = "MUSIC_CALM", Epic = "MUSIC_EPIC" }) do
+		local id = AudioData.soundId(Config.SOUNDS[key])
+		if id then
+			local s = Instance.new("Sound")
+			s.Name = "Music" .. name
+			s.SoundId = id
+			s.Looped = true
+			s.Volume = 0
+			s.Parent = folder
+			tracks[name] = {
+				Sound = s,
+				Mix = 0,
+				Base = if name == "Epic" then Config.MUSIC.EPIC_VOLUME else Config.MUSIC.CALM_VOLUME,
+			}
+		end
+	end
+	gui:SetAttribute(
+		"MusicTracks",
+		(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
+	)
+	gui:GetAttributeChangedSignal("HuntActive"):Connect(function()
+		hunt = gui:GetAttribute("HuntActive") == true
+	end)
+	ClientState.onCore(function(core)
+		settings = AudioData.normalize(core and core.Audio)
+	end)
+	-- v3.1: морской сундук — о появлении сообщает только тихий звук в точке сундука (без значков и сообщений)
+	Remotes.getEvent("SeaChest").OnClientEvent:Connect(function(kind, pos)
+		if typeof(pos) ~= "Vector3" then
+			return
+		end
+		gui:SetAttribute("SeaChestSfx", kind)
+		if kind == "Spawn" then
+			Music.sfx("CHEST_SPAWN", pos, Config.MUSIC.CHEST_SPAWN_VOLUME)
+		elseif kind == "Open" then
+			Music.sfx("CHEST_OPEN", pos)
+		end
+	end)
+	RunService.Heartbeat:Connect(function(dt)
+		step(dt)
+		gui:SetAttribute("MusicTarget", Music.target() or "")
+	end)
+end
+
+function Music.sfx(key: string, pos: Vector3?, volume: number?)
+	local id = AudioData.soundId(Config.SOUNDS[key])
+	if not id or not settings.Sfx then
+		return
+	end
+	local s = Instance.new("Sound")
+	s.Name = "Sfx_" .. key
+	s.SoundId = id
+	s.Volume = volume or Config.MUSIC.SFX_VOLUME
+	if pos then
+		-- в точке мира: тихо и только рядом (RollOff), чтобы сигнал не «кричал» на весь хаб
+		local att = Instance.new("Attachment")
+		att.Name = "SfxAt"
+		att.Position = pos -- Terrain в начале координат: Position == мировая точка
+		att.Parent = Workspace.Terrain
+		s.RollOffMinDistance = 8
+		s.RollOffMaxDistance = 90
+		s.Parent = att
+		Debris:AddItem(att, 6)
+	else
+		s.Parent = SoundService
+		Debris:AddItem(s, 6)
+	end
+	s:Play()
+end
+
+return Music
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27331,7 +28751,7 @@ local function nextOf(list: { string }, current: string): string
 end
 
 function PetsPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Pets")
+	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local filters = { Element = "All", Role = "All", Rarity = "All", Sort = "Power", FavOnly = false }
@@ -27377,7 +28797,7 @@ function PetsPanel.init(gui: ScreenGui)
 			Text = filterText(key, filters[key]),
 			Color = Theme.BgLight,
 			Size = UDim2.new(0.2, -6, 0, 26),
-			Position = UDim2.new((index - 1) * 0.2, 10 + (index - 1) * 0, 0, 34),
+			Position = UDim2.new((index - 1) * 0.2, 10 - (index - 1) * 4, 0, 34),
 			ZIndex = 23,
 			MaxTextSize = 15,
 			Parent = body,
@@ -27405,7 +28825,7 @@ function PetsPanel.init(gui: ScreenGui)
 		Text = L.k("pets.favorites"),
 		Color = Theme.BgLight,
 		Size = UDim2.new(0.2, -6, 0, 26),
-		Position = UDim2.new(0.8, 10, 0, 34),
+		Position = UDim2.new(0.8, -6, 0, 34),
 		ZIndex = 23,
 		MaxTextSize = 15,
 		Parent = body,
@@ -27605,7 +29025,8 @@ function PetsPanel.init(gui: ScreenGui)
 	}
 	local filterOrder = { "Element", "Role", "Rarity", "Sort" }
 	Layout.onChanged(function(li)
-		local narrow = li.Mode == "portrait"
+		-- v3.1: окно на ПК стало в 1.5 раза уже — используем компактную (вертикальную) раскладку
+		local narrow = li.Mode ~= "landscape"
 		if narrow then
 			info.Size = UDim2.new(1, -24, 0, 20)
 			modeBtn.AnchorPoint = Vector2.new(0, 0)
@@ -27657,10 +29078,10 @@ function PetsPanel.init(gui: ScreenGui)
 			for i, key in ipairs(filterOrder) do
 				local b = filterBtns[key]
 				b.Size = UDim2.new(0.2, -6, 0, 26)
-				b.Position = UDim2.new((i - 1) * 0.2, 10, 0, 34)
+				b.Position = UDim2.new((i - 1) * 0.2, 10 - (i - 1) * 4, 0, 34)
 			end
 			favBtn.Size = UDim2.new(0.2, -6, 0, 26)
-			favBtn.Position = UDim2.new(0.8, 10, 0, 34)
+			favBtn.Position = UDim2.new(0.8, -6, 0, 34)
 			scroll.Position = UDim2.fromOffset(10, 66)
 			scroll.Size = UDim2.new(1, -20, 1, -66 - 134)
 			if grid then
@@ -28036,7 +29457,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28294,7 +29715,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007D">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28413,14 +29834,17 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007E">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
--- Настройки: выбор языка (Авто / English / Русский). Выбор хранится в данных игрока (Settings.Lang).
+-- Настройки: выбор языка (Авто / English / Русский) и звук (v3.1: музыка вкл/выкл, громкость музыки, звуки).
+-- Всё хранится в данных игрока (Settings.Lang, Settings.Audio).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local AudioData = require(Shared:WaitForChild("AudioData"))
+local Config = require(Shared:WaitForChild("Config"))
 local L = require(Shared:WaitForChild("Locale"))
 
 local Actions = require(script.Parent.Actions)
@@ -28433,7 +29857,14 @@ local SettingsPanel = {}
 
 function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 	local panel = Widgets.panel(gui, "Settings")
-	local body = panel.Body
+	-- v3.1: окно стало меньше — содержимое в прокрутке с фиксированной высотой холста
+	-- (AutomaticCanvasSize под UIScale в Roblox считает неверно)
+	local CANVAS_H = 470
+	local body = Widgets.scroller(panel.Body, {
+		Name = "SettingsScroll",
+		AutomaticCanvasSize = Enum.AutomaticSize.None,
+		CanvasSize = UDim2.fromOffset(0, CANVAS_H),
+	})
 	Widgets.padding(body, 14)
 
 	UiKit.text(body, L.k("settings.language"), UDim2.fromOffset(0, 0), UDim2.new(1, 0, 0, 30), {
@@ -28478,11 +29909,101 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 		TextColor3 = Theme.TextDim,
 		MaxSize = 18,
 	})
-	UiKit.text(body, L.k("settings.hint"), UDim2.fromOffset(0, 136), UDim2.new(1, 0, 0, 60), {
-		TextColor3 = Theme.TextDim,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		MaxSize = 16,
+	-- ---------- звук (v3.1) ----------
+	UiKit.text(body, L.k("settings.audio"), UDim2.fromOffset(0, 140), UDim2.new(1, 0, 0, 30), {
+		Font = Theme.Font,
+		MaxSize = 24,
 	})
+	local function setAudio(key: string, value: any)
+		Actions.call("SetAudio", key, value)
+	end
+	local function audio()
+		return AudioData.normalize(ClientState.Core and ClientState.Core.Audio)
+	end
+	local musicBtn = Widgets.button({
+		Name = "MusicToggle",
+		Text = "",
+		Color = Theme.Green,
+		Position = UDim2.fromOffset(0, 178),
+		Size = UDim2.new(0.5, -4, 0, 44),
+		MaxTextSize = 20,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			setAudio("Music", not audio().Music)
+		end,
+	})
+	local sfxBtn = Widgets.button({
+		Name = "SfxToggle",
+		Text = "",
+		Color = Theme.Green,
+		Position = UDim2.new(0.5, 4, 0, 178),
+		Size = UDim2.new(0.5, -4, 0, 44),
+		MaxTextSize = 20,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			setAudio("Sfx", not audio().Sfx)
+		end,
+	})
+	UiKit.text(body, L.k("settings.music_volume"), UDim2.fromOffset(0, 236), UDim2.new(0.45, 0, 0, 40), {
+		MaxSize = 18,
+	})
+	local volDown = Widgets.button({
+		Name = "VolDown",
+		Text = "−",
+		Color = Theme.Blue,
+		Position = UDim2.new(0.45, 0, 0, 234),
+		Size = UDim2.new(0.15, 0, 0, 44),
+		MaxTextSize = 24,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			setAudio("MusicVol", math.max(0, audio().MusicVol - AudioData.VOL_STEP))
+		end,
+	})
+	local volText = UiKit.text(body, "", UDim2.new(0.6, 4, 0, 234), UDim2.new(0.22, -8, 0, 44), {
+		Font = Theme.Font,
+		MaxSize = 22,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	volText.Name = "VolValue"
+	local volUp = Widgets.button({
+		Name = "VolUp",
+		Text = "+",
+		Color = Theme.Blue,
+		Position = UDim2.new(0.82, 0, 0, 234),
+		Size = UDim2.new(0.18, 0, 0, 44),
+		MaxTextSize = 24,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			setAudio("MusicVol", math.min(1, audio().MusicVol + AudioData.VOL_STEP))
+		end,
+	})
+	-- ID треков ещё не вписаны в Config.SOUNDS — честно говорим, что музыки пока нет
+	local missing = AudioData.soundId(Config.SOUNDS.MUSIC_CALM) == nil
+		and AudioData.soundId(Config.SOUNDS.MUSIC_EPIC) == nil
+	local missingText =
+		UiKit.text(body, L.k("settings.music_missing"), UDim2.fromOffset(0, 286), UDim2.new(1, 0, 0, 36), {
+			TextColor3 = Theme.TextDim,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			MaxSize = 15,
+		})
+	missingText.Name = "MusicMissing"
+	missingText.Visible = missing
+
+	UiKit.text(
+		body,
+		L.k("settings.hint"),
+		UDim2.fromOffset(0, if missing then 330 else 290),
+		UDim2.new(1, 0, 0, 60),
+		{
+			TextColor3 = Theme.TextDim,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			MaxSize = 16,
+		}
+	)
 
 	local function render()
 		local lp = Players.LocalPlayer
@@ -28496,6 +30017,14 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 		info.Text = if type(country) == "string" and country ~= ""
 			then L.t("settings.detected", { country = country })
 			else L.t("settings.detected_none")
+		local a = audio()
+		musicBtn.Text = L.t(if a.Music then "settings.music_on" else "settings.music_off")
+		musicBtn.BackgroundColor3 = if a.Music then Theme.Green else Theme.BgLight
+		sfxBtn.Text = L.t(if a.Sfx then "settings.sfx_on" else "settings.sfx_off")
+		sfxBtn.BackgroundColor3 = if a.Sfx then Theme.Green else Theme.BgLight
+		volText.Text = string.format("%d%%", math.floor(a.MusicVol * 100 + 0.5))
+		volDown.Active = a.MusicVol > 0
+		volUp.Active = a.MusicVol < 1
 	end
 	ClientState.onCore(render)
 	L.onChanged(render)
@@ -28520,7 +30049,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007F">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28753,7 +30282,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000080">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28935,7 +30464,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000081">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -28972,11 +30501,38 @@ function Theme.uiScale(lay: any?): number
 	return Theme.UI_SCALE
 end
 
+-- v3.1: всплывающие окна (Widgets.panel) в 1.5 раза меньше, чем в v3.0, при том же масштабе текста k:
+-- на ПК окно в 1.5 раза меньше по каждой стороне (было до 760×540 «дизайнерских» px × k), на телефоне —
+-- в ~1.5 раза меньше по площади (текст не мельче 0.8, кнопки >= MIN_TAP). Возвращает размер окна
+-- в «дизайнерских» пикселях (до UIScale k): видимый размер = результат × k.
+Theme.PANEL_SHRINK = 1.5
+-- minH — минимальная высота окна в «дизайнерских» px для окон с плотной раскладкой (питомцы, инвентарь,
+-- яйцо, обмен): они уменьшаются меньше, чтобы ничего не обрезалось.
+function Theme.panelDesign(lay: any, k: number, minH: number?): (number, number)
+	local w, h
+	if lay.Mode == "portrait" then
+		w, h = math.min(lay.W - 30, 360), math.min(lay.H * 0.36, 310)
+	elseif lay.Mode == "landscape" and lay.Touch then
+		w, h = math.min(lay.W - 170, 500), math.min(lay.H - 60, 300)
+	elseif lay.Mode == "landscape" then
+		w, h = math.min(lay.W * 0.84, 760 * k), math.min(lay.H - 24, 540 * k)
+		w, h = w / Theme.PANEL_SHRINK, math.max(h / Theme.PANEL_SHRINK, math.min(lay.H - 24, 240))
+	else
+		w = math.min(lay.W * 0.62, 760 * k) / Theme.PANEL_SHRINK
+		h = math.min(lay.H * 0.72, 540 * k) / Theme.PANEL_SHRINK
+	end
+	if minH then
+		local maxH = if lay.Mode == "portrait" then lay.H * 0.6 else lay.H - 24
+		h = math.min(math.max(h, minH * k), math.max(h, maxH))
+	end
+	return math.floor(w / k), math.floor(h / k)
+end
+
 return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000082">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29136,7 +30692,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000083">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29163,7 +30719,7 @@ local TradePanel = {}
 local localPlayer = Players.LocalPlayer
 
 function TradePanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Trade")
+	local panel = Widgets.panel(gui, "Trade", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	-- ---------- режим «без обмена» ----------
@@ -29391,9 +30947,10 @@ function TradePanel.init(gui: ScreenGui)
 		Name = "Ready",
 		Text = L.k("trade.ui.ready"),
 		Color = Theme.Blue,
-		Size = UDim2.new(0.18, 0, 0, 40),
+		Size = UDim2.new(0.17, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -330, 1, -8),
+		-- v3.1: окно стало уже — кнопки привязаны долями ширины, чтобы не наезжать на ряд питомцев
+		Position = UDim2.new(0.6, 0, 1, -8),
 		ZIndex = 23,
 		MaxTextSize = 18,
 		Parent = live,
@@ -29404,7 +30961,7 @@ function TradePanel.init(gui: ScreenGui)
 		Color = Theme.Green,
 		Size = UDim2.new(0.22, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
-		Position = UDim2.new(1, -110, 1, -8),
+		Position = UDim2.new(0.84, -4, 1, -8),
 		ZIndex = 23,
 		MaxTextSize = 18,
 		Parent = live,
@@ -29413,7 +30970,7 @@ function TradePanel.init(gui: ScreenGui)
 		Name = "Cancel",
 		Text = L.k("trade.ui.cancel"),
 		Color = Theme.Red,
-		Size = UDim2.new(0.14, 0, 0, 40),
+		Size = UDim2.new(0.15, 0, 0, 40),
 		AnchorPoint = Vector2.new(1, 1),
 		Position = UDim2.new(1, -10, 1, -8),
 		ZIndex = 23,
@@ -29642,7 +31199,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000084">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29787,7 +31344,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000085">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29929,7 +31486,9 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 		local c = (20 + 6 * (n - 1)) / n
 		for i, name in ipairs(names) do
 			local b = buttons[name]
-			if li.Mode == "portrait" and (10 + n * (w + 6)) > li.W - 40 then
+			-- v3.1: окна стали меньше — делим ширину и на ПК, если вкладки не влезают в окно
+			local pw = Theme.panelDesign(li, Theme.uiScale(li))
+			if (10 + n * (w + 6)) > math.min(pw, li.W - 40) then
 				b.Size = UDim2.new(1 / n, -c, 0, 30)
 				b.Position = UDim2.new((i - 1) / n, 10 + (i - 1) * (6 - c), 0, y or 4)
 			else
@@ -30045,7 +31604,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000080">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000086">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30150,7 +31709,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000081">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000087">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30460,7 +32019,7 @@ end
 
 -- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
 -- title — английское имя панели (Name = title .. "Panel"); заголовок берётся из ключа "panel.<title без пробелов>".
-function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
+function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts: { MinH: number? }?)
 	local root = New("Frame", {
 		Name = title .. "Panel",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -30473,32 +32032,23 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 	})
 	Widgets.corner(root, 16)
 	Widgets.stroke(root, Theme.BgLight, 3)
-	New(
-		"UISizeConstraint",
-		{ MaxSize = Vector2.new(760, 540), MinSize = Vector2.new(300, 240), Parent = root }
-	)
+	New("UISizeConstraint", { MinSize = Vector2.new(300, 240), Parent = root })
 	local scale = New("UIScale", { Name = "UiScale", Parent = root })
-	-- v3.0: содержимое панели в Theme.uiScale раз меньше. На ПК панель занимает меньше места,
-	-- на телефоне размеры делятся на k, чтобы панель по-прежнему занимала тот же прямоугольник.
+	-- v3.0: содержимое панели в Theme.uiScale раз меньше (k).
+	-- v3.1: и само окно в 1.5 раза меньше (Theme.panelDesign): размер задаётся явно в пикселях «до масштаба»
+	-- (без UISizeConstraint.MaxSize — итоговый размер не зависит от порядка применения ограничения и UIScale).
 	local k = Theme.UI_SCALE
-	-- телефон (v2.4): панель почти во всю ширину; вертикально — чуть выше центра, снизу место для тостов
+	-- телефон (v2.4): вертикально — чуть выше центра, снизу место для тостов
 	Layout.onChanged(function(lay)
 		k = Theme.uiScale(lay)
-		local function fit(xs: number, xo: number, ys: number, yo: number): UDim2
-			return UDim2.new(xs / k, xo / k, ys / k, yo / k)
-		end
+		local w, h = Theme.panelDesign(lay, k, opts and opts.MinH)
+		root.Size = UDim2.fromOffset(w, h)
 		if lay.Mode == "portrait" then
-			root.Size = fit(1, -16, 0.68, 0)
 			root.Position = UDim2.fromScale(0.5, 0.46)
 		elseif lay.Mode == "landscape" and lay.Touch then
 			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
-			root.Size = fit(1, -140, 1, -24)
 			root.Position = UDim2.new(0.5, -55, 0.5, 0)
-		elseif lay.Mode == "landscape" then
-			root.Size = fit(0.84, 0, 1, -24)
-			root.Position = UDim2.fromScale(0.5, 0.5)
 		else
-			root.Size = UDim2.fromScale(0.62, 0.72)
 			root.Position = UDim2.fromScale(0.5, 0.5)
 		end
 		scale.Scale = k
@@ -30621,7 +32171,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000082">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000088">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30753,7 +32303,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000083">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000089">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30831,6 +32381,7 @@ Hud.eggPanel = panels.Egg
 Hud.invPanel = panels.Inventory
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
+require(Modules:WaitForChild("Music")).init(gui) -- v3.1: фоновая музыка и кроссфейд на «Суперсилу»
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)
 
 -- Смена языка: привязанные тексты (L.k) перерисовывает сам Locale, остальное — повторный снимок состояния
@@ -30842,4 +32393,9 @@ ClientState.requestResync()
 			</Item>
 		</Item>
 	</Item>
+	<SharedStrings>
+		<SharedString md5="e0w/ZqfEv4mZCVNh80AbYg==">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</SharedString>
+		<SharedString md5="ps2SmT544cOG0bIvKMc/sA==">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</SharedString>
+		<SharedString md5="rxNJufX5oaagQE3qNtzJSQ==" />
+	</SharedStrings>
 </roblox>

@@ -496,16 +496,18 @@ function DailyPanel.init(gui: ScreenGui)
 		local pad, gap = 14, 8
 		local headerH = if li.Mode == "landscape" then 50 else 62
 		local winW, cols, rows
+		-- v3.1: окно меньше (Theme.PANEL_SHRINK): ПК — в 1.5 раза по ширине, телефон — мягче (текст читается)
 		if portrait then
-			winW = math.min(W - 16, 520)
+			winW = math.min(W - 16, 520) * 0.86
 			cols, rows = 4, 2
 		elseif li.Mode == "landscape" then
-			winW = math.min(W - 24, 960)
+			winW = math.min(W - 24, 960) / 1.3
 			cols, rows = 7, 1
 		else
-			winW = math.min(W - 80, 940)
+			winW = math.min(W - 80, 940) / Theme.PANEL_SHRINK
 			cols, rows = 7, 1
 		end
+		winW = math.floor(winW)
 		local cardW = math.floor((winW - 2 * pad - (cols - 1) * gap) / cols)
 		local cardH = math.floor(cardW * (if portrait then 1.62 else 1.48))
 		local btnH = if li.Mode == "landscape" then 44 else 54

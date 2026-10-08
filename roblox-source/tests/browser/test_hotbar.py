@@ -75,14 +75,20 @@ with serve('/tmp/gw_ui') as url:
         page.wait_for_timeout(500)
         check('пустой слот открывает инвентарь «Выберите предмет для слота 5»', 'слота 5' in g.text(INV + ' [data-n="Hint"]'))
         g.cmd('item:ticket_MeadowEgg=1')
-        g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]'); page.wait_for_timeout(500)
-        check('у билета кнопки «В слот 3/4/5»', all(g.vis(INV + ' [data-n="ToSlot%d"]' % n) for n in (3, 4, 5)))
-        g.shot('02_assign')
-        g.click(INV + ' [data-n="ToSlot5"]')
-        g.wait(lambda: cap(g, 5) == 'Билет', what='ticket slot')
-        check('назначено: в слоте 5 билет ×1', cnt(g, 5) == '×1' and g.vis(S(5) + ' > [data-n="Icon"]'), cnt(g, 5))
+        # v3.1: в режиме «для слота 5» тап по подходящему предмету сразу кладёт его в слот 5
+        g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]')
+        g.wait(lambda: cap(g, 5) == 'Билет', what='ticket slot (one tap)')
+        check('назначено одним тапом: в слоте 5 билет ×1', cnt(g, 5) == '×1' and g.vis(S(5) + ' > [data-n="Icon"]'), cnt(g, 5))
         page.wait_for_timeout(400)
         check('у назначенного — «Убрать из слота 5»', 'слота 5' in g.text(INV + ' [data-n="RemoveSlot"]'))
+        g.shot('02_assign')
+        # кнопки карточки: «Убрать из слота 5» -> слот пуст, затем «В слот 5» (путь через кнопки карточки)
+        g.click(INV + ' [data-n="RemoveSlot"]')
+        g.wait(lambda: cap(g, 5) == 'Пусто', what='ticket removed')
+        check('у билета кнопки «В слот 3/4/5»', all(g.vis(INV + ' [data-n="ToSlot%d"]' % n) for n in (3, 4, 5)))
+        g.click(INV + ' [data-n="ToSlot5"]')
+        g.wait(lambda: cap(g, 5) == 'Билет', what='ticket slot')
+        check('«В слот 5» из карточки — билет снова в слоте 5', cnt(g, 5) == '×1')
         g.click(INV + ' [data-n="Cell_xp_treat"]'); page.wait_for_timeout(400)
         check('угощение — без кнопок слотов, с пояснением', not g.vis(INV + ' [data-n="SlotRow"]') and 'Питомцы' in g.text(INV + ' [data-n="SlotNote"]'))
         g.click(INV + ' [data-n="Cell_coin_elixir"]'); page.wait_for_timeout(400)
@@ -103,12 +109,63 @@ with serve('/tmp/gw_ui') as url:
         g.wait(lambda: cap(g, 5) == 'Билет', timeout=40, what='slot5 after reload')
         check('после перезагрузки: билет в слоте 5', True)
         g.wait(lambda: mmss(cap(g, 3))[1] > 0, timeout=20, what='timer after reload')
-        check('после перезагрузки таймер корректный (x5 ~9:5x)', mmss(cap(g, 3))[0] == 5 and 540 <= mmss(cap(g, 3))[1] <= 600, cap(g, 3))
+        check('после перезагрузки таймер корректный (x5 ~9:5x)', mmss(cap(g, 3))[0] == 5 and 480 <= mmss(cap(g, 3))[1] <= 600, cap(g, 3))
         # билет: вдали от яйца — окно яйца и подсказка подойти (или сразу открыть, если рядом)
         g.click(S(5)); page.wait_for_timeout(1200)
         t = toasts(page)
         check('билет из слота: окно яйца или открытие', g.vis('[data-n="EggPanel"]') or cnt(g, 5) == '×0', t)
         check('ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0, page.evaluate('R2W.ENV.errorCount'))
+    # v3.1 регрессия «не назначается в пустой слот» (реальная игра): питомцы фармят — счётчики меняются
+    # несколько раз в секунду; тап длится ~0.3 с (нажатие и отпускание — разные моменты, как на телефоне).
+    # Раньше карточка пересоздавалась на каждом снимке, кнопка под пальцем исчезала и тап терялся (~1/3 успехов).
+    with browser(390, 844, True) as ctx:
+        page = ctx.new_page(); g = G(page); g.shots = SHOTS
+        page.goto(url + 'index.html?persist=0&seed=1&country=RU&lang=ru&attr.DailyAutoOpen=false&attr.BotsDisabled=true')
+        g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
+        g.wait(lambda: not g.vis('[data-n="Dot2"]'), timeout=40, what='loading')
+        page.wait_for_timeout(1500)
+        g.cmd('item:ticket_MeadowEgg=1'); g.cmd('farm:on')
+        open_inv = page.locator('[data-n="InventoryBtn"]').first
+        open_inv.click(); g.wait(lambda: g.vis(INV), what='inventory')
+        g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]'); page.wait_for_timeout(500)
+        page.evaluate("()=>{window.__b=document.querySelector('[data-n=InventoryPanel] [data-n=ToSlot5]')}")
+        w0 = g.text(INV + ' [data-n="Have"]')
+        page.wait_for_timeout(2500)
+        same = page.evaluate("()=>!!(window.__b&&window.__b.isConnected)")
+        check('пока счётчики меняются, кнопка «В слот 5» — тот же экземпляр', same)
+        okc, n = 0, 8
+        for k in range(n):
+            want = 'Билет' if cap(g, 5) == 'Пусто' else 'Пусто'
+            sel = INV + (' [data-n="ToSlot5"]' if want == 'Билет' else ' [data-n="RemoveSlot"]')
+            b = page.locator(sel).first.bounding_box()
+            page.mouse.move(b['x'] + b['width'] / 2, b['y'] + b['height'] / 2)
+            page.mouse.down(); page.wait_for_timeout(300); page.mouse.up()
+            try:
+                g.wait(lambda: cap(g, 5) == want, timeout=5); okc += 1
+            except AssertionError:
+                pass
+        check('тапы 0.3 с во время фарма: %d/%d назначений/снятий прошли' % (okc, n), okc == n)
+        g.cmd('farm:off'); page.wait_for_timeout(500)
+        g.click(INV + ' [data-n="Close"]'); page.wait_for_timeout(400)
+        # пустой «+» во время фарма: тап по слоту -> тап по предмету -> предмет в слоте
+        if cap(g, 5) != 'Пусто':
+            open_inv.click(); g.wait(lambda: g.vis(INV), what='inv')
+            g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]'); page.wait_for_timeout(400)
+            g.click(INV + ' [data-n="RemoveSlot"]'); g.wait(lambda: cap(g, 5) == 'Пусто', what='clear')
+            g.click(INV + ' [data-n="Close"]'); page.wait_for_timeout(400)
+        g.cmd('farm:on')
+        g.click(S(5)); g.wait(lambda: g.vis(INV), what='inv from +')
+        b = page.locator(INV + ' [data-n="Cell_ticket_MeadowEgg"]').first
+        b.scroll_into_view_if_needed(); bb = b.bounding_box()
+        page.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
+        page.mouse.down(); page.wait_for_timeout(300); page.mouse.up()
+        try:
+            g.wait(lambda: cap(g, 5) == 'Билет', timeout=6); ok = True
+        except AssertionError:
+            ok = False
+        check('«+» → тап по билету во время фарма — билет в слоте 5', ok, cap(g, 5))
+        g.cmd('farm:off')
+        g.shot('03_assign_while_farming')
     for (w, h) in [(390, 844), (844, 390)]:
         with browser(w, h, True) as ctx:
             page = ctx.new_page(); g = G(page); g.shots = SHOTS

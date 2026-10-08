@@ -27,7 +27,7 @@ local function formatChance(percent: number): string
 end
 
 function EggPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Egg")
+	local panel = Widgets.panel(gui, "Egg", nil, { MinH = 440 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
 	L.unbind(titleLabel, "Text") -- заголовок — имя яйца (ставится в render)

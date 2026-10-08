@@ -5,13 +5,13 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 118,
-    "transpiled": 118,
+    "total": 123,
+    "transpiled": 123,
     "failed": [],
-    "lines": 30180
+    "lines": 31265
   },
   "globals": {
-    "used": 36,
+    "used": 37,
     "supported": [
       "CFrame",
       "Color3",
@@ -21,6 +21,7 @@
       "Instance",
       "NumberRange",
       "NumberSequence",
+      "OverlapParams",
       "Random",
       "RaycastParams",
       "TweenInfo",
@@ -66,6 +67,7 @@
       "Instance.new",
       "NumberRange.new",
       "NumberSequence.new",
+      "OverlapParams.new",
       "Random.new",
       "RaycastParams.new",
       "TweenInfo.new",
@@ -93,6 +95,7 @@
       "math.rad",
       "math.random",
       "math.sin",
+      "math.sqrt",
       "os.clock",
       "os.time",
       "string.find",
@@ -127,6 +130,7 @@
     "supported": [
       "BadgeService",
       "DataStoreService",
+      "Debris",
       "HttpService",
       "Lighting",
       "LocalizationService",
@@ -136,6 +140,8 @@
       "ReplicatedFirst",
       "ReplicatedStorage",
       "RunService",
+      "ServerStorage",
+      "SoundService",
       "StarterGui",
       "StarterPack",
       "TweenService",
@@ -151,6 +157,7 @@
       "Animation",
       "Animator",
       "Atmosphere",
+      "Attachment",
       "BillboardGui",
       "Camera",
       "Folder",
@@ -168,6 +175,7 @@
       "RemoteEvent",
       "RemoteFunction",
       "ScreenGui",
+      "Sound",
       "SpawnLocation",
       "StringValue",
       "SurfaceGui",
@@ -187,6 +195,7 @@
     "supported": [
       "ApplyStrokeMode.Border",
       "ApplyStrokeMode.Contextual",
+      "AutomaticSize.None",
       "AutomaticSize.X",
       "AutomaticSize.Y",
       "CoreGuiType.Backpack",
@@ -266,7 +275,10 @@
     "GetUserInfosByUserIdsAsync",
     "Normal"
   ],
-  "warnings": [],
+  "warnings": [
+    "Модель assets/models/SeaChest.rbxmx (.rbxm/.rbxmx) не поддерживается — пропущена.",
+    "$path \"assets/models/SeaChest.rbxmx\" (узел SeaChest) не найден в архиве."
+  ],
   "stubbedServices": [
     "LocalizationService"
   ]
