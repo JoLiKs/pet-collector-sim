@@ -839,40 +839,42 @@ return BattlePassData
 	    * Developer Products -> создайте Product -> скопируйте Product ID
 	Значение 0 = "не настроено": кнопка в магазине покажет подсказку, покупка невозможна,
 	а игра продолжает работать без ошибок.
+	v2.7: все 5 геймпассов и 9 продуктов созданы в universe 10769777582 через Open Cloud
+	(tools/roblox_store.py, ID также в tools/store_ids.json). Повторный запуск дубликатов не создаёт.
 ]]
 
 local Config = {}
 
 -- ============================================================================
--- 1. ID ГЕЙМПАССОВ (Game Passes) — подставьте свои числа вместо 0
+-- 1. ID ГЕЙМПАССОВ (Game Passes) — реальные ID (v2.7); 0 = пасс отключён
 -- ============================================================================
 Config.GAMEPASS_IDS = {
 	-- x2 ко всем монетам навсегда. Рекомендуемая цена: ~199-399 R$
-	DOUBLE_COINS = 0,
+	DOUBLE_COINS = 2019872329,
 	-- x2 скорость бега навсегда. Рекомендуемая цена: ~99-199 R$
-	DOUBLE_SPEED = 0,
+	DOUBLE_SPEED = 2017952343,
 	-- Автосбор: монеты собираются сами, пока игрок в игре. Рекомендуемая цена: ~299-499 R$
-	AUTO_COLLECT = 0,
+	AUTO_COLLECT = 2018384337,
 	-- VIP: +25% монет, +1 слот питомца, тег [VIP], x2 ежедневные награды. Рекомендуемая цена: ~399-799 R$
-	VIP = 0,
+	VIP = 2019452336,
 	-- Премиум-дорожка батл-пасса сезона (все премиум-награды). Рекомендуемая цена: ~399-599 R$
-	BATTLE_PASS = 0,
+	BATTLE_PASS = 2018684334,
 }
 
 -- ============================================================================
--- 2. ID ДЕВЕЛОПЕРСКИХ ПРОДУКТОВ (Developer Products) — подставьте свои числа вместо 0
+-- 2. ID ДЕВЕЛОПЕРСКИХ ПРОДУКТОВ (Developer Products) — реальные ID (v2.7); 0 = отключён
 --    Developer Product можно покупать многократно (в отличие от геймпасса).
 -- ============================================================================
 Config.PRODUCT_IDS = {
-	GEMS_SMALL = 0, -- пакет гемов (маленький), ~49-99 R$
-	GEMS_MEDIUM = 0, -- пакет гемов (средний), ~249-399 R$
-	GEMS_LARGE = 0, -- пакет гемов (большой), ~799-999 R$
-	COINS_SMALL = 0, -- пакет монет (маленький), ~49-99 R$
-	COINS_LARGE = 0, -- пакет монет (большой), ~299-499 R$
-	LUCK_2X_15M = 0, -- лаки-буст x2 на 15 минут, ~49-99 R$
-	LUCK_5X_10M = 0, -- лаки-буст x5 на 10 минут, ~149-249 R$
-	BP_SKIP = 0, -- +5 уровней батл-пасса, ~99-149 R$
-	ESSENCE_PACK = 0, -- 30 эссенции для эволюции питомцев, ~79-129 R$
+	GEMS_SMALL = 3717220391, -- пакет гемов (маленький), ~49-99 R$
+	GEMS_MEDIUM = 3717220423, -- пакет гемов (средний), ~249-399 R$
+	GEMS_LARGE = 3717220428, -- пакет гемов (большой), ~799-999 R$
+	COINS_SMALL = 3717220436, -- пакет монет (маленький), ~49-99 R$
+	COINS_LARGE = 3717220441, -- пакет монет (большой), ~299-499 R$
+	LUCK_2X_15M = 3717220447, -- лаки-буст x2 на 15 минут, ~49-99 R$
+	LUCK_5X_10M = 3717220452, -- лаки-буст x5 на 10 минут, ~149-249 R$
+	BP_SKIP = 3717220455, -- +5 уровней батл-пасса, ~99-149 R$
+	ESSENCE_PACK = 3717220458, -- 30 эссенции для эволюции питомцев, ~79-129 R$
 }
 
 -- ============================================================================
@@ -914,30 +916,78 @@ Config.BADGES = {
 --    Coins: Clicks  = сколько "кликов текущей силы" эквивалентно пакету (масштабируется с прогрессом)
 --           Min     = минимум монет (чтобы пакет был полезен новичку)
 --    Luck:  Boost   = ключ в данных игрока, Seconds = длительность, Multiplier = множитель удачи
---    SuggestedPrice — только подсказка для README/магазина, реальную цену задаёте в Creator Hub.
+--    Description — описание продукта (англ.) для Creator Hub (tools/roblox_store.py создаёт продукты с ним).
+--    SuggestedPrice — цена при создании (tools/roblox_store.py) и запасная цена в магазине, если GetProductInfo недоступен.
 -- ============================================================================
 Config.PRODUCTS = {
-	GEMS_SMALL = { Kind = "Gems", Amount = 100, Name = "Pile of Gems", SuggestedPrice = 79 },
-	GEMS_MEDIUM = { Kind = "Gems", Amount = 550, Name = "Bag of Gems", SuggestedPrice = 349 },
-	GEMS_LARGE = { Kind = "Gems", Amount = 1500, Name = "Chest of Gems", SuggestedPrice = 899 },
-	COINS_SMALL = { Kind = "Coins", Clicks = 1500, Min = 2000, Name = "Coin Pouch", SuggestedPrice = 79 },
-	COINS_LARGE = { Kind = "Coins", Clicks = 15000, Min = 25000, Name = "Coin Vault", SuggestedPrice = 399 },
+	GEMS_SMALL = {
+		Kind = "Gems",
+		Amount = 100,
+		Name = "Pile of Gems",
+		Description = "100 gems to hatch eggs and buy upgrades.",
+		SuggestedPrice = 79,
+	},
+	GEMS_MEDIUM = {
+		Kind = "Gems",
+		Amount = 550,
+		Name = "Bag of Gems",
+		Description = "550 gems - great value for hatching more eggs.",
+		SuggestedPrice = 349,
+	},
+	GEMS_LARGE = {
+		Kind = "Gems",
+		Amount = 1500,
+		Name = "Chest of Gems",
+		Description = "1500 gems - the best value gem chest!",
+		SuggestedPrice = 899,
+	},
+	COINS_SMALL = {
+		Kind = "Coins",
+		Clicks = 1500,
+		Min = 2000,
+		Name = "Coin Pouch",
+		Description = "A pouch of coins that grows with your progress (at least 2,000).",
+		SuggestedPrice = 79,
+	},
+	COINS_LARGE = {
+		Kind = "Coins",
+		Clicks = 15000,
+		Min = 25000,
+		Name = "Coin Vault",
+		Description = "A vault of coins that grows with your progress (at least 25,000).",
+		SuggestedPrice = 399,
+	},
 	LUCK_2X_15M = {
 		Kind = "Luck",
 		Boost = "Luck2",
 		Multiplier = 2,
 		Seconds = 900,
 		Name = "Lucky Clover x2 (15m)",
+		Description = "Double egg hatch luck for 15 minutes.",
 		SuggestedPrice = 79,
 	},
-	BP_SKIP = { Kind = "BpLevels", Levels = 5, Name = "Battle Pass +5 Levels", SuggestedPrice = 129 },
-	ESSENCE_PACK = { Kind = "Res", Res = "Essence", Amount = 30, Name = "Essence Pack", SuggestedPrice = 99 },
+	BP_SKIP = {
+		Kind = "BpLevels",
+		Levels = 5,
+		Name = "Battle Pass +5 Levels",
+		Description = "Instantly gain 5 Battle Pass levels.",
+		SuggestedPrice = 129,
+	},
+	ESSENCE_PACK = {
+		Kind = "Res",
+		Res = "Essence",
+		Amount = 30,
+		Name = "Essence Pack",
+		Description = "30 essence to evolve your pets.",
+		SuggestedPrice = 99,
+	},
 	LUCK_5X_10M = {
 		Kind = "Luck",
 		Boost = "Luck5",
 		Multiplier = 5,
 		Seconds = 600,
 		Name = "Super Clover x5 (10m)",
+		Description = "5x egg hatch luck for 10 minutes!",
 		SuggestedPrice = 199,
 	},
 }
@@ -1025,7 +1075,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.6.0"
+Config.VERSION = "2.7.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -4448,6 +4498,9 @@ LocaleEn.Strings = {
 	["shop.group_gems"] = "Gems",
 	["shop.group_coins"] = "Coins",
 	["shop.group_luck"] = "Luck Boosts",
+	["shop.group_other"] = "Essence & Battle Pass",
+	["shop.desc_res"] = "{n} essence to evolve your pets.",
+	["shop.desc_bp"] = "Instantly +{n} Battle Pass {n|level|levels}.",
 	["shop.restricted"] = "Gem, coin and luck packs are not available for your account or region.",
 	["shop.desc_gems"] = "{amount} gems. Use them for Crystal Eggs and Pet Slots.",
 	["shop.desc_coins"] = "Instant coins that scale with your progress (about {n} collects).",
@@ -5029,6 +5082,9 @@ LocaleRu.Strings = {
 	["shop.group_gems"] = "Самоцветы",
 	["shop.group_coins"] = "Монеты",
 	["shop.group_luck"] = "Бусты удачи",
+	["shop.group_other"] = "Эссенция и боевой пропуск",
+	["shop.desc_res"] = "{n} эссенции — для эволюции питомцев.",
+	["shop.desc_bp"] = "Сразу +{n} {n|уровень|уровня|уровней} боевого пропуска.",
 	["shop.restricted"] = "Наборы самоцветов, монет и удачи недоступны для вашего аккаунта или региона.",
 	["shop.desc_gems"] = "{amount} {amount|самоцвет|самоцвета|самоцветов}. Тратьте на кристальные яйца и места для питомцев.",
 	["shop.desc_coins"] = "Монеты сразу, растут вместе с прогрессом (примерно {n} сборов).",
@@ -6854,6 +6910,103 @@ return PetModel
 			</Item>
 			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
+					<string name="Name">Prices</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	Prices (v2.7) — цены геймпассов и продуктов для магазина (клиент).
+	Источник правды — MarketplaceService:GetProductInfo (цена, выставленная в Creator Hub).
+	Пока ответа нет, при ошибке или если Roblox вернул 0/nil (товар снят с продажи, эмулятор) —
+	показываем SuggestedPrice из Config. Успешные ответы кэшируются на сессию, одновременные
+	запросы одного товара объединяются (магазин и окно пропуска не дёргают API дважды).
+]]
+local Prices = {}
+
+-- Подменяется в тестах; в игре — MarketplaceService
+Prices.market = nil :: any
+Prices.ATTEMPTS = 2
+
+local cache: { [string]: number } = {}
+local waiting: { [string]: { (number) -> () } } = {}
+
+-- Цена из ответа GetProductInfo или фолбэк
+function Prices.pick(info: any, fallback: number): number
+	if type(info) == "table" then
+		local p = info.PriceInRobux
+		if type(p) == "number" and p == p and p > 0 and p < 1e7 then
+			return math.floor(p)
+		end
+	end
+	return fallback
+end
+
+function Prices.format(price: number): string
+	return "R$ " .. tostring(price)
+end
+
+function Prices.cached(id: number, kind: string): number?
+	return cache[kind .. ":" .. tostring(id)]
+end
+
+function Prices.clear()
+	table.clear(cache)
+	table.clear(waiting)
+end
+
+-- kind: "GamePass" | "Product". apply вызывается сразу (кэш или фолбэк) и ещё раз, когда придёт
+-- реальная цена. Для id == 0 (товар не настроен) ничего не делает.
+function Prices.get(id: number, kind: string, fallback: number, apply: (number) -> ())
+	if type(id) ~= "number" or id == 0 then
+		return
+	end
+	local key = kind .. ":" .. tostring(id)
+	local hit = cache[key]
+	if hit then
+		apply(hit)
+		return
+	end
+	apply(fallback)
+	local pending = waiting[key]
+	if pending then
+		table.insert(pending, apply)
+		return
+	end
+	local list: { (number) -> () } = { apply }
+	waiting[key] = list
+	task.spawn(function()
+		local market = Prices.market or game:GetService("MarketplaceService")
+		local infoType = if kind == "GamePass" then Enum.InfoType.GamePass else Enum.InfoType.Product
+		local price = fallback
+		for attempt = 1, Prices.ATTEMPTS do
+			local ok, info = pcall(function()
+				return market:GetProductInfo(id, infoType)
+			end)
+			if ok then
+				local real = Prices.pick(info, -1)
+				if real > 0 then
+					cache[key] = real
+					price = real
+				end
+				break
+			end
+			if attempt < Prices.ATTEMPTS then
+				task.wait(2)
+			end
+		end
+		if waiting[key] == list then
+			waiting[key] = nil
+		end
+		for _, cb in ipairs(list) do
+			task.spawn(cb, price)
+		end
+	end)
+end
+
+return Prices
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
@@ -7138,7 +7291,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7288,7 +7441,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7370,7 +7523,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7472,7 +7625,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7640,7 +7793,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7914,7 +8067,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8182,7 +8335,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8395,7 +8548,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8549,7 +8702,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8603,7 +8756,7 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8684,7 +8837,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8811,7 +8964,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8952,11 +9105,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000028">
+	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000029">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX00000000000000000000000000000029">
+		<Item class="Script" referent="RBX0000000000000000000000000000002A">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -9011,11 +9164,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX0000000000000000000000000000002A">
+		<Item class="Folder" referent="RBX0000000000000000000000000000002B">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9156,7 +9309,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">Badges</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9221,7 +9374,7 @@ return Badges
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9322,7 +9475,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9405,7 +9558,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10289,7 +10442,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10390,7 +10543,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10423,7 +10576,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10512,7 +10665,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11000,7 +11153,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11490,7 +11643,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11746,7 +11899,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11795,7 +11948,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11876,7 +12029,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11969,7 +12122,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12139,7 +12292,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12229,7 +12382,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12272,17 +12425,65 @@ local function fireStatusChanged(player: Player)
 	State.markCore(player)
 end
 
-local function ownsPass(userId: number, passId: number): boolean
+-- v2.7: эффекты пассов, которые живут не только в формулах, применяем сразу
+-- (скорость бега — без ожидания секундной синхронизации AntiExploit и без перезахода)
+local function applyPassEffects(player: Player)
+	local data = DataService.get(player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if data and humanoid and humanoid.Health > 0 then
+		humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
+	end
+end
+
+-- Возвращает (владеет ли, удалось ли спросить Roblox). yield!
+local function ownsPass(userId: number, passId: number): (boolean, boolean)
 	for attempt = 1, 3 do
 		local ok, result = pcall(function()
 			return MarketplaceService:UserOwnsGamePassAsync(userId, passId)
 		end)
 		if ok then
-			return result == true
+			return result == true, true
 		end
 		task.wait(attempt)
 	end
-	return false
+	return false, false
+end
+
+-- v2.7: если Roblox не ответил при входе, купленный пасс не должен «пропасть» на всю сессию —
+-- перепроверяем в фоне (PASS_RECHECK_DELAYS секунд после входа).
+Monetization.PASS_RECHECK_DELAYS = { 15, 60, 180 }
+
+local function recheckPasses(player: Player, keys: { string }, step: number)
+	local delay = Monetization.PASS_RECHECK_DELAYS[step]
+	if not delay or #keys == 0 then
+		return
+	end
+	task.delay(delay, function()
+		local session = Session.get(player)
+		if not session or not player.Parent then
+			return
+		end
+		local failed = {}
+		local changed = false
+		for _, key in ipairs(keys) do
+			local id = Config.GAMEPASS_IDS[key]
+			if id and id ~= 0 and not session.Passes[key] then
+				local owned, ok = ownsPass(player.UserId, id)
+				if owned then
+					session.Passes[key] = true
+					changed = true
+				elseif not ok then
+					table.insert(failed, key)
+				end
+			end
+		end
+		if changed then
+			applyPassEffects(player)
+			fireStatusChanged(player)
+		end
+		recheckPasses(player, failed, step + 1)
+	end)
 end
 
 -- Политика Roblox для платных случайных предметов (яйца за Robux-валюту). yield!
@@ -12311,13 +12512,21 @@ function Monetization.loadPlayer(player: Player)
 	session.PaidRandomRestricted, session.TradeAllowed = loadPolicy(player)
 
 	local grantAll = RunService:IsStudio() and Config.STUDIO_GRANT_ALL_PASSES
+	local failed = {}
 	for key, id in pairs(Config.GAMEPASS_IDS) do
 		if grantAll then
 			session.Passes[key] = true
 		elseif id ~= 0 then
-			session.Passes[key] = ownsPass(player.UserId, id)
+			local owned, ok = ownsPass(player.UserId, id)
+			-- не затираем пасс, уже выданный покупкой во время загрузки
+			session.Passes[key] = session.Passes[key] == true or owned
+			if not ok and not owned then
+				table.insert(failed, key)
+			end
 		end
 	end
+	table.sort(failed)
+	recheckPasses(player, failed, 1)
 end
 
 local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
@@ -12409,8 +12618,15 @@ local function processReceipt(info: { [string]: any }): Enum.ProductPurchaseDeci
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	-- Награда и запись о чеке — без yield между ними (атомарно)
-	grantProduct(player, data, def)
+	-- Награда и запись о чеке — без yield между ними (атомарно).
+	-- v2.7: ошибка при выдаче -> NotProcessedYet (Roblox повторит), чек не записывается.
+	local okGrant, err = pcall(function()
+		grantProduct(player, data, def)
+	end)
+	if not okGrant then
+		warn("[Monetization] grant failed for", productKey, err)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 	data.Receipts[receiptKey] = os.time()
 	pruneReceipts(data)
 	State.markCore(player)
@@ -12435,6 +12651,7 @@ function Monetization.init()
 				return
 			end
 			session.Passes[key] = true
+			applyPassEffects(player)
 			local info = Config.GAMEPASSES[key]
 			Notify.send(
 				player,
@@ -12458,7 +12675,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12482,7 +12699,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12557,7 +12774,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12970,7 +13187,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13281,7 +13498,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13418,7 +13635,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13607,7 +13824,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13715,7 +13932,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14102,7 +14319,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14189,7 +14406,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14272,7 +14489,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14316,7 +14533,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14377,7 +14594,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14625,7 +14842,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14685,7 +14902,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14714,7 +14931,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15009,7 +15226,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15868,7 +16085,7 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">ToolService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16031,7 +16248,7 @@ return ToolService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16564,7 +16781,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16641,7 +16858,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16698,7 +16915,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17898,7 +18115,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17998,15 +18215,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000053">
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000054">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000054">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000055">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000055">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000056">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18064,7 +18281,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000056">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000057">
 				<Properties>
 					<string name="Name">EnemyVisuals</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18564,7 +18781,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000057">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000058">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18700,7 +18917,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000058">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000059">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18807,22 +19024,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000059">
+	<Item class="StarterGui" referent="RBX0000000000000000000000000000005A">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX0000000000000000000000000000005A">
+		<Item class="ScreenGui" referent="RBX0000000000000000000000000000005B">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX0000000000000000000000000000005B">
+			<Item class="Folder" referent="RBX0000000000000000000000000000005C">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18855,7 +19072,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18954,7 +19171,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19041,7 +19258,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19298,7 +19515,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19440,7 +19657,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19627,7 +19844,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19939,7 +20156,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20337,7 +20554,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20535,7 +20752,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
 					<Properties>
 						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20906,7 +21123,7 @@ return Hotbar
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21255,7 +21472,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21708,7 +21925,7 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
 					<Properties>
 						<string name="Name">IndexPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21910,7 +22127,7 @@ return IndexPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
 					<Properties>
 						<string name="Name">InventoryPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22250,7 +22467,7 @@ return InventoryPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22368,7 +22585,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22381,6 +22598,7 @@ local L = require(Shared:WaitForChild("Locale"))
 
 local BattlePassData = require(Shared:WaitForChild("BattlePassData"))
 local Config = require(Shared:WaitForChild("Config"))
+local Prices = require(Shared:WaitForChild("Prices"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
@@ -22615,7 +22833,7 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				UDim2.fromScale(0.6, 1),
 				{ MaxSize = 16 }
 			)
-			Widgets.button({
+			local skipBtn = Widgets.button({
 				Name = "BuySkip",
 				Text = if id == 0 then L.t("shop.soon") else L.t("market.buy"),
 				Color = Theme.Purple,
@@ -22633,6 +22851,13 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				end,
 				Parent = row,
 			})
+			-- v2.7: на кнопке реальная цена (GetProductInfo, фолбэк SuggestedPrice)
+			local skipDef = Config.PRODUCTS.BP_SKIP
+			Prices.get(id, "Product", skipDef and skipDef.SuggestedPrice or 0, function(price)
+				if skipBtn.Parent and price > 0 then
+					skipBtn.Text = Prices.format(price)
+				end
+			end)
 		end
 	end
 
@@ -22685,7 +22910,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">MorePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22826,7 +23051,7 @@ return MorePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23581,7 +23806,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23839,7 +24064,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23958,7 +24183,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24065,7 +24290,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24078,6 +24303,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
+local Prices = require(Shared:WaitForChild("Prices"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local ClientState = require(script.Parent.ClientState)
@@ -24160,23 +24386,6 @@ local function card(parent: Instance, name: any, desc: any, color: Color3): (Fra
 	return c, buy
 end
 
--- Цена из Marketplace (с запасным вариантом — подсказка из Config)
-local function fetchPrice(id: number, infoType: Enum.InfoType, fallback: number, apply: (number) -> ())
-	if id == 0 then
-		return
-	end
-	task.spawn(function()
-		local ok, info = pcall(function()
-			return MarketplaceService:GetProductInfo(id, infoType)
-		end)
-		if ok and type(info) == "table" and type(info.PriceInRobux) == "number" then
-			apply(info.PriceInRobux)
-		else
-			apply(fallback)
-		end
-	end)
-end
-
 local function notConfigured()
 	Toasts.show("shop.not_configured", "error")
 end
@@ -24199,14 +24408,14 @@ function ShopPanel.init(gui: ScreenGui)
 		local id = Config.GAMEPASS_IDS[key]
 		local _, buy = card(passGrid, L.kn(info.Name), L.kn(info.Description), Theme.Gold)
 		passButtons[key] = buy
+		buy.Name = "Buy_" .. key
 		if id == 0 then
 			L.bind(buy, "Text", L.k("shop.soon"))
-		else
-			buy.Text = "R$ ?"
 		end
-		fetchPrice(id, Enum.InfoType.GamePass, info.SuggestedPrice, function(price)
+		-- v2.7: реальная цена из Creator Hub (GetProductInfo), пока/если нет — SuggestedPrice
+		Prices.get(id, "GamePass", info.SuggestedPrice, function(price)
 			if passButtons[key] and not (ClientState.Core and ClientState.Core.Passes[key]) then
-				passButtons[key].Text = "R$ " .. tostring(price)
+				passButtons[key].Text = Prices.format(price)
 			end
 		end)
 		buy.Activated:Connect(function()
@@ -24223,10 +24432,13 @@ function ShopPanel.init(gui: ScreenGui)
 
 	-- Продукты по видам. Валюта и бусты удачи — это "платные случайные предметы" (через яйца),
 	-- поэтому для игроков с PolicyService.ArePaidRandomItemsRestricted эти разделы скрываются.
+	-- v2.7: эссенция и уровни пропуска (не случайные) — отдельная группа, видна всем:
+	-- так в магазине продаются все 9 продуктов.
 	local groups = {
-		{ Title = L.k("shop.group_gems"), Kind = "Gems", Color = Theme.Gem },
-		{ Title = L.k("shop.group_coins"), Kind = "Coins", Color = Theme.Gold },
-		{ Title = L.k("shop.group_luck"), Kind = "Luck", Color = Theme.Green },
+		{ Title = L.k("shop.group_gems"), Kinds = { Gems = true }, Color = Theme.Gem, Random = true },
+		{ Title = L.k("shop.group_coins"), Kinds = { Coins = true }, Color = Theme.Gold, Random = true },
+		{ Title = L.k("shop.group_luck"), Kinds = { Luck = true }, Color = Theme.Green, Random = true },
+		{ Title = L.k("shop.group_other"), Kinds = { Res = true, BpLevels = true }, Color = Theme.Purple },
 	}
 	local order = 10
 	local restrictedNote = Widgets.label({
@@ -24241,28 +24453,33 @@ function ShopPanel.init(gui: ScreenGui)
 	local groupFrames = {}
 	for _, group in ipairs(groups) do
 		local grid, header = section(scroll, group.Title, order)
-		table.insert(groupFrames, { Grid = grid, Header = header })
+		if group.Random then
+			table.insert(groupFrames, { Grid = grid, Header = header })
+		end
 		order += 10
 		for _, key in ipairs(Config.PRODUCT_ORDER) do
 			local def = Config.PRODUCTS[key]
-			if def.Kind == group.Kind then
+			if group.Kinds[def.Kind] then
 				local id = Config.PRODUCT_IDS[key]
 				local desc
 				if def.Kind == "Gems" then
 					desc = L.k("shop.desc_gems", { amount = Util.formatNumber(def.Amount), n = def.Amount })
 				elseif def.Kind == "Coins" then
 					desc = L.k("shop.desc_coins", { n = Util.formatNumber(def.Clicks) })
+				elseif def.Kind == "Res" then
+					desc = L.k("shop.desc_res", { n = def.Amount })
+				elseif def.Kind == "BpLevels" then
+					desc = L.k("shop.desc_bp", { n = def.Levels })
 				else
 					desc = L.k("shop.desc_luck", { x = def.Multiplier, n = def.Seconds // 60 })
 				end
 				local _, buy = card(grid, L.kn(def.Name), desc, group.Color)
+				buy.Name = "Buy_" .. key
 				if id == 0 then
 					L.bind(buy, "Text", L.k("shop.soon"))
-				else
-					buy.Text = "R$ ?"
 				end
-				fetchPrice(id, Enum.InfoType.Product, def.SuggestedPrice, function(price)
-					buy.Text = "R$ " .. tostring(price)
+				Prices.get(id, "Product", def.SuggestedPrice, function(price)
+					buy.Text = Prices.format(price)
 				end)
 				buy.Activated:Connect(function()
 					if id == 0 then
@@ -24306,7 +24523,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24488,7 +24705,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -24516,7 +24733,7 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24676,7 +24893,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25182,7 +25399,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25322,7 +25539,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25580,7 +25797,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25685,7 +25902,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26134,7 +26351,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26266,7 +26483,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000007B">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000007C">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict

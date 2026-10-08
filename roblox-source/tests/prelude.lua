@@ -495,6 +495,9 @@ function MAKE_UNIVERSE(label)
 	}
 	local market = { PromptGamePassPurchaseFinished = makeSignal(), OwnedPasses = {} }
 	function market:UserOwnsGamePassAsync(userId, passId)
+		if self.OwnsError then
+			error("HTTP 503 (Service Unavailable)")
+		end
 		return self.OwnedPasses[userId .. ":" .. passId] == true
 	end
 	services.MarketplaceService = market

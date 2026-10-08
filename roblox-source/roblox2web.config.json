@@ -1,44 +1,100 @@
 {
-  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: ID геймпассов/продуктов, DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) и DEMO_BOT_ENABLED=true (NPC Trader Tom) подставляются патчами при конвертации. Логотип (v2.6): Config.ASSETS.LOGO подменяется на 920001, а раздел \"assets\" показывает вместо rbxassetid://920001 картинку assets/icon_512.png.",
+  "_comment": "Настройки веб-демо для конвертора roblox2web. Исходники игры не правятся: DEMO_BOTS=true (боты для «Суперсилы» в одиночном демо) и DEMO_BOT_ENABLED=true (NPC Trader Tom) подставляются патчами при конвертации. v2.7: в Config реальные ID геймпассов/продуктов (Open Cloud), поэтому каталог ниже ключуется по ним же — демо показывает реальные имена и цены, а покупка идёт через демо-окно «деньги не списываются». Логотип (v2.6): Config.ASSETS.LOGO подменяется на 920001, а раздел \"assets\" показывает вместо rbxassetid://920001 картинку assets/icon_512.png.",
   "placeKey": "pet-collector-sim-v2",
   "patches": [
-    { "script": "Shared.Config", "regex": "(\\bDOUBLE_COINS\\s*=\\s*)0,", "replace": "$1900001," },
-    { "script": "Shared.Config", "regex": "(\\bDOUBLE_SPEED\\s*=\\s*)0,", "replace": "$1900002," },
-    { "script": "Shared.Config", "regex": "(\\bAUTO_COLLECT\\s*=\\s*)0,", "replace": "$1900003," },
-    { "script": "Shared.Config", "regex": "(\\bVIP\\s*=\\s*)0,", "replace": "$1900004," },
-    { "script": "Shared.Config", "regex": "(\\bBATTLE_PASS\\s*=\\s*)0,", "replace": "$1900005," },
-    { "script": "Shared.Config", "regex": "(\\bGEMS_SMALL\\s*=\\s*)0,", "replace": "$1910001," },
-    { "script": "Shared.Config", "regex": "(\\bGEMS_MEDIUM\\s*=\\s*)0,", "replace": "$1910002," },
-    { "script": "Shared.Config", "regex": "(\\bGEMS_LARGE\\s*=\\s*)0,", "replace": "$1910003," },
-    { "script": "Shared.Config", "regex": "(\\bCOINS_SMALL\\s*=\\s*)0,", "replace": "$1910004," },
-    { "script": "Shared.Config", "regex": "(\\bCOINS_LARGE\\s*=\\s*)0,", "replace": "$1910005," },
-    { "script": "Shared.Config", "regex": "(\\bLUCK_2X_15M\\s*=\\s*)0,", "replace": "$1910006," },
-    { "script": "Shared.Config", "regex": "(\\bLUCK_5X_10M\\s*=\\s*)0,", "replace": "$1910007," },
-    { "script": "Shared.Config", "regex": "(\\bBP_SKIP\\s*=\\s*)0,", "replace": "$1910008," },
-    { "script": "Shared.Config", "regex": "(\\bESSENCE_PACK\\s*=\\s*)0,", "replace": "$1910009," },
-    { "script": "Shared.Config", "regex": "(\\bDEMO_BOTS\\s*=\\s*)false", "replace": "$1true" },
-    { "script": "Shared.Config", "regex": "(\\bDEMO_BOT_ENABLED\\s*=\\s*)false", "replace": "$1true" },
-    { "script": "Shared.Config", "regex": "(\\bLOGO\\s*=\\s*)0,", "replace": "$1920001," }
+    {
+      "script": "Shared.Config",
+      "regex": "(\\bDEMO_BOTS\\s*=\\s*)false",
+      "replace": "$1true"
+    },
+    {
+      "script": "Shared.Config",
+      "regex": "(\\bDEMO_BOT_ENABLED\\s*=\\s*)false",
+      "replace": "$1true"
+    },
+    {
+      "script": "Shared.Config",
+      "regex": "(\\bLOGO\\s*=\\s*)0,",
+      "replace": "$1920001,"
+    }
   ],
-  "assets": { "920001": "assets/icon_512.png" },
+  "assets": {
+    "920001": "assets/icon_512.png"
+  },
   "catalog": {
     "gamepasses": {
-      "900001": { "name": "x2 Coins", "price": 299, "description": "Double coins forever (demo)" },
-      "900002": { "name": "x2 Speed", "price": 149, "description": "Double walk speed (demo)" },
-      "900003": { "name": "Auto Collect", "price": 399, "description": "Coins collect themselves (demo)" },
-      "900004": { "name": "VIP", "price": 599, "description": "+25% coins, +1 slot (demo)" },
-      "900005": { "name": "Battle Pass Premium", "price": 499, "description": "Premium reward track (demo)" }
+      "2019872329": {
+        "name": "2x Coins",
+        "price": 299,
+        "description": "Double ALL coins you collect. Forever!"
+      },
+      "2018384337": {
+        "name": "Auto Collect",
+        "price": 399,
+        "description": "Coins are collected for you automatically, even while you explore."
+      },
+      "2019452336": {
+        "name": "VIP",
+        "price": 599,
+        "description": "+25% coins, +1 pet slot, [VIP] tag, double daily rewards."
+      },
+      "2018684334": {
+        "name": "Battle Pass (Premium)",
+        "price": 499,
+        "description": "Unlock every premium reward on the season track, including an exclusive pet."
+      },
+      "2017952343": {
+        "name": "2x Speed",
+        "price": 149,
+        "description": "Run twice as fast across every world."
+      }
     },
     "products": {
-      "910001": { "name": "Pile of Gems", "price": 79, "description": "100 gems" },
-      "910002": { "name": "Bag of Gems", "price": 349, "description": "550 gems" },
-      "910003": { "name": "Chest of Gems", "price": 899, "description": "1500 gems" },
-      "910004": { "name": "Pocket of Coins", "price": 79, "description": "Coins" },
-      "910005": { "name": "Sack of Coins", "price": 399, "description": "Coins" },
-      "910006": { "name": "Luck x2 (15 min)", "price": 79, "description": "Luck boost" },
-      "910007": { "name": "Luck x5 (10 min)", "price": 199, "description": "Luck boost" },
-      "910008": { "name": "Battle Pass +5 Levels", "price": 129, "description": "Skip 5 levels" },
-      "910009": { "name": "Essence Pack", "price": 99, "description": "30 Essence" }
+      "3717220391": {
+        "name": "Pile of Gems",
+        "price": 79,
+        "description": "100 gems to hatch eggs and buy upgrades."
+      },
+      "3717220423": {
+        "name": "Bag of Gems",
+        "price": 349,
+        "description": "550 gems - great value for hatching more eggs."
+      },
+      "3717220428": {
+        "name": "Chest of Gems",
+        "price": 899,
+        "description": "1500 gems - the best value gem chest!"
+      },
+      "3717220436": {
+        "name": "Coin Pouch",
+        "price": 79,
+        "description": "A pouch of coins that grows with your progress (at least 2,000)."
+      },
+      "3717220441": {
+        "name": "Coin Vault",
+        "price": 399,
+        "description": "A vault of coins that grows with your progress (at least 25,000)."
+      },
+      "3717220447": {
+        "name": "Lucky Clover x2 (15m)",
+        "price": 79,
+        "description": "Double egg hatch luck for 15 minutes."
+      },
+      "3717220452": {
+        "name": "Super Clover x5 (10m)",
+        "price": 199,
+        "description": "5x egg hatch luck for 10 minutes!"
+      },
+      "3717220455": {
+        "name": "Battle Pass +5 Levels",
+        "price": 129,
+        "description": "Instantly gain 5 Battle Pass levels."
+      },
+      "3717220458": {
+        "name": "Essence Pack",
+        "price": 99,
+        "description": "30 essence to evolve your pets."
+      }
     }
   }
 }

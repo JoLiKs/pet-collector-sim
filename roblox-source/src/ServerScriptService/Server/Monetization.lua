@@ -38,17 +38,65 @@ local function fireStatusChanged(player: Player)
 	State.markCore(player)
 end
 
-local function ownsPass(userId: number, passId: number): boolean
+-- v2.7: эффекты пассов, которые живут не только в формулах, применяем сразу
+-- (скорость бега — без ожидания секундной синхронизации AntiExploit и без перезахода)
+local function applyPassEffects(player: Player)
+	local data = DataService.get(player)
+	local character = player.Character
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if data and humanoid and humanoid.Health > 0 then
+		humanoid.WalkSpeed = Economy.getWalkSpeed(player, data)
+	end
+end
+
+-- Возвращает (владеет ли, удалось ли спросить Roblox). yield!
+local function ownsPass(userId: number, passId: number): (boolean, boolean)
 	for attempt = 1, 3 do
 		local ok, result = pcall(function()
 			return MarketplaceService:UserOwnsGamePassAsync(userId, passId)
 		end)
 		if ok then
-			return result == true
+			return result == true, true
 		end
 		task.wait(attempt)
 	end
-	return false
+	return false, false
+end
+
+-- v2.7: если Roblox не ответил при входе, купленный пасс не должен «пропасть» на всю сессию —
+-- перепроверяем в фоне (PASS_RECHECK_DELAYS секунд после входа).
+Monetization.PASS_RECHECK_DELAYS = { 15, 60, 180 }
+
+local function recheckPasses(player: Player, keys: { string }, step: number)
+	local delay = Monetization.PASS_RECHECK_DELAYS[step]
+	if not delay or #keys == 0 then
+		return
+	end
+	task.delay(delay, function()
+		local session = Session.get(player)
+		if not session or not player.Parent then
+			return
+		end
+		local failed = {}
+		local changed = false
+		for _, key in ipairs(keys) do
+			local id = Config.GAMEPASS_IDS[key]
+			if id and id ~= 0 and not session.Passes[key] then
+				local owned, ok = ownsPass(player.UserId, id)
+				if owned then
+					session.Passes[key] = true
+					changed = true
+				elseif not ok then
+					table.insert(failed, key)
+				end
+			end
+		end
+		if changed then
+			applyPassEffects(player)
+			fireStatusChanged(player)
+		end
+		recheckPasses(player, failed, step + 1)
+	end)
 end
 
 -- Политика Roblox для платных случайных предметов (яйца за Robux-валюту). yield!
@@ -77,13 +125,21 @@ function Monetization.loadPlayer(player: Player)
 	session.PaidRandomRestricted, session.TradeAllowed = loadPolicy(player)
 
 	local grantAll = RunService:IsStudio() and Config.STUDIO_GRANT_ALL_PASSES
+	local failed = {}
 	for key, id in pairs(Config.GAMEPASS_IDS) do
 		if grantAll then
 			session.Passes[key] = true
 		elseif id ~= 0 then
-			session.Passes[key] = ownsPass(player.UserId, id)
+			local owned, ok = ownsPass(player.UserId, id)
+			-- не затираем пасс, уже выданный покупкой во время загрузки
+			session.Passes[key] = session.Passes[key] == true or owned
+			if not ok and not owned then
+				table.insert(failed, key)
+			end
 		end
 	end
+	table.sort(failed)
+	recheckPasses(player, failed, 1)
 end
 
 local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
@@ -175,8 +231,15 @@ local function processReceipt(info: { [string]: any }): Enum.ProductPurchaseDeci
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 
-	-- Награда и запись о чеке — без yield между ними (атомарно)
-	grantProduct(player, data, def)
+	-- Награда и запись о чеке — без yield между ними (атомарно).
+	-- v2.7: ошибка при выдаче -> NotProcessedYet (Roblox повторит), чек не записывается.
+	local okGrant, err = pcall(function()
+		grantProduct(player, data, def)
+	end)
+	if not okGrant then
+		warn("[Monetization] grant failed for", productKey, err)
+		return Enum.ProductPurchaseDecision.NotProcessedYet
+	end
 	data.Receipts[receiptKey] = os.time()
 	pruneReceipts(data)
 	State.markCore(player)
@@ -201,6 +264,7 @@ function Monetization.init()
 				return
 			end
 			session.Passes[key] = true
+			applyPassEffects(player)
 			local info = Config.GAMEPASSES[key]
 			Notify.send(
 				player,

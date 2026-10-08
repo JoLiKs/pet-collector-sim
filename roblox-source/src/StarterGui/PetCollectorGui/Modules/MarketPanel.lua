@@ -8,6 +8,7 @@ local L = require(Shared:WaitForChild("Locale"))
 
 local BattlePassData = require(Shared:WaitForChild("BattlePassData"))
 local Config = require(Shared:WaitForChild("Config"))
+local Prices = require(Shared:WaitForChild("Prices"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
@@ -242,7 +243,7 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				UDim2.fromScale(0.6, 1),
 				{ MaxSize = 16 }
 			)
-			Widgets.button({
+			local skipBtn = Widgets.button({
 				Name = "BuySkip",
 				Text = if id == 0 then L.t("shop.soon") else L.t("market.buy"),
 				Color = Theme.Purple,
@@ -260,6 +261,13 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				end,
 				Parent = row,
 			})
+			-- v2.7: на кнопке реальная цена (GetProductInfo, фолбэк SuggestedPrice)
+			local skipDef = Config.PRODUCTS.BP_SKIP
+			Prices.get(id, "Product", skipDef and skipDef.SuggestedPrice or 0, function(price)
+				if skipBtn.Parent and price > 0 then
+					skipBtn.Text = Prices.format(price)
+				end
+			end)
 		end
 	end
 

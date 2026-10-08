@@ -113,7 +113,28 @@
 
 Решение «продолжать / остановиться» принимайте по метрикам, а не по надежде.
 
-## 9. Демо-ID и настройка v2
-* Все ID в `Config.GAMEPASS_IDS` и `Config.PRODUCT_IDS` по умолчанию равны 0 — покупки выключены (это безопасно). После создания пассов/продуктов в Creator Hub впишите реальные ID (шаги — в `README.md`): пассов 5 (включая BATTLE_PASS), продуктов 9 (включая BP_SKIP и ESSENCE_PACK).
-* В веб-демо конвертор roblox2web подставляет вымышленные ID (900001–900005, 910001–910009) патчами из `roblox2web.config.json` и показывает окно подтверждения без реальных платежей.
+## 9. Товары v2.7 и как их пересоздать
+Созданы 8 октября 2026 через Roblox Open Cloud в опыте **10769777582**, все `isForSale = true`, у каждого своя иконка 512×512 (`assets/store/<KEY>.png`, генератор `tools/art/make_store_icons.py`; иконки проходят модерацию Roblox, до одобрения показывается заглушка). ID — в `Config.GAMEPASS_IDS` / `Config.PRODUCT_IDS` и `tools/store_ids.json`.
+
+| Ключ | Тип | ID | Цена, R$ |
+|---|---|---|---|
+| DOUBLE_SPEED «2x Speed» | геймпасс | 2017952343 | 149 |
+| DOUBLE_COINS «2x Coins» | геймпасс | 2019872329 | 299 |
+| AUTO_COLLECT «Auto Collect» | геймпасс | 2018384337 | 399 |
+| VIP «VIP» | геймпасс | 2019452336 | 599 |
+| BATTLE_PASS «Battle Pass (Premium)» | геймпасс | 2018684334 | 499 |
+| GEMS_SMALL «Pile of Gems» | продукт | 3717220391 | 79 |
+| GEMS_MEDIUM «Bag of Gems» | продукт | 3717220423 | 349 |
+| GEMS_LARGE «Chest of Gems» | продукт | 3717220428 | 899 |
+| COINS_SMALL «Coin Pouch» | продукт | 3717220436 | 79 |
+| COINS_LARGE «Coin Vault» | продукт | 3717220441 | 399 |
+| LUCK_2X_15M «Lucky Clover x2 (15m)» | продукт | 3717220447 | 79 |
+| LUCK_5X_10M «Super Clover x5 (10m)» | продукт | 3717220452 | 199 |
+| BP_SKIP «Battle Pass +5 Levels» | продукт | 3717220455 | 129 |
+| ESSENCE_PACK «Essence Pack» | продукт | 3717220458 | 99 |
+
+* Цена в таблице — стартовая (`SuggestedPrice` в Config). Меняйте её в Creator Hub (Monetization → Passes / Developer Products) — магазин в игре берёт реальную цену из `MarketplaceService:GetProductInfo`, а `SuggestedPrice` показывает только если Roblox не ответил.
+* Пересоздать в другом опыте: `ROBLOX_OPEN_CLOUD_KEY=… python3 tools/roblox_store.py create --universe <ID>` → `write-config`; `list` / `verify` — проверка (`verify` сверяет `isForSale` и цену). Повторный запуск ничего не дублирует: товары с тем же именем пропускаются.
+* Покупки в Studio — тестовые (Robux не списываются). Настоящие Robux списываются только в опубликованной **публичной** игре; продажи видны в Creator Hub → Analytics → Monetization.
+* В веб-демо каталог эмулятора (`roblox2web.config.json`) привязан к тем же ID: показываются реальные имена и цены, покупка — через демо-окно «деньги не списываются».
 * Цены в Robux — ориентиры; тестируйте их (Price optimization).

@@ -8,6 +8,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
 local Config = require(Shared:WaitForChild("Config"))
+local Prices = require(Shared:WaitForChild("Prices"))
 local Util = require(Shared:WaitForChild("Util"))
 
 local ClientState = require(script.Parent.ClientState)
@@ -90,23 +91,6 @@ local function card(parent: Instance, name: any, desc: any, color: Color3): (Fra
 	return c, buy
 end
 
--- Цена из Marketplace (с запасным вариантом — подсказка из Config)
-local function fetchPrice(id: number, infoType: Enum.InfoType, fallback: number, apply: (number) -> ())
-	if id == 0 then
-		return
-	end
-	task.spawn(function()
-		local ok, info = pcall(function()
-			return MarketplaceService:GetProductInfo(id, infoType)
-		end)
-		if ok and type(info) == "table" and type(info.PriceInRobux) == "number" then
-			apply(info.PriceInRobux)
-		else
-			apply(fallback)
-		end
-	end)
-end
-
 local function notConfigured()
 	Toasts.show("shop.not_configured", "error")
 end
@@ -129,14 +113,14 @@ function ShopPanel.init(gui: ScreenGui)
 		local id = Config.GAMEPASS_IDS[key]
 		local _, buy = card(passGrid, L.kn(info.Name), L.kn(info.Description), Theme.Gold)
 		passButtons[key] = buy
+		buy.Name = "Buy_" .. key
 		if id == 0 then
 			L.bind(buy, "Text", L.k("shop.soon"))
-		else
-			buy.Text = "R$ ?"
 		end
-		fetchPrice(id, Enum.InfoType.GamePass, info.SuggestedPrice, function(price)
+		-- v2.7: реальная цена из Creator Hub (GetProductInfo), пока/если нет — SuggestedPrice
+		Prices.get(id, "GamePass", info.SuggestedPrice, function(price)
 			if passButtons[key] and not (ClientState.Core and ClientState.Core.Passes[key]) then
-				passButtons[key].Text = "R$ " .. tostring(price)
+				passButtons[key].Text = Prices.format(price)
 			end
 		end)
 		buy.Activated:Connect(function()
@@ -153,10 +137,13 @@ function ShopPanel.init(gui: ScreenGui)
 
 	-- Продукты по видам. Валюта и бусты удачи — это "платные случайные предметы" (через яйца),
 	-- поэтому для игроков с PolicyService.ArePaidRandomItemsRestricted эти разделы скрываются.
+	-- v2.7: эссенция и уровни пропуска (не случайные) — отдельная группа, видна всем:
+	-- так в магазине продаются все 9 продуктов.
 	local groups = {
-		{ Title = L.k("shop.group_gems"), Kind = "Gems", Color = Theme.Gem },
-		{ Title = L.k("shop.group_coins"), Kind = "Coins", Color = Theme.Gold },
-		{ Title = L.k("shop.group_luck"), Kind = "Luck", Color = Theme.Green },
+		{ Title = L.k("shop.group_gems"), Kinds = { Gems = true }, Color = Theme.Gem, Random = true },
+		{ Title = L.k("shop.group_coins"), Kinds = { Coins = true }, Color = Theme.Gold, Random = true },
+		{ Title = L.k("shop.group_luck"), Kinds = { Luck = true }, Color = Theme.Green, Random = true },
+		{ Title = L.k("shop.group_other"), Kinds = { Res = true, BpLevels = true }, Color = Theme.Purple },
 	}
 	local order = 10
 	local restrictedNote = Widgets.label({
@@ -171,28 +158,33 @@ function ShopPanel.init(gui: ScreenGui)
 	local groupFrames = {}
 	for _, group in ipairs(groups) do
 		local grid, header = section(scroll, group.Title, order)
-		table.insert(groupFrames, { Grid = grid, Header = header })
+		if group.Random then
+			table.insert(groupFrames, { Grid = grid, Header = header })
+		end
 		order += 10
 		for _, key in ipairs(Config.PRODUCT_ORDER) do
 			local def = Config.PRODUCTS[key]
-			if def.Kind == group.Kind then
+			if group.Kinds[def.Kind] then
 				local id = Config.PRODUCT_IDS[key]
 				local desc
 				if def.Kind == "Gems" then
 					desc = L.k("shop.desc_gems", { amount = Util.formatNumber(def.Amount), n = def.Amount })
 				elseif def.Kind == "Coins" then
 					desc = L.k("shop.desc_coins", { n = Util.formatNumber(def.Clicks) })
+				elseif def.Kind == "Res" then
+					desc = L.k("shop.desc_res", { n = def.Amount })
+				elseif def.Kind == "BpLevels" then
+					desc = L.k("shop.desc_bp", { n = def.Levels })
 				else
 					desc = L.k("shop.desc_luck", { x = def.Multiplier, n = def.Seconds // 60 })
 				end
 				local _, buy = card(grid, L.kn(def.Name), desc, group.Color)
+				buy.Name = "Buy_" .. key
 				if id == 0 then
 					L.bind(buy, "Text", L.k("shop.soon"))
-				else
-					buy.Text = "R$ ?"
 				end
-				fetchPrice(id, Enum.InfoType.Product, def.SuggestedPrice, function(price)
-					buy.Text = "R$ " .. tostring(price)
+				Prices.get(id, "Product", def.SuggestedPrice, function(price)
+					buy.Text = Prices.format(price)
 				end)
 				buy.Activated:Connect(function()
 					if id == 0 then

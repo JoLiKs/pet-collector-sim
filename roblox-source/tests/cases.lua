@@ -3429,6 +3429,343 @@ test(
 	end
 )
 
+-- ============================================================================
+-- v2.7: реальные геймпассы и продукты (созданы через Open Cloud, tools/roblox_store.py)
+-- ============================================================================
+test(
+	"v2.7 Магазин: все 5 пассов и 9 продуктов настроены — ID реальные, уникальные, с ценой",
+	function()
+		local S = boot("A27C")
+		local C = S.Config
+		local seen = {}
+		local function uniq(id, what)
+			check(type(id) == "number" and id > 0 and id == math.floor(id), what .. ": ID > 0")
+			check(seen[id] == nil, what .. ": ID уникален")
+			seen[id] = true
+		end
+		local nPass, nProd = 0, 0
+		for key in pairs(C.GAMEPASS_IDS) do
+			nPass += 1
+			check(table.find(C.GAMEPASS_ORDER, key) ~= nil, "пасс в GAMEPASS_ORDER: " .. key)
+		end
+		for _, key in ipairs(C.GAMEPASS_ORDER) do
+			local id, info = C.GAMEPASS_IDS[key], C.GAMEPASSES[key]
+			uniq(id, key)
+			check(C.getPassKeyById(id) == key, "getPassKeyById: " .. key)
+			check(info and type(info.Name) == "string" and #info.Name > 0, "имя пасса: " .. key)
+			check(
+				info and type(info.SuggestedPrice) == "number" and info.SuggestedPrice > 0,
+				"цена пасса: " .. key
+			)
+		end
+		for key in pairs(C.PRODUCT_IDS) do
+			nProd += 1
+			check(table.find(C.PRODUCT_ORDER, key) ~= nil, "продукт в PRODUCT_ORDER: " .. key)
+		end
+		for _, key in ipairs(C.PRODUCT_ORDER) do
+			local id, def = C.PRODUCT_IDS[key], C.PRODUCTS[key]
+			uniq(id, key)
+			check(C.getProductKeyById(id) == key, "getProductKeyById: " .. key)
+			check(
+				def and type(def.Description) == "string" and #def.Description > 0,
+				"описание: " .. key
+			)
+			check(
+				def and type(def.SuggestedPrice) == "number" and def.SuggestedPrice > 0,
+				"цена: " .. key
+			)
+		end
+		check(
+			nPass == 5 and nProd == 9,
+			("5 пассов и 9 продуктов (%d/%d)"):format(nPass, nProd)
+		)
+		check(
+			C.STUDIO_GRANT_ALL_PASSES == false,
+			"в релизе пассы не выдаются бесплатно"
+		)
+	end
+)
+
+test(
+	"v2.7 ProcessReceipt: все 9 продуктов по реальным ID — выдача и идемпотентность",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A27R")
+		local C = S.Config
+		local data, _, p = S.join(2701, "Donor")
+		local fn = S.U.Game:GetService("MarketplaceService").ProcessReceipt
+		local GRANTED = "Enum.ProductPurchaseDecision.PurchaseGranted"
+		local purchase = 27000
+		for _, key in ipairs(C.PRODUCT_ORDER) do
+			local def = C.PRODUCTS[key]
+			local id = C.PRODUCT_IDS[key]
+			local before = {
+				Gems = data.Gems,
+				Coins = data.Coins,
+				Xp = data.BattlePass.Xp,
+				Res = def.Res and (data.Resources[def.Res] or 0) or 0,
+				Boost = def.Boost and (data.Boosts[def.Boost] or 0) or 0,
+			}
+			purchase += 1
+			check(fn(receipt(p, purchase, id)) == GRANTED, "куплено: " .. key)
+			local function gained()
+				if def.Kind == "Gems" then
+					return data.Gems - before.Gems
+				elseif def.Kind == "Coins" then
+					return data.Coins - before.Coins
+				elseif def.Kind == "Luck" then
+					return data.Boosts[def.Boost] - math.max(before.Boost, os.time())
+				elseif def.Kind == "Res" then
+					return (data.Resources[def.Res] or 0) - before.Res
+				elseif def.Kind == "BpLevels" then
+					return data.BattlePass.Xp - before.Xp
+				end
+				return 0
+			end
+			local g = gained()
+			if def.Kind == "Gems" or def.Kind == "Res" then
+				check(g == def.Amount, key .. ": +" .. tostring(def.Amount) .. " (" .. g .. ")")
+			elseif def.Kind == "Coins" then
+				check(g >= def.Min, key .. ": монет не меньше Min (" .. g .. ")")
+			elseif def.Kind == "Luck" then
+				check(g >= def.Seconds - 1, key .. ": буст на " .. def.Seconds .. " с (" .. g .. ")")
+			else
+				check(g > 0, key .. ": опыт пропуска (" .. g .. ")")
+			end
+			-- повтор того же чека (Roblox может прислать его ещё раз) — ничего не добавляет
+			local snap =
+				{ data.Gems, data.Coins, data.BattlePass.Xp, def.Res and data.Resources[def.Res] or 0 }
+			check(fn(receipt(p, purchase, id)) == GRANTED, "повтор подтверждён: " .. key)
+			check(
+				data.Gems == snap[1]
+					and data.Coins == snap[2]
+					and data.BattlePass.Xp == snap[3]
+					and (def.Res and data.Resources[def.Res] or 0) == snap[4],
+				"повтор не выдаёт второй раз: " .. key
+			)
+			check(data.Receipts[tostring(purchase)] ~= nil, "чек записан: " .. key)
+		end
+		local saved = BACKEND.Stores[C.DATASTORE_NAME]["Player_2701"].Data
+		check(
+			saved.Receipts[tostring(purchase)] ~= nil,
+			"чеки сохранены в DataStore вместе с наградой"
+		)
+	end
+)
+
+test(
+	"v2.7 ProcessReceipt: ошибка при выдаче -> NotProcessedYet, повтор выдаёт ровно один раз",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A27E")
+		local data, _, p = S.join(2702, "Oops")
+		local fn = S.U.Game:GetService("MarketplaceService").ProcessReceipt
+		local id = S.Config.PRODUCT_IDS.GEMS_SMALL
+		local orig = S.Economy.addGems
+		S.Economy.addGems = function()
+			error("simulated failure")
+		end
+		local gems0 = data.Gems
+		check(
+			fn(receipt(p, 27101, id)) == "Enum.ProductPurchaseDecision.NotProcessedYet",
+			"ошибка выдачи -> NotProcessedYet"
+		)
+		check(
+			data.Receipts["27101"] == nil,
+			"чек не записан, если награда не выдана"
+		)
+		S.Economy.addGems = orig
+		check(
+			fn(receipt(p, 27101, id)) == "Enum.ProductPurchaseDecision.PurchaseGranted",
+			"повтор -> Granted"
+		)
+		check(
+			data.Gems - gems0 == S.Config.PRODUCTS.GEMS_SMALL.Amount,
+			"гемы выданы ровно один раз"
+		)
+	end
+)
+
+test(
+	"v2.7 Геймпассы: каждый из 5 действует сразу после покупки, без перезахода",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A27P")
+		local C = S.Config
+		local data, _, p = S.join(2703, "Buyer")
+		local hum = p.Character:FindFirstChildOfClass("Humanoid")
+		for _, key in ipairs(C.GAMEPASS_ORDER) do
+			check(not S.Session.hasPass(p, key), "до покупки нет: " .. key)
+		end
+		local slots0 = S.Economy.getPetSlots(p, data)
+		local click0 = S.Economy.getPerClick(p, data)
+		-- неизвестный ID и отмена ничего не дают
+		S.U.Market.PromptGamePassPurchaseFinished:Fire(p, 123, true)
+		S.U.Market.PromptGamePassPurchaseFinished:Fire(p, C.GAMEPASS_IDS.VIP, false)
+		DRIVE_UNTIL_IDLE(5)
+		check(not S.Session.hasPass(p, "VIP"), "отмена покупки VIP ничего не даёт")
+		for _, key in ipairs(C.GAMEPASS_ORDER) do
+			S.U.Market.PromptGamePassPurchaseFinished:Fire(p, C.GAMEPASS_IDS[key], true)
+			DRIVE_UNTIL_IDLE(5)
+			check(S.Session.hasPass(p, key), "сразу после покупки: " .. key)
+		end
+		check(
+			hum.WalkSpeed == S.Economy.getWalkSpeed(p, data),
+			"скорость персонажа обновлена сразу"
+		)
+		check(hum.WalkSpeed >= 32, "x2 скорость: " .. tostring(hum.WalkSpeed))
+		check(S.Economy.getPetSlots(p, data) == slots0 + 1, "VIP: +1 слот сразу")
+		check(S.Economy.getPerClick(p, data) > click0, "2x Coins / VIP: доход вырос сразу")
+	end
+)
+
+test(
+	"v2.7 UserOwnsGamePassAsync: сбой при входе -> фоновая перепроверка возвращает купленный пасс",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A27O")
+		local C = S.Config
+		S.U.Market.OwnedPasses["2704:" .. C.GAMEPASS_IDS.VIP] = true
+		S.U.Market.OwnedPasses["2704:" .. C.GAMEPASS_IDS.DOUBLE_SPEED] = true
+		S.U.Market.OwnsError = true
+		local data, _, p = S.join(2704, "Unlucky")
+		check(
+			not S.Session.hasPass(p, "VIP"),
+			"Roblox недоступен -> пасс пока не выдан"
+		)
+		S.U.Market.OwnsError = false
+		DRIVE_UNTIL_IDLE(400)
+		check(S.Session.hasPass(p, "VIP"), "VIP вернулся после перепроверки")
+		check(
+			S.Session.hasPass(p, "DOUBLE_SPEED"),
+			"2x Speed вернулся после перепроверки"
+		)
+		check(not S.Session.hasPass(p, "AUTO_COLLECT"), "некупленный пасс не выдан")
+		local hum = p.Character:FindFirstChildOfClass("Humanoid")
+		check(
+			hum.WalkSpeed == S.Economy.getWalkSpeed(p, data),
+			"скорость применена после перепроверки"
+		)
+		-- при входе с работающим Roblox — сразу
+		S.U.Market.OwnedPasses["2705:" .. C.GAMEPASS_IDS.AUTO_COLLECT] = true
+		local _, _, p2 = S.join(2705, "Lucky")
+		check(S.Session.hasPass(p2, "AUTO_COLLECT"), "владение проверено при входе")
+	end
+)
+
+test(
+	"v2.7 Prices: цена из GetProductInfo, кэш, фолбэк на SuggestedPrice при ошибке/0/nil",
+	function()
+		local S = boot("A27$")
+		local Prices = S.U.require("ReplicatedStorage/Shared/Prices")
+		Prices.clear()
+		check(Prices.pick({ PriceInRobux = 299 }, 1) == 299, "pick: реальная цена")
+		check(Prices.pick({ PriceInRobux = 0 }, 149) == 149, "pick: 0 -> фолбэк")
+		check(Prices.pick({ PriceInRobux = nil }, 149) == 149, "pick: nil -> фолбэк")
+		check(Prices.pick({ PriceInRobux = 0 / 0 }, 149) == 149, "pick: NaN -> фолбэк")
+		check(Prices.pick(nil, 79) == 79, "pick: нет ответа -> фолбэк")
+		check(Prices.format(129) == "R$ 129", "format")
+
+		local calls, fail = 0, false
+		local real = { [111] = 499, [222] = 0 }
+		Prices.market = {
+			GetProductInfo = function(_, id, _infoType)
+				calls += 1
+				if fail then
+					error("HTTP 500")
+				end
+				return { Name = "x", PriceInRobux = real[id], IsForSale = real[id] ~= nil }
+			end,
+		}
+		Prices.ATTEMPTS = 1
+		local seen = {}
+		Prices.get(111, "GamePass", 399, function(p)
+			table.insert(seen, p)
+		end)
+		local seen2 = {}
+		Prices.get(111, "GamePass", 399, function(p)
+			table.insert(seen2, p)
+		end)
+		DRIVE_UNTIL_IDLE(10)
+		check(
+			seen[1] == 399 and seen[#seen] == 499,
+			"сначала SuggestedPrice, затем реальная цена"
+		)
+		check(seen2[#seen2] == 499, "второй подписчик тоже получил цену")
+		check(calls == 1, "одновременные запросы объединены (" .. calls .. ")")
+		local hit = {}
+		Prices.get(111, "GamePass", 399, function(p)
+			table.insert(hit, p)
+		end)
+		check(
+			#hit == 1 and hit[1] == 499 and calls == 1,
+			"повторно — из кэша, без запроса"
+		)
+		check(
+			Prices.cached(111, "GamePass") == 499 and Prices.cached(111, "Product") == nil,
+			"кэш по виду товара"
+		)
+
+		-- 0 (снят с продажи / эмулятор) -> SuggestedPrice, не кэшируется
+		local z = {}
+		Prices.get(222, "Product", 79, function(p)
+			table.insert(z, p)
+		end)
+		DRIVE_UNTIL_IDLE(10)
+		check(z[#z] == 79 and Prices.cached(222, "Product") == nil, "цена 0 -> SuggestedPrice")
+
+		-- ошибка API -> SuggestedPrice; после восстановления — реальная цена
+		fail = true
+		real[333] = 199
+		local e = {}
+		Prices.get(333, "Product", 149, function(p)
+			table.insert(e, p)
+		end)
+		DRIVE_UNTIL_IDLE(10)
+		check(
+			e[#e] == 149 and Prices.cached(333, "Product") == nil,
+			"ошибка API -> SuggestedPrice, без кэша"
+		)
+		fail = false
+		local r = {}
+		Prices.get(333, "Product", 149, function(p)
+			table.insert(r, p)
+		end)
+		DRIVE_UNTIL_IDLE(10)
+		check(r[#r] == 199, "после восстановления — реальная цена")
+
+		local before = calls
+		Prices.get(0, "Product", 99, function()
+			error("must not be called")
+		end)
+		check(calls == before, "ID 0 (не настроен) — без запросов")
+
+		-- реальные ID из Config: фолбэк = SuggestedPrice каждого товара
+		Prices.clear()
+		Prices.market = {
+			GetProductInfo = function()
+				error("offline")
+			end,
+		}
+		for _, key in ipairs(S.Config.PRODUCT_ORDER) do
+			local got
+			Prices.get(
+				S.Config.PRODUCT_IDS[key],
+				"Product",
+				S.Config.PRODUCTS[key].SuggestedPrice,
+				function(p)
+					got = p
+				end
+			)
+			DRIVE_UNTIL_IDLE(10)
+			check(got == S.Config.PRODUCTS[key].SuggestedPrice, "фолбэк цены: " .. key)
+		end
+		Prices.market = nil
+		Prices.ATTEMPTS = 2
+		Prices.clear()
+	end
+)
+
 -- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
 if failed > 0 or (TEST_ERRORS or 0) > 0 then

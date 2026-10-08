@@ -1,0 +1,77 @@
+{
+  "universe": 10769777582,
+  "passes": {
+    "DOUBLE_SPEED": {
+      "id": 2017952343,
+      "name": "2x Speed",
+      "price": 149
+    },
+    "DOUBLE_COINS": {
+      "id": 2019872329,
+      "name": "2x Coins",
+      "price": 299
+    },
+    "AUTO_COLLECT": {
+      "id": 2018384337,
+      "name": "Auto Collect",
+      "price": 399
+    },
+    "VIP": {
+      "id": 2019452336,
+      "name": "VIP",
+      "price": 599
+    },
+    "BATTLE_PASS": {
+      "id": 2018684334,
+      "name": "Battle Pass (Premium)",
+      "price": 499
+    }
+  },
+  "products": {
+    "GEMS_SMALL": {
+      "id": 3717220391,
+      "name": "Pile of Gems",
+      "price": 79
+    },
+    "GEMS_MEDIUM": {
+      "id": 3717220423,
+      "name": "Bag of Gems",
+      "price": 349
+    },
+    "GEMS_LARGE": {
+      "id": 3717220428,
+      "name": "Chest of Gems",
+      "price": 899
+    },
+    "COINS_SMALL": {
+      "id": 3717220436,
+      "name": "Coin Pouch",
+      "price": 79
+    },
+    "COINS_LARGE": {
+      "id": 3717220441,
+      "name": "Coin Vault",
+      "price": 399
+    },
+    "LUCK_2X_15M": {
+      "id": 3717220447,
+      "name": "Lucky Clover x2 (15m)",
+      "price": 79
+    },
+    "LUCK_5X_10M": {
+      "id": 3717220452,
+      "name": "Super Clover x5 (10m)",
+      "price": 199
+    },
+    "BP_SKIP": {
+      "id": 3717220455,
+      "name": "Battle Pass +5 Levels",
+      "price": 129
+    },
+    "ESSENCE_PACK": {
+      "id": 3717220458,
+      "name": "Essence Pack",
+      "price": 99
+    }
+  }
+}

@@ -9,40 +9,42 @@
 	    * Developer Products -> создайте Product -> скопируйте Product ID
 	Значение 0 = "не настроено": кнопка в магазине покажет подсказку, покупка невозможна,
 	а игра продолжает работать без ошибок.
+	v2.7: все 5 геймпассов и 9 продуктов созданы в universe 10769777582 через Open Cloud
+	(tools/roblox_store.py, ID также в tools/store_ids.json). Повторный запуск дубликатов не создаёт.
 ]]
 
 local Config = {}
 
 -- ============================================================================
--- 1. ID ГЕЙМПАССОВ (Game Passes) — подставьте свои числа вместо 0
+-- 1. ID ГЕЙМПАССОВ (Game Passes) — реальные ID (v2.7); 0 = пасс отключён
 -- ============================================================================
 Config.GAMEPASS_IDS = {
 	-- x2 ко всем монетам навсегда. Рекомендуемая цена: ~199-399 R$
-	DOUBLE_COINS = 0,
+	DOUBLE_COINS = 2019872329,
 	-- x2 скорость бега навсегда. Рекомендуемая цена: ~99-199 R$
-	DOUBLE_SPEED = 0,
+	DOUBLE_SPEED = 2017952343,
 	-- Автосбор: монеты собираются сами, пока игрок в игре. Рекомендуемая цена: ~299-499 R$
-	AUTO_COLLECT = 0,
+	AUTO_COLLECT = 2018384337,
 	-- VIP: +25% монет, +1 слот питомца, тег [VIP], x2 ежедневные награды. Рекомендуемая цена: ~399-799 R$
-	VIP = 0,
+	VIP = 2019452336,
 	-- Премиум-дорожка батл-пасса сезона (все премиум-награды). Рекомендуемая цена: ~399-599 R$
-	BATTLE_PASS = 0,
+	BATTLE_PASS = 2018684334,
 }
 
 -- ============================================================================
--- 2. ID ДЕВЕЛОПЕРСКИХ ПРОДУКТОВ (Developer Products) — подставьте свои числа вместо 0
+-- 2. ID ДЕВЕЛОПЕРСКИХ ПРОДУКТОВ (Developer Products) — реальные ID (v2.7); 0 = отключён
 --    Developer Product можно покупать многократно (в отличие от геймпасса).
 -- ============================================================================
 Config.PRODUCT_IDS = {
-	GEMS_SMALL = 0, -- пакет гемов (маленький), ~49-99 R$
-	GEMS_MEDIUM = 0, -- пакет гемов (средний), ~249-399 R$
-	GEMS_LARGE = 0, -- пакет гемов (большой), ~799-999 R$
-	COINS_SMALL = 0, -- пакет монет (маленький), ~49-99 R$
-	COINS_LARGE = 0, -- пакет монет (большой), ~299-499 R$
-	LUCK_2X_15M = 0, -- лаки-буст x2 на 15 минут, ~49-99 R$
-	LUCK_5X_10M = 0, -- лаки-буст x5 на 10 минут, ~149-249 R$
-	BP_SKIP = 0, -- +5 уровней батл-пасса, ~99-149 R$
-	ESSENCE_PACK = 0, -- 30 эссенции для эволюции питомцев, ~79-129 R$
+	GEMS_SMALL = 3717220391, -- пакет гемов (маленький), ~49-99 R$
+	GEMS_MEDIUM = 3717220423, -- пакет гемов (средний), ~249-399 R$
+	GEMS_LARGE = 3717220428, -- пакет гемов (большой), ~799-999 R$
+	COINS_SMALL = 3717220436, -- пакет монет (маленький), ~49-99 R$
+	COINS_LARGE = 3717220441, -- пакет монет (большой), ~299-499 R$
+	LUCK_2X_15M = 3717220447, -- лаки-буст x2 на 15 минут, ~49-99 R$
+	LUCK_5X_10M = 3717220452, -- лаки-буст x5 на 10 минут, ~149-249 R$
+	BP_SKIP = 3717220455, -- +5 уровней батл-пасса, ~99-149 R$
+	ESSENCE_PACK = 3717220458, -- 30 эссенции для эволюции питомцев, ~79-129 R$
 }
 
 -- ============================================================================
@@ -84,30 +86,78 @@ Config.BADGES = {
 --    Coins: Clicks  = сколько "кликов текущей силы" эквивалентно пакету (масштабируется с прогрессом)
 --           Min     = минимум монет (чтобы пакет был полезен новичку)
 --    Luck:  Boost   = ключ в данных игрока, Seconds = длительность, Multiplier = множитель удачи
---    SuggestedPrice — только подсказка для README/магазина, реальную цену задаёте в Creator Hub.
+--    Description — описание продукта (англ.) для Creator Hub (tools/roblox_store.py создаёт продукты с ним).
+--    SuggestedPrice — цена при создании (tools/roblox_store.py) и запасная цена в магазине, если GetProductInfo недоступен.
 -- ============================================================================
 Config.PRODUCTS = {
-	GEMS_SMALL = { Kind = "Gems", Amount = 100, Name = "Pile of Gems", SuggestedPrice = 79 },
-	GEMS_MEDIUM = { Kind = "Gems", Amount = 550, Name = "Bag of Gems", SuggestedPrice = 349 },
-	GEMS_LARGE = { Kind = "Gems", Amount = 1500, Name = "Chest of Gems", SuggestedPrice = 899 },
-	COINS_SMALL = { Kind = "Coins", Clicks = 1500, Min = 2000, Name = "Coin Pouch", SuggestedPrice = 79 },
-	COINS_LARGE = { Kind = "Coins", Clicks = 15000, Min = 25000, Name = "Coin Vault", SuggestedPrice = 399 },
+	GEMS_SMALL = {
+		Kind = "Gems",
+		Amount = 100,
+		Name = "Pile of Gems",
+		Description = "100 gems to hatch eggs and buy upgrades.",
+		SuggestedPrice = 79,
+	},
+	GEMS_MEDIUM = {
+		Kind = "Gems",
+		Amount = 550,
+		Name = "Bag of Gems",
+		Description = "550 gems - great value for hatching more eggs.",
+		SuggestedPrice = 349,
+	},
+	GEMS_LARGE = {
+		Kind = "Gems",
+		Amount = 1500,
+		Name = "Chest of Gems",
+		Description = "1500 gems - the best value gem chest!",
+		SuggestedPrice = 899,
+	},
+	COINS_SMALL = {
+		Kind = "Coins",
+		Clicks = 1500,
+		Min = 2000,
+		Name = "Coin Pouch",
+		Description = "A pouch of coins that grows with your progress (at least 2,000).",
+		SuggestedPrice = 79,
+	},
+	COINS_LARGE = {
+		Kind = "Coins",
+		Clicks = 15000,
+		Min = 25000,
+		Name = "Coin Vault",
+		Description = "A vault of coins that grows with your progress (at least 25,000).",
+		SuggestedPrice = 399,
+	},
 	LUCK_2X_15M = {
 		Kind = "Luck",
 		Boost = "Luck2",
 		Multiplier = 2,
 		Seconds = 900,
 		Name = "Lucky Clover x2 (15m)",
+		Description = "Double egg hatch luck for 15 minutes.",
 		SuggestedPrice = 79,
 	},
-	BP_SKIP = { Kind = "BpLevels", Levels = 5, Name = "Battle Pass +5 Levels", SuggestedPrice = 129 },
-	ESSENCE_PACK = { Kind = "Res", Res = "Essence", Amount = 30, Name = "Essence Pack", SuggestedPrice = 99 },
+	BP_SKIP = {
+		Kind = "BpLevels",
+		Levels = 5,
+		Name = "Battle Pass +5 Levels",
+		Description = "Instantly gain 5 Battle Pass levels.",
+		SuggestedPrice = 129,
+	},
+	ESSENCE_PACK = {
+		Kind = "Res",
+		Res = "Essence",
+		Amount = 30,
+		Name = "Essence Pack",
+		Description = "30 essence to evolve your pets.",
+		SuggestedPrice = 99,
+	},
 	LUCK_5X_10M = {
 		Kind = "Luck",
 		Boost = "Luck5",
 		Multiplier = 5,
 		Seconds = 600,
 		Name = "Super Clover x5 (10m)",
+		Description = "5x egg hatch luck for 10 minutes!",
 		SuggestedPrice = 199,
 	},
 }
@@ -195,7 +245,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.6.0"
+Config.VERSION = "2.7.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3

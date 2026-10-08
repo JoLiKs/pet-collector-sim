@@ -1,4 +1,4 @@
-# Pet Collector Simulator v2.6 — веб-демо на реальном Luau-коде
+# Pet Collector Simulator v2.7 — веб-демо на реальном Luau-коде
 
 ▶ **Играть: https://joliks.github.io/pet-collector-sim/**
 
@@ -7,7 +7,7 @@
 а `Workspace`, `Players`, `RemoteEvent`, `DataStore`, GUI, 3D (three.js) эмулирует его же рантайм. Серверные скрипты, клиентский интерфейс и общие модули выполняются в одной вкладке.
 
 ## Скачать
-* [`PetCollectorSimulator_v2.6.zip`](PetCollectorSimulator_v2.6.zip) — проект целиком (src, документация, тесты, `.rbxlx`, `.rbxl`)
+* [`PetCollectorSimulator_v2.7.zip`](PetCollectorSimulator_v2.7.zip) — проект целиком (src, документация, тесты, `.rbxlx`, `.rbxl`)
 * [`PetCollectorSimulator.rbxl`](PetCollectorSimulator.rbxl) / [`PetCollectorSimulator.rbxlx`](PetCollectorSimulator.rbxlx) — готовое место для Roblox Studio (бинарный / XML)
 * [`PetCollectorSimulator_web.zip`](PetCollectorSimulator_web.zip) — эта веб-версия для самостоятельного хостинга
 * Скриншоты: [`roblox-source/docs/screens/`](roblox-source/docs/screens/), документация: [`roblox-source/docs/`](roblox-source/docs/)
@@ -18,6 +18,10 @@
 
 ## Язык
 Игра на **русском или английском**: страна определяется по IP (Cloudflare `cdn-cgi/trace` → geojs.io → country.is → ipapi.co, до ~2 с), при неудаче — по языку браузера. RU/BY/KZ/KG/AM/AZ/MD/TJ/UZ/TM → русский; Украина → русский только при русском языке браузера. Переключатель — **Ещё → Настройки / More → Settings**.
+
+## Новое в v2.7
+* **Настоящие покупки в Roblox:** 5 геймпассов и 9 продуктов созданы в опыте и выставлены на продажу, у каждого своя иконка. Магазин показывает их реальные цены; в этой веб-версии покупка проходит через демо-окно — **деньги не списываются**.
+* Пасс начинает действовать сразу после покупки; в магазине появилась группа «Эссенция и боевой пропуск» — продаются все 9 продуктов.
 
 ## Новое в v2.6
 * **Иконка игры и логотип**: экран загрузки с логотипом и табличка с ним в хабе (в демо — настоящая картинка `assets/icon_512.png` через сопоставление ассетов roblox2web 2.4), значок «Добро пожаловать» (в Roblox — через BadgeService).

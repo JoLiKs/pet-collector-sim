@@ -5,10 +5,10 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 110,
-    "transpiled": 110,
+    "total": 111,
+    "transpiled": 111,
     "failed": [],
-    "lines": 25728
+    "lines": 25940
   },
   "globals": {
     "used": 33,
@@ -99,6 +99,7 @@
       "string.split",
       "string.sub",
       "string.upper",
+      "table.clear",
       "table.clone",
       "table.concat",
       "table.create",
@@ -191,7 +192,6 @@
       "HorizontalAlignment.Center",
       "HorizontalAlignment.Right",
       "HumanoidDisplayDistanceType.None",
-      "InfoType",
       "InfoType.GamePass",
       "InfoType.Product",
       "KeyCode.E",
