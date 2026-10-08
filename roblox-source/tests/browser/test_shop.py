@@ -22,7 +22,7 @@ def check(name, cond, info=''):
 
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1&country=US')
+    page.goto(url + 'index.html?persist=0&seed=1&country=US&attr.DailyAutoOpen=false')
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     page.wait_for_timeout(1000)
     g.click('[data-n="ShopBtn"]')

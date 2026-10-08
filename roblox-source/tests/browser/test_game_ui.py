@@ -26,7 +26,7 @@ def check(name, cond, info=''):
 
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1&country=US')
+    page.goto(url + 'index.html?persist=0&seed=1&country=US&attr.DailyAutoOpen=false')
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     check('HUD загружен, ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0)
     page.wait_for_timeout(1500)
@@ -226,9 +226,9 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.cmd('tp:-26,12')
     g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='daily prompt')
     page.keyboard.press('e')
-    g.wait(lambda: g.vis('[data-n="Daily RewardsPanel"]'), what='daily panel')
+    g.wait(lambda: g.vis('[data-n="DailyPanel"]'), what='daily panel')
     check('станция «Сундук наград» открывает ежедневные награды', True)
-    g.click('[data-n="Daily RewardsPanel"] [data-n="Close"]')
+    g.click('[data-n="DailyPanel"] [data-n="Close"]')
 
     # --- мир: бой
     open_panel('Zones'); g.p.wait_for_timeout(800)

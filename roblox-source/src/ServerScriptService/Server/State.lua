@@ -124,7 +124,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		Luck = Economy.getLuck(player, data),
 		LuckBoost = luckBoost,
 		LuckBoostEnds = luckEnds,
-		Daily = DailyService.getInfo(data),
+		Daily = DailyService.getInfo(data, player),
 		RebirthCost = Formulas.rebirthCost(data.Rebirths),
 		ServerTime = os.time(),
 		-- v2

@@ -35,7 +35,7 @@ def card(page): return page.evaluate("(()=>{const t=document.querySelector('[dat
 
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1&country=RU')
+    page.goto(url + 'index.html?persist=0&seed=1&country=RU&attr.DailyAutoOpen=false')
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); page.wait_for_timeout(2000)
     g.cmd('seed'); g.cmd('tp:0,10'); g.vwait(1.0)
     nb = page.evaluate("(()=>{const b=R2W.ENV.workspace.findChild('Bots'); return b? b.children.length: 0})()")

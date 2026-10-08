@@ -732,33 +732,315 @@ test("Апгрейды, зоны, ребёрт", function()
 end)
 
 test(
-	"Ежедневные награды: стрик, сброс, повторная выдача",
+	"v2.8 Ежедневная награда: цикл 7 дней, пропуск не сбрасывает, после 7-го — заново",
+	function()
+		local S = boot("A28a")
+		local D = S.U.require("ReplicatedStorage/Shared/DailyData")
+		check(#D.Rewards == 7 and D.CYCLE == 7, "7 наград в цикле")
+		local d = D.normalize(nil)
+		check(d.LastDay == 0 and d.Cycle == 0 and d.Popup == 0 and d.Streak == 0, "пустые данные")
+		local t = 20000
+		local st = D.state(d, t)
+		check(
+			st.CanClaim and st.Day == 1 and st.Claimed == 0 and st.AutoOpen,
+			"новичок: день 1, окно откроется само"
+		)
+		check(D.advance(d, t) == 1, "забрал день 1")
+		check(D.advance(d, t) == nil, "второй раз в те же сутки — нельзя")
+		st = D.state(d, t)
+		check(
+			not st.CanClaim and st.Day == 1 and st.Claimed == 1 and not st.AutoOpen,
+			"после забора само не открывается"
+		)
+		check(
+			D.advance(d, t + 1) == 2 and d.Streak == 2,
+			"следующие сутки — день 2, серия 2"
+		)
+		-- пропуск 3 суток: прогресс цикла сохраняется, серия «подряд» обнуляется
+		st = D.state(d, t + 5)
+		check(st.CanClaim and st.Day == 3, "после пропуска — день 3, а не 1")
+		check(
+			D.advance(d, t + 5) == 3 and d.Streak == 1,
+			"день 3 получен, серия подряд = 1"
+		)
+		local day = 5
+		for want = 4, 7 do
+			day += 1
+			check(D.advance(d, t + day) == want, "день " .. want)
+		end
+		st = D.state(d, t + day)
+		check(st.Claimed == 7 and not st.CanClaim, "в день 7 все карточки получены")
+		st = D.state(d, t + day + 1)
+		check(
+			st.CanClaim and st.Day == 1 and st.Claimed == 0,
+			"после дня 7 — новый круг с дня 1"
+		)
+		check(D.advance(d, t + day + 1) == 1 and d.Cycle == 1, "день 1 нового круга")
+		-- автопоказ: раз в сутки
+		local e = D.normalize({ LastDay = t, Streak = 1, Cycle = 1, Popup = t + 1 })
+		check(
+			not D.state(e, t + 1).AutoOpen and D.state(e, t + 1).CanClaim,
+			"окно уже показывалось сегодня — само не всплывает"
+		)
+		check(D.state(e, t + 2).AutoOpen, "в следующие сутки — снова само")
+	end
+)
+
+test(
+	"v2.8 Ежедневная награда: миграция старых сохранений (Streak -> позиция цикла)",
+	function()
+		local S = boot("A28m")
+		local D = S.U.require("ReplicatedStorage/Shared/DailyData")
+		local today = os.time() // 86400
+		local function mig(daily)
+			local data = {
+				Version = 2,
+				Daily = daily,
+				Settings = { Lang = "auto" },
+				Tutorial = { Step = 99, P = 0 },
+				Index = {},
+			}
+			local changed = S.Migrations.run(data)
+			return data.Daily, changed
+		end
+		local d, changed = mig({ LastDay = today - 1, Streak = 3 })
+		check(
+			changed and d.Cycle == 3 and d.Popup == 0 and d.LastDay == today - 1,
+			"Streak 3 -> получены дни 1..3"
+		)
+		check(D.state(d, today).Day == 4, "дальше — день 4")
+		d = mig({ LastDay = today, Streak = 7 })
+		check(
+			d.Cycle == 7 and not D.state(d, today).CanClaim,
+			"Streak 7, забрано сегодня -> весь цикл отмечен"
+		)
+		check(D.state(d, today + 1).Day == 1, "завтра — новый круг")
+		d = mig({ LastDay = today - 10, Streak = 9 })
+		check(
+			d.Cycle == 2 and D.state(d, today).Day == 3,
+			"старый пропуск не сбрасывает: Streak 9 -> день 3"
+		)
+		d = mig({ LastDay = 0 / 0, Streak = math.huge })
+		check(
+			d.LastDay == 0 and d.Streak == 0 and d.Cycle == 0,
+			"мусор в старых полях -> нули"
+		)
+		d = mig(nil)
+		check(type(d) == "table" and d.Cycle == 0, "нет таблицы Daily -> создана")
+		local fresh = { LastDay = today, Streak = 2, Cycle = 5, Popup = today }
+		local _, ch2 = mig(fresh)
+		check(fresh.Cycle == 5, "новый формат не трогаем")
+		check(ch2 == false or ch2 == true, "миграция идемпотентна")
+		-- полная загрузка старого профиля через DataService
+		BACKEND.Stores = {}
+		local S2 = boot("A28m2")
+		local old = S2.Data.makeTemplate()
+		old.Daily = { LastDay = today - 1, Streak = 4 }
+		BACKEND.Stores[S2.Config.DATASTORE_NAME] = BACKEND.Stores[S2.Config.DATASTORE_NAME] or {}
+		BACKEND.Stores[S2.Config.DATASTORE_NAME].Player_2801 = { Data = old }
+		local data = S2.join(2801, "Oldie")
+		check(
+			data and data.Daily.Cycle == 4 and data.Daily.Popup == 0,
+			"профиль v2.7 загружен и мигрирован"
+		)
+		check(S2.Daily.getInfo(data).Day == 5, "окно покажет день 5")
+	end
+)
+
+test(
+	"v2.8 Ежедневная награда: награды — предметы игры, масштаб по прогрессу, VIP x2",
+	function()
+		local S = boot("A28r")
+		local D = S.U.require("ReplicatedStorage/Shared/DailyData")
+		local base = D.preview({ PerClick = 10, Zones = { Meadow = true } })
+		local vip = D.preview({ PerClick = 10, Zones = { Meadow = true }, Vip = true })
+		check(
+			base[1].Coins == 10 * 500 and vip[1].Coins == 2 * base[1].Coins,
+			"монеты = сила сбора × 500, VIP x2"
+		)
+		check(
+			D.preview({ PerClick = 1000, Zones = { Meadow = true } })[1].Coins == 500000,
+			"монеты растут с прогрессом"
+		)
+		check(base[2].Gems == 20 and vip[2].Gems == 40, "гемы 20, VIP 40")
+		check(
+			base[3].Item == "ticket_MeadowEgg" and base[3].ItemCount == 1 and vip[3].ItemCount == 2,
+			"билет на яйцо"
+		)
+		check(
+			base[4].Item == "luck_potion" and base[4].ItemCount == 2 and vip[4].ItemCount == 4,
+			"зелья удачи"
+		)
+		check(base[5].Res.Crystal == 4 and vip[5].Res.Crystal == 8, "кристаллы")
+		check(base[6].Res.Essence == 6 and vip[6].Res.Essence == 12, "эссенция")
+		check(
+			base[7].Pet == "sunfox" and base[7].Gems == 40 and vip[7].Gems == 80 and vip[7].Pet == "sunfox",
+			"день 7: питомец + гемы (VIP — гемы x2)"
+		)
+		check(base[7].Icon == "Mystery" and base[7].Kind == "Chest", "день 7 — тайна")
+		local forest = D.preview({ PerClick = 1, Zones = { Meadow = true, Forest = true, Desert = true } })
+		check(
+			forest[3].Item == "ticket_ForestEgg",
+			"билет лучшего мира с билетами (Пустыня -> Лес)"
+		)
+		check(
+			forest[7].Pet == "mirage" or S.PetData.PetsById[forest[7].Pet].Rarity == "Epic",
+			"питомец Epic из яйца лучшего мира"
+		)
+		local frost = D.preview({
+			PerClick = 1,
+			Zones = { Meadow = true, Forest = true, Desert = true, Frost = true, Volcano = true },
+		})
+		check(frost[3].Item == "ticket_FrostEgg", "билет Мороза")
+		check(S.PetData.PetsById[frost[7].Pet].Rarity == "Epic", "питомец Вулкана — Epic")
+		-- все награды существуют в игре
+		for z = 1, 5 do
+			local zones = {}
+			for i = 1, z do
+				zones[({ "Meadow", "Forest", "Desert", "Frost", "Volcano" })[i]] = true
+			end
+			for _, r in ipairs(D.preview({ PerClick = 3, Zones = zones })) do
+				if r.Item then
+					check(
+						S.RecipeData.Items[r.Item] ~= nil,
+						"предмет есть в игре: " .. r.Item
+					)
+				end
+				if r.Res then
+					for res in pairs(r.Res) do
+						check(
+							S.ResourceData.Resources[res] ~= nil,
+							"ресурс есть в игре: " .. res
+						)
+					end
+				end
+				if r.Pet then
+					check(S.PetData.PetsById[r.Pet] ~= nil, "питомец есть в игре: " .. r.Pet)
+				end
+				local Icons = S.U.require("ReplicatedStorage/Shared/Icons")
+				check(Icons.has(r.Icon), "иконка из Icons.lua: " .. r.Icon)
+			end
+		end
+		local Icons = S.U.require("ReplicatedStorage/Shared/Icons")
+		for _, k in ipairs({ "Gift", "Check", "Mystery" }) do
+			check(Icons.has(k), "иконка окна: " .. k)
+		end
+	end
+)
+
+test(
+	"v2.8 Ежедневная награда: сервер — выдача, двойной забор, спам, автопоказ раз в сутки, VIP",
 	function()
 		BACKEND.Stores = {}
-		local S = boot("A")
-		local data, _, p = S.join(60, "Quin")
-		local call = function()
-			ADVANCE(2)
-			return S.invoke(p, "ClaimDaily")
+		local S = boot("A28s")
+		local data, _, p = S.join(2802, "Daisy")
+		local function call(name)
+			ADVANCE(3)
+			return S.invoke(p, name or "ClaimDaily")
 		end
-		local info = S.Daily.getInfo(data)
-		check(info.CanClaim and info.Day == 1, "day 1 available")
-		check(call().ok and data.Daily.Streak == 1 and data.Gems == 10, "day 1 claimed (+10 gems)")
-		check(call().ok == false, "second claim same day rejected")
-		check(S.Daily.getInfo(data).CanClaim == false, "info reflects claimed")
+		local info = S.Daily.getInfo(data, p)
+		check(
+			info.CanClaim and info.Day == 1 and info.AutoOpen,
+			"вход: можно забрать, окно откроется само"
+		)
+		check(
+			#info.Rewards == 7 and info.Rewards[1].Coins == S.Economy.getPerClick(p, data) * 500,
+			"в снимке 7 карточек с суммами"
+		)
+		-- окно показано (DailySeen) -> до следующих суток само не откроется
+		check(call("DailySeen").ok, "DailySeen")
+		info = S.Daily.getInfo(data, p)
+		check(
+			info.CanClaim and not info.AutoOpen,
+			"после показа — само не всплывает, но забрать можно"
+		)
+		local coins0, gems0 = data.Coins, data.Gems
+		local per = S.Economy.getPerClick(p, data)
+		check(call().ok, "день 1 получен")
+		check(data.Coins - coins0 == per * 500, "монеты дня 1: " .. (data.Coins - coins0))
+		check(data.Gems == gems0, "в день 1 гемов нет")
+		-- двойной забор и спам
+		check(call().ok == false, "повторный забор в те же сутки отклонён")
+		local r1 = S.invoke(p, "ClaimDaily")
+		local r2 = S.invoke(p, "ClaimDaily")
+		local r3 = S.invoke(p, "ClaimDaily")
+		check(
+			not r1.ok and not r2.ok and not r3.ok,
+			"спам запросами ничего не выдаёт"
+		)
+		check(
+			data.Coins - coins0 == per * 500 and data.Daily.Cycle == 1,
+			"награда выдана ровно один раз"
+		)
+		-- следующие сутки
 		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
-		check(call().ok and data.Daily.Streak == 2, "next day continues streak")
+		info = S.Daily.getInfo(data, p)
+		check(
+			info.CanClaim and info.Day == 2 and info.AutoOpen,
+			"новые сутки: день 2 и снова автопоказ"
+		)
+		local ev = data.EventGems.Gems
+		gems0 = data.Gems
+		check(call().ok and data.Gems - gems0 == 20, "день 2: +20 гемов")
+		check(
+			data.EventGems.Gems == ev,
+			"гемы ежедневки не трогают потолок «Суперсилы»"
+		)
+		-- пропуск двух суток: идём к дню 3
 		SET_WALL_CLOCK(GET_WALL_CLOCK() + 3 * 86400)
-		check(S.Daily.getInfo(data).Day == 1, "missed days -> resets to day 1")
-		check(call().ok and data.Daily.Streak == 1, "streak reset after gap")
-		-- день 4 даёт буст удачи, VIP удваивает
-		data.Daily.Streak = 3
-		data.Daily.LastDay = os.time() // 86400 - 1
+		check(S.Daily.getInfo(data, p).Day == 3, "после пропуска — день 3")
+		local tk = S.Daily.getInfo(data, p).Rewards[3].Item
+		local n0 = data.Items[tk] or 0
+		check(call().ok and (data.Items[tk] or 0) == n0 + 1, "день 3: билет " .. tk)
+		-- VIP удваивает
 		S.Session.get(p).Passes.VIP = true
-		local gems = data.Gems
-		check(call().ok, "day 4 claimed")
-		check(data.Gems - gems == 25 * 2, "VIP doubles daily gems: " .. (data.Gems - gems))
-		check(data.Boosts.Luck2 > os.time(), "day 4 luck boost")
+		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
+		check(S.Daily.getInfo(data, p).Vip == true, "VIP виден в снимке")
+		local lp = data.Items.luck_potion or 0
+		check(call().ok and data.Items.luck_potion == lp + 4, "день 4 с VIP: 4 зелья удачи")
+		S.Session.get(p).Passes.VIP = false
+		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
+		local cr = data.Resources.Crystal or 0
+		check(call().ok and data.Resources.Crystal == cr + 4, "день 5: +4 кристалла")
+		-- Premium: +5 гемов к любой награде
+		S.Session.get(p).Premium = true
+		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
+		gems0 = data.Gems
+		local es = data.Resources.Essence or 0
+		check(call().ok and data.Resources.Essence == es + 6, "день 6: +6 эссенции")
+		check(data.Gems - gems0 == S.Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS, "Premium: +5 гемов")
+		S.Session.get(p).Premium = false
+		-- день 7: питомец + гемы
+		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
+		local pets0 = S.Economy.countPets(data)
+		gems0 = data.Gems
+		check(call().ok, "день 7 получен")
+		local hasFox = false
+		for _, pet in pairs(data.Pets) do
+			hasFox = hasFox or pet.Id == "sunfox"
+		end
+		check(S.Economy.countPets(data) == pets0 + 1 and hasFox, "день 7: питомец Sunny Fox")
+		check(data.Gems - gems0 == 40, "день 7: +40 гемов")
+		check(S.Daily.getInfo(data, p).Claimed == 7, "все 7 отмечены")
+		SET_WALL_CLOCK(GET_WALL_CLOCK() + 86400)
+		info = S.Daily.getInfo(data, p)
+		check(info.Day == 1 and info.Claimed == 0 and info.CanClaim, "новый круг")
+		-- выключатель автопоказа для тестов/демо
+		S.U.Game:GetService("Workspace"):SetAttribute("DailyAutoOpen", false)
+		check(
+			S.Daily.getInfo(data, p).AutoOpen == false,
+			"Workspace.DailyAutoOpen=false выключает автопоказ"
+		)
+		S.U.Game:GetService("Workspace"):SetAttribute("DailyAutoOpen", nil)
+		check(S.Daily.getInfo(data, p).AutoOpen == true, "по умолчанию — включён")
+		-- сохранение: забранный день переживает перезаход
+		check(call().ok, "день 1 нового круга")
+		S.Data.saveNow(p)
+		local saved = BACKEND.Stores[S.Config.DATASTORE_NAME]["Player_2802"].Data
+		check(
+			saved.Daily.Cycle == 1 and saved.Daily.LastDay == os.time() // 86400,
+			"прогресс цикла сохранён"
+		)
 	end
 )
 

@@ -5,17 +5,18 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 111,
-    "transpiled": 111,
+    "total": 112,
+    "transpiled": 112,
     "failed": [],
-    "lines": 25940
+    "lines": 26983
   },
   "globals": {
-    "used": 33,
+    "used": 34,
     "supported": [
       "CFrame",
       "Color3",
       "ColorSequence",
+      "ColorSequenceKeypoint",
       "Enum",
       "Instance",
       "Random",
@@ -59,6 +60,7 @@
       "Color3.fromRGB",
       "Color3.new",
       "ColorSequence.new",
+      "ColorSequenceKeypoint.new",
       "Instance.new",
       "Random.new",
       "RaycastParams.new",

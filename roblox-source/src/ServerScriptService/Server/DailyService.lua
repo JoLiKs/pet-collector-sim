@@ -1,8 +1,16 @@
 --!strict
--- Ежедневные награды (цикл из 7 дней). День считается по UTC: floor(os.time() / 86400).
+--[[
+	DailyService — ежедневная награда за вход (v2.8): 7-дневный цикл, правило дней — Shared/DailyData.
+	Выдача только здесь (Router: ClaimDaily — с лимитом частоты; повторный забор в те же сутки отклоняется).
+	DailySeen — клиент сообщает, что окно открылось само: до следующих суток оно больше не всплывает.
+	Гемы ежедневки не входят в дневной потолок «Суперсилы» (Config.SUPERPOWER.DAILY_GEM_CAP касается только события).
+]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 local Locale = require(ReplicatedStorage.Shared.Locale)
 local Config = require(ReplicatedStorage.Shared.Config)
+local DailyData = require(ReplicatedStorage.Shared.DailyData)
+local PetData = require(ReplicatedStorage.Shared.PetData)
 
 local DataService = require(script.Parent.DataService)
 local Economy = require(script.Parent.Economy)
@@ -12,29 +20,44 @@ local Session = require(script.Parent.Session)
 
 local DailyService = {}
 
-local DAY = 86400
-
 local function today(): number
-	return os.time() // DAY
+	return DailyData.today(os.time())
 end
 
--- Данные для UI: можно ли забрать, какой день цикла следующий, сколько до сброса
-function DailyService.getInfo(
-	data: DataService.Data
-): { CanClaim: boolean, Day: number, Streak: number, SecondsLeft: number }
-	local t = today()
-	local daily = data.Daily
-	local canClaim = daily.LastDay < t
-	local streakIfClaimed = if daily.LastDay == t - 1 then daily.Streak + 1 else 1
-	if not canClaim then
-		streakIfClaimed = daily.Streak + 1
-	end
-	local day = ((streakIfClaimed - 1) % #Config.DAILY_REWARDS) + 1
+local function daily(data: DataService.Data): { [string]: number }
+	local d = DailyData.normalize(data.Daily)
+	data.Daily = d
+	return d
+end
+
+local function context(player: Player?, data: DataService.Data): { [string]: any }
+	local session = if player then Session.get(player) else nil
 	return {
-		CanClaim = canClaim,
-		Day = day,
-		Streak = daily.Streak,
-		SecondsLeft = (t + 1) * DAY - os.time(),
+		PerClick = if player then Economy.getPerClick(player, data) else 1,
+		Zones = data.Zones,
+		Vip = player ~= nil and Economy.isVip(player),
+		Premium = session ~= nil and session.Premium == true,
+		PremiumGems = Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS,
+	}
+end
+
+local function autoOpenEnabled(): boolean
+	return Workspace:GetAttribute("DailyAutoOpen") ~= false
+end
+
+-- Данные для окна: состояние цикла, 7 карточек с конкретными суммами, время до следующих суток
+function DailyService.getInfo(data: DataService.Data, player: Player?): { [string]: any }
+	local t = today()
+	local st = DailyData.state(daily(data), t)
+	return {
+		CanClaim = st.CanClaim,
+		Day = st.Day,
+		Claimed = st.Claimed,
+		Streak = st.Streak,
+		AutoOpen = st.AutoOpen and autoOpenEnabled(),
+		SecondsLeft = (t + 1) * DailyData.DAY - os.time(),
+		Rewards = DailyData.preview(context(player, data)),
+		Vip = player ~= nil and Economy.isVip(player),
 	}
 end
 
@@ -43,41 +66,67 @@ local function claim(player: Player): (boolean, any)
 	if not data then
 		return false, "err.not_loaded"
 	end
-	local t = today()
-	if data.Daily.LastDay >= t then
+	local d = daily(data)
+	local ctx = context(player, data)
+	-- Сначала фиксируем получение (защита от двойного клика и повторного запроса), потом выдаём
+	local day = DailyData.advance(d, today())
+	if not day then
 		return false, "daily.already"
 	end
-	local streak = if data.Daily.LastDay == t - 1 then data.Daily.Streak + 1 else 1
-	local day = ((streak - 1) % #Config.DAILY_REWARDS) + 1
-	local reward = Config.DAILY_REWARDS[day]
-
-	-- Сначала фиксируем получение (защита от двойного клика), потом выдаём
-	data.Daily.LastDay = t
-	data.Daily.Streak = streak
-
-	local mult = if Economy.isVip(player) then Config.PASS_EFFECTS.VIP_DAILY_MULT else 1
-	local gems = reward.Gems * mult
-	local s = Session.get(player)
-	if s and s.Premium then
-		gems += Config.PASS_EFFECTS.PREMIUM_DAILY_GEMS
+	d.Popup = math.max(d.Popup, d.LastDay)
+	local r = DailyData.resolve(day, ctx)
+	if r.Coins then
+		Economy.addCoins(player, r.Coins, false)
 	end
-	local coins = Economy.getPerClick(player, data) * reward.Clicks * mult
-
-	Economy.addGems(player, gems)
-	Economy.addCoins(player, coins, false)
-
-	local text = Locale.tp(player, "daily.reward", { day = day, n = gems })
-	if reward.Luck2Minutes then
-		Economy.addLuckBoost(data, "Luck2", reward.Luck2Minutes * 60 * mult)
-		text ..= Locale.tp(player, "daily.reward_luck", { n = reward.Luck2Minutes * mult })
+	local gems = (r.Gems or 0) + (r.PremiumGems or 0)
+	if gems > 0 then
+		Economy.addGems(player, gems)
 	end
-	Economy.addBpXp(player, 40 + 10 * math.min(streak, 7))
-	Notify.send(player, text, "reward")
+	if r.Item then
+		Economy.addItem(player, r.Item, r.ItemCount or 1)
+	end
+	if r.Res then
+		for res, n in pairs(r.Res) do
+			Economy.addResource(player, res, n)
+		end
+	end
+	if r.Pet and PetData.PetsById[r.Pet] then
+		Economy.givePetReward(player, r.Pet, "Normal")
+	end
+	Economy.addBpXp(player, 40 + 10 * math.min(d.Streak, 7))
+
+	local reward = {
+		Coins = r.Coins,
+		Gems = if gems > 0 then gems else nil,
+		Item = r.Item,
+		ItemCount = r.ItemCount,
+		Res = r.Res,
+		Pet = r.Pet,
+	}
+	local lang = Locale.langOf(player)
+	local what = Economy.describe(reward, lang)
+	if r.Pet then
+		local def = PetData.PetsById[r.Pet]
+		what ..= ": " .. Locale.nameIn(lang, def and def.Name or r.Pet)
+	end
+	Notify.send(player, Locale.tp(player, "daily.reward", { day = day, what = what }), "reward")
+	return true, nil
+end
+
+-- Окно открылось само: до следующих суток не открывать автоматически
+local function seen(player: Player): (boolean, any)
+	local data = DataService.get(player)
+	if not data then
+		return false, "err.not_loaded"
+	end
+	local d = daily(data)
+	d.Popup = today()
 	return true, nil
 end
 
 function DailyService.init()
 	Router.register("ClaimDaily", 1, 2, claim)
+	Router.register("DailySeen", 1, 2, seen)
 end
 
 return DailyService

@@ -51,6 +51,10 @@ local function openPanel(name: string, force: boolean?)
 		target.Open()
 	end
 end
+-- v2.8: окно ежедневной награды открывается само при входе (раз в сутки) — тем же путём, что и вручную
+panels.Daily.SetOpener(function()
+	openPanel("Daily", true)
+end)
 panels.Talents = require(Modules:WaitForChild("TalentsPanel")).init(gui, function()
 	openPanel("Rebirth", true)
 end)

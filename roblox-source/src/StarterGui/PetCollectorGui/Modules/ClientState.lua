@@ -12,6 +12,24 @@ ClientState.ReceivedClock = os.clock()
 ClientState.TimeOffset = 0
 
 local coreListeners: { (any) -> () } = {}
+-- v2.8: клиентские флаги интерфейса (например, «окно ежедневной награды открыто/ждёт показа» —
+-- чтобы плашка обучения не появлялась одновременно с ним)
+ClientState.Flags = {} :: { [string]: any }
+local flagListeners: { (string, any) -> () } = {}
+
+function ClientState.setFlag(name: string, value: any)
+	if ClientState.Flags[name] == value then
+		return
+	end
+	ClientState.Flags[name] = value
+	for _, fn in ipairs(flagListeners) do
+		task.spawn(fn, name, value)
+	end
+end
+
+function ClientState.onFlag(fn: (string, any) -> ())
+	table.insert(flagListeners, fn)
+end
 local petListeners: { () -> () } = {}
 
 function ClientState.onCore(fn: (any) -> ())

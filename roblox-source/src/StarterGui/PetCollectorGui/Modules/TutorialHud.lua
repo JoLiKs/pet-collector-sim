@@ -116,6 +116,10 @@ function TutorialHud.init(gui: ScreenGui)
 		local core = ClientState.Core
 		local t = core and core.Tutorial
 		local step = t and TutorialData.Steps[t.Step]
+		-- v2.8: не одновременно с окном ежедневной награды (у новичка оно показывается первым)
+		if ClientState.Flags.DailyOpen or ClientState.Flags.DailyPending then
+			step = nil
+		end
 		box.Visible = step ~= nil
 		highlight(step and TutorialHud.TARGETS[step.Id])
 		if not step then
@@ -128,6 +132,7 @@ function TutorialHud.init(gui: ScreenGui)
 		}) .. (if step.Count > 1 then L.t("tutorial.progress", { p = t.P, c = step.Count }) else "")
 	end
 	ClientState.onCore(refresh)
+	ClientState.onFlag(refresh)
 	L.onChanged(refresh)
 end
 

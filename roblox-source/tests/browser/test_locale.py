@@ -54,7 +54,7 @@ def menu_is(page, g, word):
     return eventually(page, lambda: word in menu_text(g, 'Pets'))
 
 def boot(page, url, query):
-    page.goto(url + 'index.html?' + query)
+    page.goto(url + 'index.html?' + query + '&attr.DailyAutoOpen=false')
     g = G(page); g.shots = SHOTS
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     g.wait(lambda: lang_attr(page) in ('ru', 'en'), what='Lang attribute')

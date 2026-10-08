@@ -59,7 +59,7 @@ local function makeTemplate(): Data
 		Upgrades = { Click = 0, Speed = 0, Luck = 0, Bag = 0, Slots = 0 },
 		Zones = { [ZoneData.DEFAULT] = true },
 		CurrentZone = ZoneData.DEFAULT,
-		Daily = { LastDay = 0, Streak = 0 },
+		Daily = { LastDay = 0, Streak = 0, Cycle = 0, Popup = 0 }, -- v2.8: см. Shared/DailyData
 		Boosts = { Luck2 = 0, Luck5 = 0, Coins2 = 0 }, -- unix-время окончания
 		Resources = {}, -- [Wood|Stone|Ore|Herb|Crystal|Essence] = n
 		Items = {}, -- [itemId] = n (зелья, билеты, инструменты)

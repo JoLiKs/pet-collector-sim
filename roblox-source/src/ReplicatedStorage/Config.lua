@@ -245,7 +245,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.7.0"
+Config.VERSION = "2.8.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -274,16 +274,9 @@ Config.REBIRTH_MAX = 21
 Config.REBIRTH_GEMS_BASE = 20
 Config.REBIRTH_GEMS_PER = 5
 
--- Ежедневные награды (цикл из 7 дней). Clicks = кликов текущей силы монетами; Luck2Minutes = минут x2 удачи.
-Config.DAILY_REWARDS = {
-	{ Gems = 10, Clicks = 300 },
-	{ Gems = 15, Clicks = 500 },
-	{ Gems = 20, Clicks = 800 },
-	{ Gems = 25, Clicks = 1200, Luck2Minutes = 10 },
-	{ Gems = 35, Clicks = 2000 },
-	{ Gems = 50, Clicks = 3000, Luck2Minutes = 15 },
-	{ Gems = 120, Clicks = 6000, Luck2Minutes = 30 },
-}
+-- Ежедневные награды за вход (v2.8): 7-дневный цикл, награды и правило пропуска дня — ReplicatedStorage/Shared/DailyData.
+-- Окно открывается само при входе раз в сутки, пока награда не получена (выключить для тестов:
+-- атрибут Workspace DailyAutoOpen = false).
 
 -- ============================================================================
 -- 6b. МЕХАНИКИ v2 (баланс — см. docs/BALANCE.md)

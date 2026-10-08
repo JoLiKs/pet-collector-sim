@@ -15,7 +15,7 @@ def shot(page, name):
     p = os.path.join(OUT, name); page.screenshot(path=p); print('shot', p)
 with serve('/tmp/gw_ui') as url, browser(1280, 720) as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page)
-    page.goto(url + 'index.html?persist=0&seed=1&lang=ru&country=RU')
+    page.goto(url + 'index.html?persist=0&seed=1&lang=ru&country=RU&attr.DailyAutoOpen=false')
     g.wait(lambda: g.vis('[data-n="Dot2"]'), timeout=120, what='loading screen')
     page.wait_for_timeout(400); shot(page, '50_loading.png')
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')

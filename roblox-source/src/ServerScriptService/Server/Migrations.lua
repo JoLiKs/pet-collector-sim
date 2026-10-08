@@ -1,5 +1,8 @@
 --!strict
 -- Миграции данных игрока между версиями шаблона. Чистая функция над таблицей — покрыта тестами.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DailyData = require(ReplicatedStorage.Shared.DailyData)
+
 local Migrations = {}
 
 -- v1 -> v2: питомцы { Id, Gold } превращаются в { Id, Variant, Level, Xp, Evo }
@@ -51,6 +54,12 @@ function Migrations.run(data: { [string]: any }): boolean
 				end
 			end
 		end
+		changed = true
+	end
+	-- v2.8: ежедневная награда — 7-дневный цикл без сброса за пропуск. Старый Streak (дней подряд)
+	-- переводится в позицию цикла (Cycle), добавляется Popup (день последнего автопоказа окна)
+	if type(data.Daily) ~= "table" or data.Daily.Cycle == nil or data.Daily.Popup == nil then
+		data.Daily = DailyData.normalize(data.Daily)
 		changed = true
 	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
