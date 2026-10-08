@@ -228,4 +228,39 @@ function BotLogic.zonesOpen(b: { Level: number, Rebirths: number }, total: numbe
 	return math.clamp(1 + b.Level // 10 + b.Rebirths, 1, total)
 end
 
+-- ---------------------------------------------------------------------------
+-- v3.2: доля врагов для ботов (живым игрокам всегда остаются свободные враги)
+-- s.MobClaims — сколько ДРУГИХ ботов уже занимают этого врага; s.ZoneClaimed — сколько врагов мира занято ботами;
+-- s.ZoneFree — сколько в мире «ничьих» врагов (не били игроки, рядом нет игрока), включая занятые ботами.
+-- ---------------------------------------------------------------------------
+function BotLogic.canClaim(
+	s: { MobClaims: number, ZoneClaimed: number, ZoneFree: number },
+	cfg: { [string]: any }
+): boolean
+	if s.MobClaims >= (cfg.MAX_PER_MOB or 1) then
+		return false
+	end
+	if s.ZoneClaimed >= (cfg.MAX_FIGHTERS_PER_ZONE or 3) then
+		return false
+	end
+	-- после захвата остаётся не меньше RESERVE_FREE свободных (никем не занятых) врагов
+	return s.ZoneFree - s.ZoneClaimed - 1 >= (cfg.RESERVE_FREE or 3)
+end
+
+-- миры, куда ещё можно пойти: ботов там меньше cap (exempt — без лимита, например хаб)
+function BotLogic.roomyZones(
+	zones: { string },
+	counts: { [string]: number },
+	cap: number,
+	exempt: string?
+): { string }
+	local out = {}
+	for _, z in ipairs(zones) do
+		if z == exempt or (counts[z] or 0) < cap then
+			table.insert(out, z)
+		end
+	end
+	return out
+end
+
 return BotLogic

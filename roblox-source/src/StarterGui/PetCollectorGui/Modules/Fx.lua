@@ -7,6 +7,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local HotbarData = require(Shared:WaitForChild("HotbarData"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local L = require(Shared:WaitForChild("Locale"))
 
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -101,7 +102,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
 		Parent = timer,
 	})
-	local function chip(name: string, order: number, accent: Color3): (Frame, TextLabel)
+	local function chip(name: string, order: number, accent: Color3, iconKind: string?): (Frame, TextLabel)
 		local f = Widgets.New("Frame", {
 			Name = name,
 			Size = UDim2.new(1, 0, 0, 30),
@@ -126,6 +127,20 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			ZIndex = 7,
 			Parent = f,
 		})
+		if iconKind then
+			-- v3.2: значок Icons.lua слева (вместо эмодзи луны и часов в тексте)
+			Icons.make(iconKind, {
+				Name = "Icon",
+				Px = 22,
+				Size = UDim2.fromOffset(22, 22),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 6, 0.5, 0),
+				ZIndex = 7,
+				Parent = f,
+			})
+			t.Size = UDim2.new(1, -40, 1, -6)
+			t.Position = UDim2.fromOffset(33, 3)
+		end
 		return f, t
 	end
 
@@ -197,14 +212,14 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 	end
 
-	-- события: одна строка на событие «⏱ Имя 1:45»; описание — в баннере при старте
+	-- события: одна строка на событие «[часы] Имя 1:45»; описание — в баннере при старте
 	local huntCard = HuntHud.init(gui, timer)
 	local eventList: any = {}
 	local seenActive: { [string]: boolean } = {}
 	local EVENT_COLORS = { GoldenRain = Theme.Gold, LunarNight = Theme.Purple, BossRaid = Theme.Red }
 	local eventChips: { [string]: any } = {}
-	-- как в образце: когда ничего не идёт — одна компактная плашка «🌙 Имя через 1:45» (ближайшее событие)
-	local nextChip, nextText = chip("NextEvent", 100, Color3.fromRGB(200, 205, 230))
+	-- как в образце: когда ничего не идёт — одна компактная плашка «[луна] Имя через 1:45» (ближайшее событие)
+	local nextChip, nextText = chip("NextEvent", 100, Color3.fromRGB(200, 205, 230), "Moon")
 	nextChip.Visible = false
 	local function drawEvents()
 		local soon, soonLeft, anyOn = nil, math.huge, false
@@ -224,12 +239,11 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			local c = eventChips[e.Id]
 			if e.Active then
 				if not c then
-					local f, t = chip("Event_" .. e.Id, 10 + i, EVENT_COLORS[e.Id] or Theme.Gold)
+					local f, t = chip("Event_" .. e.Id, 10 + i, EVENT_COLORS[e.Id] or Theme.Gold, "Clock")
 					c = { Frame = f, Text = t }
 					eventChips[e.Id] = c
 				end
-				c.Text.Text = "⏱ "
-					.. L.n(e.Name)
+				c.Text.Text = L.n(e.Name)
 					.. "  "
 					.. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0))))
 			elseif c then

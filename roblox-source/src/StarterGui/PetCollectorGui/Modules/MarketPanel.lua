@@ -32,23 +32,24 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 	local body = panel.Body
 	local view = "Shop"
 	local scroll =
-		Widgets.scroller(body, { Position = UDim2.fromOffset(10, 78), Size = UDim2.new(1, -20, 1, -86) })
+		Widgets.scroller(body, { Position = UDim2.fromOffset(10, 108), Size = UDim2.new(1, -20, 1, -116) })
 	UiKit.list(scroll, 6)
 	local header = UiKit.text(
 		body,
 		"",
-		UDim2.fromOffset(10, 38),
-		UDim2.new(1, -230, 0, 34),
+		UDim2.fromOffset(10, 40),
+		UDim2.new(1, -20, 0, 28),
 		{ TextColor3 = Theme.Gold, MaxSize = 16 }
 	)
-	local bpBar = UiKit.bar(body, UDim2.new(1, -330, 0, 44), UDim2.fromOffset(200, 18), Theme.Blue)
+	-- v3.2: шапка в две строки: текст на всю ширину, ниже — полоса опыта и кнопки (текст >= 12 px не обрезается)
+	local bpBar = UiKit.bar(body, UDim2.fromOffset(10, 76), UDim2.new(1, -284, 0, 22), Theme.Blue)
 	Widgets.button({
 		Name = "ClaimAll",
 		Text = L.k("market.claim_all"),
 		Color = Theme.Green,
-		Size = UDim2.fromOffset(100, 28),
+		Size = UDim2.fromOffset(120, 30),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -112, 0, 40),
+		Position = UDim2.new(1, -134, 0, 72),
 		ZIndex = 23,
 		MaxTextSize = 15,
 		OnClick = function()
@@ -61,9 +62,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 		Name = "RobuxStore",
 		Text = L.k("market.robux_store"),
 		Color = Theme.Purple,
-		Size = UDim2.fromOffset(100, 28),
+		Size = UDim2.fromOffset(120, 30),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 40),
+		Position = UDim2.new(1, -8, 0, 72),
 		ZIndex = 23,
 		MaxTextSize = 14,
 		OnClick = function()
@@ -103,21 +104,14 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 			)
 			for i, o in ipairs(core.Shop.Offers) do
 				local sold = o.Left <= 0
-				local card = UiKit.card(scroll, 56, nil, i)
+				-- v3.2: карточка растёт по тексту (название и описание переносятся, текст >= 12 px)
+				local card, col = UiKit.flowCard(scroll, 56, nil, i, 10, 148)
 				card.Name = o.Id
-				UiKit.text(
-					card,
-					L.n(o.Name),
-					UDim2.fromOffset(10, 4),
-					UDim2.new(0.55, 0, 0, 22),
-					{ Font = Theme.Font, MaxSize = 18 }
-				)
-				UiKit.text(
-					card,
+				UiKit.flowText(col, L.n(o.Name), { Font = Theme.Font, TextSize = 18, LayoutOrder = 1 })
+				UiKit.flowText(
+					col,
 					L.t("market.left", { desc = o.Desc, n = o.Left, stock = o.Stock }),
-					UDim2.fromOffset(10, 28),
-					UDim2.new(0.6, 0, 0, 20),
-					{ TextColor3 = Theme.TextDim, MaxSize = 13 }
+					{ TextColor3 = Theme.TextDim, LayoutOrder = 2 }
 				)
 				local afford = (if o.Currency == "Gems" then core.Gems else core.Coins) >= o.Price
 				local b = Widgets.button({
@@ -129,9 +123,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 							{ price = Util.formatNumber(o.Price), n = o.Price }
 						),
 					Color = if o.Currency == "Gems" then Theme.Gem else Theme.Gold,
-					Size = UDim2.new(0.3, 0, 0, 38),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(132, 38),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 9),
 					ZIndex = 23,
 					MaxTextSize = 16,
 					OnClick = function()
@@ -158,22 +152,16 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				if bp.Need > 0 then L.t("market.xp", { n = bp.Into, need = bp.Need }) else L.t("common.max")
 			)
 			if not premium then
-				local row = UiKit.card(scroll, 44, Theme.Gold, 0)
+				local row, col = UiKit.flowCard(scroll, 48, Theme.Gold, 0, 10, 148)
 				row.Name = "PremiumBanner"
-				UiKit.text(
-					row,
-					L.t("market.premium_banner"),
-					UDim2.fromOffset(10, 0),
-					UDim2.fromScale(0.62, 1),
-					{ MaxSize = 14, TextColor3 = Theme.Gold }
-				)
+				UiKit.flowText(col, L.t("market.premium_banner"), { TextColor3 = Theme.Gold })
 				Widgets.button({
 					Name = "GetPass",
 					Text = L.t("market.get_premium"),
 					Color = Theme.Gold,
-					Size = UDim2.new(0.28, 0, 0, 32),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(132, 34),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 7),
 					ZIndex = 24,
 					MaxTextSize = 16,
 					OnClick = buyPass,
@@ -183,13 +171,13 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 			for lv = 1, BattlePassData.MaxLevel do
 				local reached = bp.Level >= lv
 				local fr, pr = BattlePassData.Free[lv], BattlePassData.Premium[lv]
-				local card = UiKit.card(scroll, 50, if reached then Theme.Blue else nil, lv)
+				local card = UiKit.card(scroll, 66, if reached then Theme.Blue else nil, lv)
 				card.Name = "L" .. lv
 				UiKit.text(
 					card,
 					L.t("market.lv", { n = lv }),
 					UDim2.fromOffset(8, 0),
-					UDim2.fromOffset(40, 50),
+					UDim2.fromOffset(40, 66),
 					{
 						Font = Theme.Font,
 						TextColor3 = if reached then Theme.Blue else Theme.TextDim,
@@ -205,9 +193,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 					UiKit.text(
 						card,
 						rewardLabel(r),
-						UDim2.new(x, 0, 0, 2),
-						UDim2.new(0.28, 0, 0, 24),
-						{ TextColor3 = if track == "Free" then Theme.Text else Theme.Gold, MaxSize = 12 }
+						UDim2.new(x, 0, 0, 3),
+						UDim2.new(0.42, -10, 0, 24),
+						{ TextColor3 = if track == "Free" then Theme.Text else Theme.Gold, MaxSize = 15 }
 					)
 					local b = Widgets.button({
 						Name = "Claim" .. track,
@@ -216,10 +204,10 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 							elseif track == "Premium" and not premium then L.t("talents.locked")
 							else L.t("quests.claim"),
 						Color = if track == "Free" then Theme.Green else Theme.Gold,
-						Size = UDim2.new(0.25, 0, 0, 20),
-						Position = UDim2.new(x, 0, 0, 27),
+						Size = UDim2.new(0.3, 0, 0, 30),
+						Position = UDim2.new(x, 0, 0, 30),
 						ZIndex = 24,
-						MaxTextSize = 12,
+						MaxTextSize = 16,
 						OnClick = function()
 							Actions.call("BpClaim", track, lv)
 						end,
@@ -227,29 +215,23 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 					})
 					Widgets.setEnabled(b, ok, if track == "Free" then Theme.Green else Theme.Gold)
 				end
-				cell("Free", fr, 0.08)
-				cell("Premium", pr, 0.4)
+				cell("Free", fr, 0.1)
+				cell("Premium", pr, 0.55)
 			end
 			-- докупка уровней продуктом (v2.4, аудит В3: на максимальном уровне строка скрыта —
 			-- покупать уже нечего; при покупке «впритык» сервер компенсирует недостающие уровни гемами)
 			local id = Config.PRODUCT_IDS.BP_SKIP
-			local row = UiKit.card(scroll, 44, nil, 1000)
+			local row, col = UiKit.flowCard(scroll, 48, nil, 1000, 10, 148)
 			row.Visible = bp.Level < BattlePassData.MaxLevel
 			row.Name = "SkipLevels"
-			UiKit.text(
-				row,
-				L.t("market.skip", { n = BattlePassData.SKIP_LEVELS }),
-				UDim2.fromOffset(10, 0),
-				UDim2.fromScale(0.6, 1),
-				{ MaxSize = 16 }
-			)
+			UiKit.flowText(col, L.t("market.skip", { n = BattlePassData.SKIP_LEVELS }))
 			local skipBtn = Widgets.button({
 				Name = "BuySkip",
 				Text = if id == 0 then L.t("shop.soon") else L.t("market.buy"),
 				Color = Theme.Purple,
-				Size = UDim2.new(0.28, 0, 0, 32),
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -8, 0.5, 0),
+				Size = UDim2.fromOffset(132, 34),
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -8, 0, 7),
 				ZIndex = 24,
 				MaxTextSize = 16,
 				OnClick = function()

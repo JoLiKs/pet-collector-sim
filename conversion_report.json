@@ -5,13 +5,13 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 123,
-    "transpiled": 123,
+    "total": 126,
+    "transpiled": 126,
     "failed": [],
-    "lines": 31265
+    "lines": 32743
   },
   "globals": {
-    "used": 37,
+    "used": 38,
     "supported": [
       "CFrame",
       "Color3",
@@ -30,6 +30,7 @@
       "Vector2",
       "Vector3",
       "assert",
+      "error",
       "game",
       "ipairs",
       "math",
@@ -96,6 +97,7 @@
       "math.random",
       "math.sin",
       "math.sqrt",
+      "math.tan",
       "os.clock",
       "os.time",
       "string.find",
@@ -129,8 +131,10 @@
   "services": {
     "supported": [
       "BadgeService",
+      "ContentProvider",
       "DataStoreService",
       "Debris",
+      "GuiService",
       "HttpService",
       "Lighting",
       "LocalizationService",
@@ -240,6 +244,7 @@
       "Material.Slate",
       "Material.SmoothPlastic",
       "Material.Snow",
+      "Material.Water",
       "Material.Wood",
       "MembershipType.Premium",
       "NormalId.Front",
@@ -267,7 +272,10 @@
       "ZIndexBehavior.Sibling"
     ],
     "unsupported": [
-      "BulkMoveMode.FireCFrameChanged"
+      "AssetFetchStatus.Failure",
+      "AssetFetchStatus.TimedOut",
+      "BulkMoveMode.FireCFrameChanged",
+      "ScrollBarInset.ScrollBar"
     ]
   },
   "methodsNotFound": [

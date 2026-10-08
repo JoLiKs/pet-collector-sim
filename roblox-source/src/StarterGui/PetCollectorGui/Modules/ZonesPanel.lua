@@ -61,8 +61,13 @@ function ZonesPanel.init(gui: ScreenGui)
 			end
 		end
 		local eggsLabel = Widgets.label({
+			Name = "Desc",
 			Text = "",
-			Size = UDim2.new(0.5, 0, 0, 34),
+			-- v3.2.1: список яиц — фиксированный размер с переносом (не TextScaled), одинаковый во всех мирах
+			TextScaled = false,
+			TextSize = 15,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Size = UDim2.new(0.5, 0, 0, 38),
 			Position = UDim2.fromOffset(80, 36),
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = Theme.TextDim,

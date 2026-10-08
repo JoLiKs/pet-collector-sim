@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local LabelLayout = require(Shared.LabelLayout)
 local Locale = require(Shared.Locale)
 local Logo = require(Shared.Logo)
 local PetData = require(Shared.PetData)
@@ -85,13 +86,24 @@ local function makeLabel(
 	return l
 end
 
-local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
+-- v3.2: размер подписи в пикселях (а не в студах): вблизи текст не растёт на пол-экрана и не закрывает HUD.
+-- width/height — «дизайнерский» размер прежних табличек; на экране — × LABEL_PX (клиент WorldLabels ещё
+-- уменьшает их на телефоне и вдали, гасит у предела и убирает наложения). kind — вид для LabelLayout.
+local LABEL_PX = 0.72
+local function billboard(
+	parent: BasePart,
+	offset: Vector3,
+	width: number,
+	height: number,
+	kind: string?
+): BillboardGui
+	local k = kind or "Sign"
 	local gui = Instance.new("BillboardGui")
-	-- размер в студах: подпись уменьшается с расстоянием и не закрывает HUD на телефоне
-	gui.Size = UDim2.fromScale(width / 16, height / 16)
+	gui.Size = UDim2.fromOffset(math.floor(width * LABEL_PX + 0.5), math.floor(height * LABEL_PX + 0.5))
 	gui.StudsOffset = offset
-	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
+	gui.MaxDistance = LabelLayout.kind(k).Max -- дальние подписи не видны
 	gui.LightInfluence = 0
+	gui:SetAttribute("LabelKind", k)
 	gui.Parent = parent
 	return gui
 end
@@ -300,7 +312,7 @@ local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
 		end
 	end)
 
-	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70)
+	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70, "Egg")
 	makeLabel(gui, egg.Name, UDim2.fromScale(1, 0.55), Color3.fromRGB(255, 255, 255))
 	local priceColor = if egg.Currency == "Gems"
 		then Color3.fromRGB(120, 230, 255)
@@ -414,10 +426,10 @@ local function sign(
 	color: Color3,
 	height: number,
 	w: number?,
-	h: number?
+	h: number?,
+	kind: string?
 )
-	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76)
-	gui.MaxDistance = 60
+	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76, kind)
 	makeLabel(gui, text, UDim2.fromScale(1, if subtext then 0.56 else 0.9), Color3.fromRGB(255, 255, 255))
 	if subtext then
 		local sub = makeLabel(gui, subtext, UDim2.fromScale(1, 0.38), color)
@@ -527,7 +539,7 @@ local function buildNpc(
 	)
 	m.PrimaryPart = torso
 	m:SetAttribute("NpcId", id)
-	sign(torso, name, title, color, 5.5)
+	sign(torso, name, title, color, 5.5, nil, nil, "Npc")
 	addPrompt(torso, id, action, name, 0)
 	m.Parent = parent
 	stationPositions[id] = pos
@@ -1182,8 +1194,7 @@ function WorldBuilder.build()
 			Color3.fromRGB(110, 80, 60),
 			Enum.Material.Wood
 		)
-		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
-		gui.MaxDistance = 90
+		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90, "Zone")
 		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
 		local mult =
 			makeLabel(gui, "world.zone_mult", UDim2.fromScale(1, 0.38), zone.Accent, { n = zone.Multiplier })

@@ -8,7 +8,11 @@
 	  * Sound создаются на клиенте в SoundService — слышит только этот игрок.
 	Music.sfx(key, pos?) — короткий звук из Config.SOUNDS (если звуки включены); с pos — в точке мира.
 	Звуки морского сундука (Remotes "SeaChest"): тихий сигнал появления и звук открытия.
+	v3.2: если ассет не загрузился (отклонён модерацией, удалён, нет сети) — одна запись в лог, звук пропускается,
+	игра работает дальше (вторая тема играет вместо сломанной; Play не повторяется каждый кадр). Атрибут gui
+	AudioFailed — список сломанных ключей (для тестов).
 ]]
+local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -23,9 +27,59 @@ local ClientState = require(script.Parent.ClientState)
 
 local Music = {}
 
-local tracks: { [string]: { Sound: Sound, Mix: number, Base: number } } = {}
+local tracks: { [string]: { Sound: Sound, Mix: number, Base: number, Key: string } } = {}
 local settings = AudioData.normalize(nil)
 local hunt = false
+local health = AudioData.newHealth()
+local guiRef: ScreenGui? = nil
+
+local function publish()
+	local g = guiRef
+	if g then
+		g:SetAttribute(
+			"MusicTracks",
+			(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
+		)
+		g:SetAttribute("AudioFailed", AudioData.failedList(health))
+	end
+end
+
+-- ассет недоступен: одна запись в лог, трек убирается (вместо него играет другой), звук больше не создаётся
+function Music.fail(key: string, why: string?)
+	if not AudioData.reportFailure(health, key, why) then
+		return
+	end
+	warn(
+		("[Music] sound %s (%s) unavailable: %s; skipped"):format(
+			key,
+			tostring(Config.SOUNDS[key]),
+			why or "?"
+		)
+	)
+	for name, t in pairs(tracks) do
+		if t.Key == key then
+			tracks[name] = nil
+			t.Sound:Destroy()
+		end
+	end
+	publish()
+end
+
+-- проверка загрузки ассета (асинхронно): Failure / TimedOut — звук сломан
+local function probe(key: string, target: any)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			ContentProvider:PreloadAsync({ target }, function(_contentId, status)
+				if status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut then
+					Music.fail(key, tostring(status))
+				end
+			end)
+		end)
+		if not ok then
+			Music.fail(key, tostring(err))
+		end
+	end)
+end
 
 function Music.settings()
 	return settings
@@ -45,6 +99,9 @@ local function step(dt: number)
 		local s = t.Sound
 		s.Volume = AudioData.gain(t.Mix, t.Base, settings.MusicVol)
 		if t.Mix > 0 and not s.IsPlaying then
+			if not AudioData.tryPlay(health, t.Key, os.clock()) then
+				continue -- ещё грузится (повтор не чаще RETRY с) или ассет сломан
+			end
 			if s.IsPaused and name == "Calm" then
 				s:Resume() -- спокойная тема продолжает с того же места
 			else
@@ -58,6 +115,7 @@ local function step(dt: number)
 end
 
 function Music.init(gui: ScreenGui)
+	guiRef = gui
 	local folder = Instance.new("Folder")
 	folder.Name = "PcsMusic"
 	folder.Parent = SoundService
@@ -74,13 +132,18 @@ function Music.init(gui: ScreenGui)
 				Sound = s,
 				Mix = 0,
 				Base = if name == "Epic" then Config.MUSIC.EPIC_VOLUME else Config.MUSIC.CALM_VOLUME,
+				Key = key,
 			}
+			probe(key, s)
 		end
 	end
-	gui:SetAttribute(
-		"MusicTracks",
-		(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
-	)
+	for _, key in ipairs({ "CHEST_SPAWN", "CHEST_OPEN" }) do
+		local id = AudioData.soundId(Config.SOUNDS[key])
+		if id then
+			probe(key, id)
+		end
+	end
+	publish()
 	gui:GetAttributeChangedSignal("HuntActive"):Connect(function()
 		hunt = gui:GetAttribute("HuntActive") == true
 	end)
@@ -107,7 +170,7 @@ end
 
 function Music.sfx(key: string, pos: Vector3?, volume: number?)
 	local id = AudioData.soundId(Config.SOUNDS[key])
-	if not id or not settings.Sfx then
+	if not id or not settings.Sfx or AudioData.isFailed(health, key) then
 		return
 	end
 	local s = Instance.new("Sound")

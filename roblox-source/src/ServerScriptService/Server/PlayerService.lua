@@ -67,10 +67,11 @@ end
 local function createTag(): BillboardGui
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(220, 56)
+	g.Size = UDim2.fromOffset(170, 42) -- v3.2: компактнее; порядок с другими подписями — клиент WorldLabels
 	g.StudsOffset = Vector3.new(0, 2.6, 0)
 	g.MaxDistance = 60
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Player")
 	local name = Instance.new("TextLabel")
 	name.Name = "NameLabel"
 	name.BackgroundTransparency = 1

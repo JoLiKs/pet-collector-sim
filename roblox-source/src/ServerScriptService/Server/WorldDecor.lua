@@ -14,7 +14,7 @@ local WorldDecor = {}
 export type Hooks = {
 	prompt: (BasePart, string, string, string, number?) -> (),
 	label: (Instance, string, UDim2, Color3, { [string]: any }?) -> TextLabel,
-	billboard: (BasePart, Vector3, number, number) -> BillboardGui,
+	billboard: (BasePart, Vector3, number, number, string?) -> BillboardGui,
 }
 
 export type Style = {
@@ -419,8 +419,7 @@ function WorldDecor.buildArch(
 		s.Stone,
 		s.Material
 	)
-	local gui = hooks.billboard(plaque, Vector3.new(0, o.SignHeight or 5.2, 0), 250, 80)
-	gui.MaxDistance = 75
+	local gui = hooks.billboard(plaque, Vector3.new(0, o.SignHeight or 5.2, 0), 250, 80, "Sign")
 	hooks.label(gui, o.Title, UDim2.fromScale(1, if o.Sub then 0.56 else 0.9), Color3.new(1, 1, 1))
 	if o.Sub then
 		local sub = hooks.label(
@@ -760,7 +759,7 @@ local function signpost(m: Instance, at: Vector3, targets: { SignTarget }, hooks
 			board.Color,
 			Enum.Material.Wood
 		)
-		local gui = hooks.billboard(board, Vector3.new(0, 0, 0), 84, 15)
+		local gui = hooks.billboard(board, Vector3.new(0, 0, 0), 120, 22, "Sign")
 		gui.MaxDistance = 28
 		gui.StudsOffsetWorldSpace = dir * 1.2
 		hooks.label(gui, t.Key, UDim2.fromScale(1, 1), Color3.fromRGB(255, 240, 200))

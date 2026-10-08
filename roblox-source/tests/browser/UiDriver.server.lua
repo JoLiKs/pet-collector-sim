@@ -322,6 +322,41 @@ function handlers.chest(arg)
 		Workspace:SetAttribute("SeaChestAt", c and string.format("%d,%d", c.Pos.X, c.Pos.Z) or "none")
 	end
 end
+-- v3.2 (аудит): relabel — вынуть подпись-табличку (LabelKind=Sign) из Workspace и вернуть; имя родителя —
+-- в атрибуте Workspace.RelabelPart (тест: размер подписи после возврата тот же)
+function handlers.relabel()
+	for _, d in ipairs(Workspace:GetDescendants()) do
+		if
+			d:IsA("BillboardGui")
+			and d:GetAttribute("LabelKind") == "Sign"
+			and d.Parent
+			and d.Parent:IsA("BasePart")
+		then
+			local parent = d.Parent
+			d:SetAttribute("Relabel", true)
+			d.Parent = nil
+			task.wait(0.3)
+			d.Parent = parent
+			Workspace:SetAttribute("RelabelPart", parent:GetFullName())
+			return
+		end
+	end
+	Workspace:SetAttribute("RelabelPart", "none")
+end
+-- v3.2: chestcheck:x,z — серверная проверка места (SeaChestService.check): "ok" или причина отказа
+function handlers.chestcheck(arg)
+	local SeaChestService = require(Server.SeaChestService)
+	local x, z = string.match(arg, "^(-?[%d.]+),(-?[%d.]+)$")
+	local ok, why = SeaChestService.check(Vector3.new(tonumber(x), 0, tonumber(z)))
+	Workspace:SetAttribute("SeaChestCheck", if ok then "ok" else tostring(why))
+end
+-- v3.2: pass:KEY — выдать геймпасс в сессии (как после покупки), pass:-KEY — забрать
+function handlers.pass(arg)
+	local off = string.sub(arg, 1, 1) == "-"
+	local key = if off then string.sub(arg, 2) else arg
+	Session.get(player).Passes[key] = not off
+	State.markCore(player)
+end
 function handlers.ui(arg)
 	require(game:GetService("ReplicatedStorage").Shared.Remotes).getEvent("OpenUi"):FireClient(player, arg)
 end

@@ -62,10 +62,10 @@ Config.PRODUCT_IDS = {
 --     Затем впишите ID сюда.
 -- ============================================================================
 Config.SOUNDS = {
-	MUSIC_CALM = 0, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
-	MUSIC_EPIC = 0, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
-	CHEST_SPAWN = 0, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
-	CHEST_OPEN = 0, -- assets/audio/chest_open.ogg — открытие сундука
+	MUSIC_CALM = 125236318818944, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
+	MUSIC_EPIC = 81894939449988, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
+	CHEST_SPAWN = 102022045018776, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
+	CHEST_OPEN = 121756761410700, -- assets/audio/chest_open.ogg — открытие сундука
 }
 Config.MUSIC = {
 	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
@@ -266,7 +266,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.1.0"
+Config.VERSION = "3.2.1"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -359,6 +359,16 @@ Config.BOTS = {
 	SPEED = 16,
 	AI_BADGE = true, -- метка «ИИ» у имени над головой
 	BOT_HIT = 0.14, -- доля здоровья врага за удар бота (только враги, которых не бьют живые игроки)
+	-- v3.2: живым игрокам всегда хватает врагов. Бот бьёт только «ничьего» врага (его не били игроки, рядом
+	-- нет игрока ближе YIELD_RADIUS) и занимает его один (MAX_PER_MOB); в одном мире дерутся не больше
+	-- MAX_FIGHTERS_PER_ZONE ботов, и после захвата в мире остаётся не меньше RESERVE_FREE свободных врагов.
+	-- Подошёл игрок — бот уступает: отпускает врага и отходит. В одном мире (кроме хаба) — не больше MAX_IN_ZONE ботов.
+	MAX_PER_MOB = 1,
+	MAX_FIGHTERS_PER_ZONE = 3,
+	RESERVE_FREE = 3,
+	YIELD_RADIUS = 35,
+	MAX_IN_ZONE = 4,
+	CLAIM_TTL = 3, -- секунд: занятость врага без подтверждения (бот ушёл/исчез) снимается сама
 }
 -- v3.1: морской сундук в хабе — появляется раз в INTERVAL секунд в случайном свободном месте, о нём сообщает
 -- только тихий звук. Забирает первый открывший (ProximityPrompt или касание); всё решает сервер.
@@ -373,6 +383,19 @@ Config.SEA_CHEST = {
 	MIN_RADIUS = 24, -- кольцо хаба, где ищется место (центр — фонтан)
 	MAX_RADIUS = 92,
 	CLEARANCE = 6, -- свободный радиус вокруг сундука (не в зданиях и декоре)
+	-- v3.2: проверка места по миру (сервер): свободный цилиндр радиуса PART_CLEARANCE высотой CLEAR_HEIGHT
+	-- без единой детали (деревья, колонны, здания, NPC), твёрдый ровный пол хаба на уровне FLOOR_Y (луч вниз),
+	-- ничего сверху (луч вверх), не «в коробке» (из 8 горизонтальных лучей длиной EXIT_RAY упираются
+	-- не больше MAX_BLOCKED_DIRS) и не ближе SPAWN_DISTANCE к центру точки появления
+	PART_CLEARANCE = 6,
+	CLEAR_HEIGHT = 12,
+	FLOOR_Y = 0,
+	FLOOR_TOL = 1.5,
+	MIN_NORMAL_Y = 0.9,
+	EXIT_RAY = 18,
+	MAX_BLOCKED_DIRS = 4,
+	SPAWN_POS = Vector3.new(0, 0, 26),
+	SPAWN_DISTANCE = 34,
 	COIN_CLICKS = { 80, 140 }, -- монеты = сила сбора × случайно из диапазона (ежедневная награда — 500)
 	COIN_MIN = 50,
 	GEMS = { 3, 6 },

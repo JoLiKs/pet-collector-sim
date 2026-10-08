@@ -45,7 +45,7 @@ local function nextOf(list: { string }, current: string): string
 end
 
 function PetsPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
+	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 580 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local filters = { Element = "All", Role = "All", Rarity = "All", Sort = "Power", FavOnly = false }
@@ -135,7 +135,7 @@ function PetsPanel.init(gui: ScreenGui)
 		Size = UDim2.new(1, -20, 1, -66 - 134),
 	})
 	Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(104, 112),
+		CellSize = UDim2.fromOffset(108, 142),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = scroll,
@@ -342,33 +342,34 @@ function PetsPanel.init(gui: ScreenGui)
 			favBtn.Size = UDim2.new(0.5, -14, 0, 26)
 			favBtn.Position = UDim2.new(0.5, 4, 0, 92)
 			scroll.Position = UDim2.fromOffset(10, 124)
-			scroll.Size = UDim2.new(1, -20, 1, -124 - 180)
+			scroll.Size = UDim2.new(1, -20, 1, -124 - 198)
 			if grid then
-				grid.CellSize = UDim2.fromOffset(98, 108)
+				grid.CellSize = UDim2.fromOffset(104, 142)
 				grid.CellPadding = UDim2.fromOffset(6, 6)
 			end
-			footer.Position = UDim2.new(0, 10, 1, -176)
-			footer.Size = UDim2.new(1, -20, 0, 172)
-			detailName.Size = UDim2.new(1, -24, 0, 22)
-			detailLine.Position = UDim2.fromOffset(12, 30)
-			detailLine.Size = UDim2.new(1, -24, 0, 16)
-			detailAbility.Position = UDim2.fromOffset(12, 48)
-			detailAbility.Size = UDim2.new(1, -24, 0, 28)
-			xpBar.Back.Position = UDim2.fromOffset(12, 80)
+			-- v3.2: строки сведений выше — текст >= 12 px не обрезается
+			footer.Position = UDim2.new(0, 10, 1, -194)
+			footer.Size = UDim2.new(1, -20, 0, 190)
+			detailName.Size = UDim2.new(1, -24, 0, 24)
+			detailLine.Position = UDim2.fromOffset(12, 32)
+			detailLine.Size = UDim2.new(1, -24, 0, 20)
+			detailAbility.Position = UDim2.fromOffset(12, 54)
+			detailAbility.Size = UDim2.new(1, -24, 0, 38)
+			xpBar.Back.Position = UDim2.fromOffset(12, 96)
 			xpBar.Back.Size = UDim2.new(1, -24, 0, 14)
 			for name, b in pairs(buttons) do
 				local cr = GRID_COMPACT[name]
-				b.Size = UDim2.new(1 / 3, -8, 0, 32)
-				b.Position = UDim2.new((cr[1] - 1) / 3, 10 - (cr[1] - 1) * 2, 0, 100 + (cr[2] - 1) * 36)
+				b.Size = UDim2.new(1 / 3, -8, 0, 34)
+				b.Position = UDim2.new((cr[1] - 1) / 3, 10 - (cr[1] - 1) * 2, 0, 116 + (cr[2] - 1) * 38)
 			end
 		else
-			info.Size = UDim2.new(1, -330, 0, 24)
+			info.Size = UDim2.new(1, -400, 0, 24)
 			modeBtn.AnchorPoint = Vector2.new(1, 0)
-			modeBtn.Position = UDim2.new(1, -150, 0, 4)
-			modeBtn.Size = UDim2.fromOffset(120, 26)
+			modeBtn.Position = UDim2.new(1, -196, 0, 4)
+			modeBtn.Size = UDim2.fromOffset(150, 26)
 			local best = body:FindFirstChild("EquipBest") :: GuiObject
 			best.Position = UDim2.new(1, -12, 0, 4)
-			best.Size = UDim2.fromOffset(130, 26)
+			best.Size = UDim2.fromOffset(176, 26)
 			for i, key in ipairs(filterOrder) do
 				local b = filterBtns[key]
 				b.Size = UDim2.new(0.2, -6, 0, 26)
@@ -379,14 +380,14 @@ function PetsPanel.init(gui: ScreenGui)
 			scroll.Position = UDim2.fromOffset(10, 66)
 			scroll.Size = UDim2.new(1, -20, 1, -66 - 134)
 			if grid then
-				grid.CellSize = UDim2.fromOffset(104, 112)
+				grid.CellSize = UDim2.fromOffset(108, 142)
 				grid.CellPadding = UDim2.fromOffset(8, 8)
 			end
 			footer.Position = UDim2.new(0, 10, 1, -128)
 			footer.Size = UDim2.new(1, -20, 0, 124)
 			detailName.Size = UDim2.new(0.5, 0, 0, 24)
 			detailLine.Position = UDim2.fromOffset(12, 32)
-			detailLine.Size = UDim2.new(0.55, 0, 0, 18)
+			detailLine.Size = UDim2.new(0.53, 0, 0, 22)
 			detailAbility.Position = UDim2.fromOffset(12, 52)
 			detailAbility.Size = UDim2.new(0.53, 0, 0, 34)
 			xpBar.Back.Position = UDim2.fromOffset(12, 90)
@@ -403,18 +404,18 @@ function PetsPanel.init(gui: ScreenGui)
 			autoBtn.Size = UDim2.new(0.14, -4, 0, 34)
 			autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 88)
 			if li.Mode == "landscape" then
-				-- Низкий экран: нижняя панель ужимается, чтобы под карточки остался хотя бы ряд
-				scroll.Size = UDim2.new(1, -20, 1, -66 - 98)
-				footer.Position = UDim2.new(0, 10, 1, -94)
-				footer.Size = UDim2.new(1, -20, 0, 90)
+				-- v3.2: низкий экран — панель выше (текст >= 12 px не обрезается), под карточки остаётся ряд
+				scroll.Size = UDim2.new(1, -20, 1, -66 - 122)
+				footer.Position = UDim2.new(0, 10, 1, -118)
+				footer.Size = UDim2.new(1, -20, 0, 114)
 				detailName.Position = UDim2.fromOffset(12, 4)
-				detailName.Size = UDim2.new(0.5, 0, 0, 20)
-				detailLine.Position = UDim2.fromOffset(12, 26)
-				detailLine.Size = UDim2.new(0.53, 0, 0, 16)
-				detailAbility.Position = UDim2.fromOffset(12, 44)
-				detailAbility.Size = UDim2.new(0.53, 0, 0, 22)
-				xpBar.Back.Position = UDim2.fromOffset(12, 70)
-				xpBar.Back.Size = UDim2.new(0.5, 0, 0, 14)
+				detailName.Size = UDim2.new(0.5, 0, 0, 22)
+				detailLine.Position = UDim2.fromOffset(12, 28)
+				detailLine.Size = UDim2.new(0.53, 0, 0, 22)
+				detailAbility.Position = UDim2.fromOffset(12, 52)
+				detailAbility.Size = UDim2.new(0.53, 0, 0, 34)
+				xpBar.Back.Position = UDim2.fromOffset(12, 90)
+				xpBar.Back.Size = UDim2.new(0.5, 0, 0, 18)
 				for name, b in pairs(buttons) do
 					local cr = GRID_WIDE[name]
 					if cr then
@@ -635,30 +636,29 @@ function PetsPanel.init(gui: ScreenGui)
 				if picked then 4 else 2
 			)
 			UiKit.petIcon(card, pet.Id, pet.Variant, 44, UDim2.new(0.5, -22, 0, 8))
-			UiKit.text(
-				card,
-				L.n(def.Name),
-				UDim2.fromOffset(3, 54),
-				UDim2.new(1, -6, 0, 18),
-				{ TextColor3 = rarity.Color, TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 14 }
-			)
+			UiKit.text(card, L.n(def.Name), UDim2.fromOffset(3, 52), UDim2.new(1, -6, 0, 42), {
+				TextColor3 = rarity.Color,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxSize = 15,
+				TextWrapped = true,
+			})
 			UiKit.text(
 				card,
 				L.t("pets.card_lv", { n = pet.Level, x = Util.formatNumber(pet.Power) }),
-				UDim2.fromOffset(3, 73),
-				UDim2.new(1, -6, 0, 16),
-				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13 }
+				UDim2.fromOffset(3, 95),
+				UDim2.new(1, -6, 0, 21),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 15 }
 			)
 			UiKit.text(
 				card,
 				(if pet.Variant ~= "Normal" then L.n(pet.Variant) .. " " else "")
 					.. (if pet.Evo > 0 then string.rep("*", pet.Evo) else ""),
-				UDim2.fromOffset(3, 91),
-				UDim2.new(1, -6, 0, 14),
+				UDim2.fromOffset(3, 117),
+				UDim2.new(1, -6, 0, 21),
 				{
 					TextColor3 = (PetMeta.Variants[pet.Variant] or PetMeta.Variants.Normal).Color,
 					TextXAlignment = Enum.TextXAlignment.Center,
-					MaxSize = 12,
+					MaxSize = 15,
 				}
 			)
 			UiKit.badge(
@@ -671,13 +671,13 @@ function PetsPanel.init(gui: ScreenGui)
 				card,
 				L.t("role_icon." .. meta.Role),
 				PetMeta.Roles[meta.Role].Color,
-				UDim2.fromOffset(4, 22)
+				UDim2.fromOffset(4, 27)
 			)
 			if equippedIndex(core, entry.Uid) then
 				UiKit.badge(card, L.t("pets.on_badge"), Theme.Green, UDim2.new(1, -30, 0, 4), 26)
 			end
 			if pet.Fav then
-				UiKit.badge(card, "*", Theme.Gold, UDim2.new(1, -30, 0, 22), 26)
+				UiKit.badge(card, "*", Theme.Gold, UDim2.new(1, -30, 0, 27), 26)
 			end
 			card.Activated:Connect(function()
 				if mode == "Fusion" then

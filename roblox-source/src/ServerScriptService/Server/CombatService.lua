@@ -13,6 +13,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local BotLogic = require(Shared.BotLogic)
 local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local EnemyData = require(Shared.EnemyData)
@@ -760,7 +761,9 @@ end
 -- живые игроки этого врага не били и рядом с ним никого нет — боты не отнимают добычу и не мешают.
 -- Награды за таких врагов никто не получает (у ботов нет профиля).
 -- ---------------------------------------------------------------------------
-local BOT_FREE_RADIUS = 35
+local BOT_FREE_RADIUS = Config.BOTS.YIELD_RADIUS or 35
+-- v3.2: занятость врагов ботами: enemyId -> { Key = ключ бота, Until = os.clock() до продления }
+local botClaims: { [string]: { Key: string, Until: number } } = {}
 
 local function playerNear(pos: Vector3, radius: number): boolean
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -776,18 +779,98 @@ local function botFree(e: Enemy): boolean
 	return not e.Dead and not e.Def.Boss and e.Special == nil and next(e.Damage) == nil
 end
 
-function CombatService.botTarget(pos: Vector3, range: number): (string?, Vector3?)
-	local best: Enemy? = nil
-	local bd = range
+local function claimOf(id: string, now: number): { Key: string, Until: number }?
+	local c = botClaims[id]
+	local e = enemies[id]
+	if c and (c.Until < now or not e or e.Dead) then
+		botClaims[id] = nil
+		return nil
+	end
+	return c
+end
+
+function CombatService.botRelease(key: string)
+	for id, c in pairs(botClaims) do
+		if c.Key == key then
+			botClaims[id] = nil
+		end
+	end
+end
+
+-- живой игрок подошёл к врагу (или уже бьёт его) — бот должен уступить
+function CombatService.botShouldYield(id: string): boolean
+	local e = enemies[id]
+	return e ~= nil and not e.Dead and (next(e.Damage) ~= nil or playerNear(e.Pos, BOT_FREE_RADIUS))
+end
+
+function CombatService.enemyPos(id: string): Vector3?
+	local e = enemies[id]
+	return if e then e.Pos else nil
+end
+
+-- для тестов: { [enemyId] = ключ бота }
+function CombatService.botClaims(): { [string]: string }
+	local now = os.clock()
+	local out = {}
+	for id in pairs(botClaims) do
+		local c = claimOf(id, now)
+		if c then
+			out[id] = c.Key
+		end
+	end
+	return out
+end
+
+-- Враг для бота key: «ничей», не занятый другим ботом, с лимитами BotLogic.canClaim. Занятый ботом враг
+-- продлевается (CLAIM_TTL), пока бот его бьёт; без key (старые вызовы) — key "?"
+function CombatService.botTarget(pos: Vector3, range: number, key: string?): (string?, Vector3?)
+	local now = os.clock()
+	local k = key or "?"
+	local ttl = Config.BOTS.CLAIM_TTL or 3
+	for id, c in pairs(botClaims) do
+		if c.Key == k then
+			local e = enemies[id]
+			if
+				e
+				and botFree(e)
+				and not playerNear(e.Pos, BOT_FREE_RADIUS)
+				and (e.Pos - pos).Magnitude <= range
+			then
+				c.Until = now + ttl
+				return id, e.Pos
+			end
+			botClaims[id] = nil
+		end
+	end
+	local free: { [string]: number } = {}
+	local claimed: { [string]: number } = {}
+	local candidates: { Enemy } = {}
 	for _, e in ipairs(order) do
-		if botFree(e) then
-			local d = (e.Pos - pos).Magnitude
-			if d < bd and not playerNear(e.Pos, BOT_FREE_RADIUS) then
-				best, bd = e, d
+		if botFree(e) and not playerNear(e.Pos, BOT_FREE_RADIUS) then
+			free[e.Zone] = (free[e.Zone] or 0) + 1
+			if claimOf(e.Id, now) then
+				claimed[e.Zone] = (claimed[e.Zone] or 0) + 1
+			else
+				table.insert(candidates, e)
 			end
 		end
 	end
+	local best: Enemy? = nil
+	local bd = range
+	for _, e in ipairs(candidates) do
+		local d = (e.Pos - pos).Magnitude
+		if
+			d < bd
+			and BotLogic.canClaim(
+				{ MobClaims = 0, ZoneClaimed = claimed[e.Zone] or 0, ZoneFree = free[e.Zone] or 0 },
+				Config.BOTS
+			)
+		then
+			best, bd = e, d
+		end
+	end
 	if best then
+		botClaims[best.Id] = { Key = k, Until = now + ttl }
 		return best.Id, best.Pos
 	end
 	return nil, nil
@@ -802,6 +885,7 @@ function CombatService.botHit(id: string, frac: number): (boolean, boolean)
 	e.Hp = math.max(0, e.Hp - e.MaxHp * frac)
 	updateBar(e)
 	if e.Hp <= 0 then
+		botClaims[id] = nil
 		die(e)
 		return true, true
 	end

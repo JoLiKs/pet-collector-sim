@@ -95,6 +95,7 @@ function Widgets.button(props: { [string]: any }): TextButton
 		Font = Theme.Font,
 		TextColor3 = Theme.Text,
 		TextScaled = true,
+		TextWrapped = true, -- v3.2: длинная подпись при тексте >= 12 px переносится, а не обрезается
 		AutoButtonColor = false,
 		Text = "",
 		Size = UDim2.fromOffset(120, 40),
@@ -126,6 +127,23 @@ function Widgets.button(props: { [string]: any }): TextButton
 		btn.Activated:Connect(onClick)
 	end
 	return btn
+end
+
+-- v3.2: значок Icons.lua слева в обычной кнопке (вместо эмодзи в тексте); текст сдвигается вправо
+function Widgets.buttonIcon(btn: TextButton, kind: string, px: number?): Frame
+	local size = px or 24
+	local icon = Icons.make(kind, {
+		Name = "Icon",
+		Px = size,
+		Size = UDim2.fromOffset(size, size),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 8, 0.5, 0),
+		ZIndex = btn.ZIndex + 1,
+		Parent = btn,
+	})
+	New("UIPadding", { PaddingLeft = UDim.new(0, size + 12), PaddingRight = UDim.new(0, 6), Parent = btn })
+	icon.Position = UDim2.new(0, -(size + 4), 0.5, 0) -- внутри отступа (UIPadding сдвигает и значок)
+	return icon
 end
 
 -- v2.5: жирная подпись HUD с толстой чёрной обводкой (как в популярных симуляторах)
@@ -303,6 +321,93 @@ function Widgets.setEnabled(btn: TextButton, enabled: boolean, color: Color3?)
 	btn.BackgroundColor3 = if enabled then (color or Theme.Green) else Theme.Disabled
 end
 
+-- v3.2: «пол» размера текста внутри окна масштаба Theme.PANEL_SCALE: основной текст и кнопки не мельче
+-- UiGeometry.MIN_BODY (12 px), заголовки (подписи шрифтом Theme.Font длиннее 2 символов) — MIN_TITLE (14 px)
+-- на экране. TextScaled-подписи получают UITextSizeConstraint.MinTextSize, остальные — TextSize; пол держится
+-- и при последующих изменениях (раскладка панелей меняет MinTextSize/TextSize). Атрибут NoTextFloor — исключение.
+local floorHooked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function isTitle(t: TextLabel): boolean
+	return t:IsA("TextLabel")
+		and t.Font == Theme.Font
+		and utf8.len(t.Text) ~= nil
+		and (utf8.len(t.Text) or 0) > 2
+end
+
+local floorText: (Instance) -> ()
+floorText = function(o: Instance)
+	if not o.Parent or o:GetAttribute("NoTextFloor") then
+		return
+	end
+	if not (o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox")) then
+		return
+	end
+	local t = o :: TextLabel
+	local min = Theme.Geometry.minText(Theme.PANEL_SCALE, isTitle(t))
+	if t.TextScaled then
+		local c = t:FindFirstChildOfClass("UITextSizeConstraint")
+		if not c then
+			c = New("UITextSizeConstraint", { Name = "TextFloor", Parent = t })
+		end
+		local cc = c :: UITextSizeConstraint
+		if cc.MinTextSize < min then
+			cc.MinTextSize = min
+		end
+		if cc.MaxTextSize < min then
+			cc.MaxTextSize = min
+		end
+		if not floorHooked[cc] then
+			floorHooked[cc] = true
+			cc:GetPropertyChangedSignal("MinTextSize"):Connect(function()
+				task.defer(floorText, t)
+			end)
+			cc:GetPropertyChangedSignal("MaxTextSize"):Connect(function()
+				task.defer(floorText, t)
+			end)
+		end
+	elseif t.TextSize < min then
+		t.TextSize = min
+	end
+	if not floorHooked[t] then
+		floorHooked[t] = true
+		t:GetPropertyChangedSignal("TextSize"):Connect(function()
+			if not t.TextScaled then
+				task.defer(floorText, t)
+			end
+		end)
+		t:GetPropertyChangedSignal("TextScaled"):Connect(function()
+			task.defer(floorText, t)
+		end)
+		t:GetPropertyChangedSignal("Text"):Connect(function()
+			-- заголовок/бейдж определяется по длине текста
+			task.defer(floorText, t)
+		end)
+	end
+end
+Widgets.floorText = floorText
+
+function Widgets.textFloor(root: Instance)
+	for _, d in ipairs(root:GetDescendants()) do
+		floorText(d)
+	end
+	root.DescendantAdded:Connect(function(d)
+		-- отложенно: конструктор подписи успевает добавить свой UITextSizeConstraint
+		if d:IsA("UITextSizeConstraint") then
+			task.defer(function()
+				local own = d.Parent and d.Parent:FindFirstChild("TextFloor")
+				if own and own ~= d then
+					own:Destroy()
+				end
+				if d.Parent then
+					floorText(d.Parent)
+				end
+			end)
+		else
+			task.defer(floorText, d)
+		end
+	end)
+end
+
 -- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
 -- title — английское имя панели (Name = title .. "Panel"); заголовок берётся из ключа "panel.<title без пробелов>".
 function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts: { MinH: number? }?)
@@ -320,25 +425,22 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts
 	Widgets.stroke(root, Theme.BgLight, 3)
 	New("UISizeConstraint", { MinSize = Vector2.new(300, 240), Parent = root })
 	local scale = New("UIScale", { Name = "UiScale", Parent = root })
-	-- v3.0: содержимое панели в Theme.uiScale раз меньше (k).
-	-- v3.1: и само окно в 1.5 раза меньше (Theme.panelDesign): размер задаётся явно в пикселях «до масштаба»
-	-- (без UISizeConstraint.MaxSize — итоговый размер не зависит от порядка применения ограничения и UIScale).
-	local k = Theme.UI_SCALE
-	-- телефон (v2.4): вертикально — чуть выше центра, снизу место для тостов
-	Layout.onChanged(function(lay)
-		k = Theme.uiScale(lay)
-		local w, h = Theme.panelDesign(lay, k, opts and opts.MinH)
-		root.Size = UDim2.fromOffset(w, h)
-		if lay.Mode == "portrait" then
-			root.Position = UDim2.fromScale(0.5, 0.46)
-		elseif lay.Mode == "landscape" and lay.Touch then
-			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
-			root.Position = UDim2.new(0.5, -55, 0.5, 0)
-		else
-			root.Position = UDim2.fromScale(0.5, 0.5)
-		end
+	-- v3.2: геометрия окна — UiGeometry (Theme.panelDesign): содержимое в масштабе k = Theme.panelScale (0.8),
+	-- размер задаётся в «дизайнерских» px (видимый = × k). ПК — компактное окно по центру; телефон — безопасная
+	-- область над хотбаром, не закрывающая кнопки HUD (Layout.panelArea, считает Hud).
+	local k = Theme.PANEL_SCALE
+	local function relayout()
+		local lay = Layout.get()
+		k = Theme.panelScale(lay)
+		local area = if lay.Mode ~= "wide" then Layout.panelArea() else nil
+		local r = Theme.Geometry.panelRect(lay, k, opts and opts.MinH, area)
+		root.Size = UDim2.fromOffset(math.floor(r.W / k), math.floor(r.H / k))
+		root.Position = UDim2.fromOffset(r.X + r.W / 2, r.Y + r.H / 2)
 		scale.Scale = k
-	end)
+	end
+	Layout.onChanged(relayout)
+	Layout.onPanelArea(relayout)
+	Widgets.textFloor(root)
 
 	local header = New("Frame", {
 		Name = "Header",
@@ -421,7 +523,11 @@ function Widgets.scroller(parent: Instance, props: { [string]: any }?): Scrollin
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
+		-- v3.2: заметная полоса прокрутки (светлая, толще) и отступ под неё — видно, что список листается
+		ScrollBarThickness = 10,
+		ScrollBarImageColor3 = Theme.TextDim,
+		ScrollBarImageTransparency = 0.1,
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 		ZIndex = 21,

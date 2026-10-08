@@ -83,4 +83,53 @@ function AudioData.gain(mix: number, base: number, vol: number): number
 	return math.sin(math.clamp(mix, 0, 1) * math.pi / 2) * base * math.clamp(vol, 0, 1)
 end
 
+-- ---------------------------------------------------------------------------
+-- v3.2: здоровье звуковых ассетов. Если ассет не загрузился (например, отклонён модерацией), звук помечается
+-- сломанным: одна запись в лог, дальше он просто пропускается (без повторных Play и спама ошибок).
+-- Пока ассет грузится, Play повторяется не чаще RETRY секунд.
+-- ---------------------------------------------------------------------------
+AudioData.RETRY = 3
+
+export type Health = { Failed: { [string]: string }, Tries: { [string]: number } }
+
+function AudioData.newHealth(): Health
+	return { Failed = {}, Tries = {} }
+end
+
+-- true — это первая ошибка по ключу (её нужно записать в лог); повторные — false
+function AudioData.reportFailure(h: Health, key: string, why: string?): boolean
+	if h.Failed[key] ~= nil then
+		return false
+	end
+	h.Failed[key] = why or "load failed" -- l10n-ok
+	return true
+end
+
+function AudioData.isFailed(h: Health, key: string): boolean
+	return h.Failed[key] ~= nil
+end
+
+-- можно ли сейчас вызвать Play для ключа (не сломан и с прошлой попытки прошло RETRY секунд); отмечает попытку
+function AudioData.tryPlay(h: Health, key: string, now: number): boolean
+	if h.Failed[key] ~= nil then
+		return false
+	end
+	local last = h.Tries[key]
+	if last and now - last < AudioData.RETRY then
+		return false
+	end
+	h.Tries[key] = now
+	return true
+end
+
+-- строка для атрибута/теста: сломанные ключи через запятую (по алфавиту)
+function AudioData.failedList(h: Health): string
+	local keys = {}
+	for k in pairs(h.Failed) do
+		table.insert(keys, k)
+	end
+	table.sort(keys)
+	return table.concat(keys, ",")
+end
+
 return AudioData

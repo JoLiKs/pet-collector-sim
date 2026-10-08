@@ -1,4 +1,4 @@
-# Pet Collector Simulator v3.1 — веб-демо на реальном Luau-коде
+# Pet Collector Simulator v3.2.1 — веб-демо на реальном Luau-коде
 
 ▶ **Играть: https://joliks.github.io/pet-collector-sim/**
 
@@ -7,7 +7,7 @@
 а `Workspace`, `Players`, `RemoteEvent`, `DataStore`, GUI, 3D (three.js) эмулирует его же рантайм. Серверные скрипты, клиентский интерфейс и общие модули выполняются в одной вкладке.
 
 ## Скачать
-* [`PetCollectorSimulator_v3.1.zip`](PetCollectorSimulator_v3.1.zip) — проект целиком (src, документация, тесты, `.rbxlx`, `.rbxl`)
+* [`PetCollectorSimulator_v3.2.zip`](PetCollectorSimulator_v3.2.zip) — проект целиком (src, документация, тесты, `.rbxlx`, `.rbxl`)
 * [`PetCollectorSimulator.rbxl`](PetCollectorSimulator.rbxl) / [`PetCollectorSimulator.rbxlx`](PetCollectorSimulator.rbxlx) — готовое место для Roblox Studio (бинарный / XML)
 * [`PetCollectorSimulator_web.zip`](PetCollectorSimulator_web.zip) — эта веб-версия для самостоятельного хостинга
 * Скриншоты: [`roblox-source/docs/screens/`](roblox-source/docs/screens/), документация: [`roblox-source/docs/`](roblox-source/docs/)
@@ -18,6 +18,16 @@
 
 ## Язык
 Игра на **русском или английском**: страна определяется по IP (Cloudflare `cdn-cgi/trace` → geojs.io → country.is → ipapi.co, до ~2 с), при неудаче — по языку браузера. RU/BY/KZ/KG/AM/AZ/MD/TJ/UZ/TM → русский; Украина → русский только при русском языке браузера. Переключатель — **Ещё → Настройки / More → Settings**.
+
+## Новое в v3.2 / v3.2.1
+* **Подписи мира** — размер в пикселях, без наложений, не закрывают HUD; названия миров и яиц больше не огромные.
+* **Текст в окнах не мельче 12 px** (заголовки 14 px), без обрезки; v3.2.1 — описания в «Улучшениях», магазине, талантах и «Мирах» одного размера с переносом.
+* **Телефон:** окна в безопасной области с прокруткой, крестик виден, VIP и Боевой пропуск доступны.
+* **Значки из примитивов** вместо эмодзи; **«Авто»** — только у владельцев пропуска, в листе «Ещё».
+* **Морской сундук** — проверка места появления; **боты** уступают врагов игрокам и ограничены по числу; звук — запасной путь при недоступном ассете.
+* **Аудит:** покупки (ProcessReceipt) без повторной выдачи, подписи/подписки без дублей — см. [`docs/AUDIT_v3.2.md`](roblox-source/docs/AUDIT_v3.2.md).
+
+![Улучшения 1280×720](roblox-source/docs/screens/95_pc_panel_text.png)
 
 ## Новое в v3.1
 * **Быстрые слоты:** исправлено назначение предмета в пустой слот в настоящей игре; из пустого «+» предмет теперь кладётся одним тапом.

@@ -78,22 +78,20 @@ function CraftPanel.init(gui: ScreenGui)
 			for i, recipe in ipairs(RecipeData.Recipes) do
 				local item = RecipeData.Items[recipe.Item]
 				local ok = RecipeData.canCraft(recipe, core.Resources, core.Coins)
-				local card = UiKit.card(scroll, 58, if ok then Theme.Green else nil, i)
+				-- v3.2: карточка растёт по тексту: название, цена, описание — строками, текст >= 12 px
+				local card, col = UiKit.flowCard(scroll, 58, if ok then Theme.Green else nil, i, 60, 112)
 				card.Name = recipe.Id
 				Icons.make(recipe.Item, {
 					Px = 44,
 					Size = UDim2.fromOffset(44, 44),
-					AnchorPoint = Vector2.new(0, 0.5),
-					Position = UDim2.new(0, 8, 0.5, 0),
+					Position = UDim2.fromOffset(8, 7),
 					ZIndex = 23,
 					Parent = card,
 				})
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					L.t("reward.item", { n = recipe.Count, item = item.Name }),
-					UDim2.fromOffset(60, 4),
-					UDim2.new(0.55, -50, 0, 22),
-					{ Font = Theme.Font, MaxSize = 18 }
+					{ Font = Theme.Font, TextSize = 18, LayoutOrder = 1 }
 				)
 				local parts = {}
 				for _, res in ipairs(ResourceData.Order) do
@@ -111,27 +109,19 @@ function CraftPanel.init(gui: ScreenGui)
 						L.t("reward.coins_fmt", { price = Util.formatNumber(recipe.Coins), n = recipe.Coins })
 					)
 				end
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					table.concat(parts, "  +  "),
-					UDim2.fromOffset(60, 28),
-					UDim2.new(0.6, -50, 0, 22),
-					{ TextColor3 = if ok then Theme.TextDim else Theme.Red, MaxSize = 14 }
+					{ TextColor3 = if ok then Theme.TextDim else Theme.Red, LayoutOrder = 2 }
 				)
-				UiKit.text(
-					card,
-					L.n(item.Desc),
-					UDim2.new(0.55, 0, 0, 4),
-					UDim2.new(0.25, 0, 1, -8),
-					{ TextColor3 = Theme.Gem, MaxSize = 13 }
-				)
+				UiKit.flowText(col, L.n(item.Desc), { TextColor3 = Theme.Gem, LayoutOrder = 3 })
 				local b = Widgets.button({
 					Name = "Make",
 					Text = L.t("craft.make"),
 					Color = Theme.Green,
-					Size = UDim2.new(0.16, 0, 0, 38),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(100, 38),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 10),
 					ZIndex = 23,
 					MaxTextSize = 18,
 					OnClick = function()
@@ -148,38 +138,29 @@ function CraftPanel.init(gui: ScreenGui)
 				if n > 0 then
 					any = true
 					local item = RecipeData.Items[id]
-					local card = UiKit.card(scroll, 52, Theme.BgLight, i)
+					local card, col = UiKit.flowCard(scroll, 52, Theme.BgLight, i, 56, 112)
 					card.Name = id
 					Icons.make(id, {
 						Px = 40,
 						Size = UDim2.fromOffset(40, 40),
-						AnchorPoint = Vector2.new(0, 0.5),
-						Position = UDim2.new(0, 8, 0.5, 0),
+						Position = UDim2.fromOffset(8, 6),
 						ZIndex = 23,
 						Parent = card,
 					})
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						("%s  x%d"):format(L.n(item.Name), n),
-						UDim2.fromOffset(56, 4),
-						UDim2.new(0.6, -46, 0, 22),
-						{ Font = Theme.Font, MaxSize = 18 }
+						{ Font = Theme.Font, TextSize = 18, LayoutOrder = 1 }
 					)
-					UiKit.text(
-						card,
-						L.n(item.Desc),
-						UDim2.fromOffset(56, 28),
-						UDim2.new(0.62, -46, 0, 20),
-						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-					)
+					UiKit.flowText(col, L.n(item.Desc), { TextColor3 = Theme.TextDim, LayoutOrder = 2 })
 					if item.Kind == "BoostLuck" or item.Kind == "BoostCoins" then
 						Widgets.button({
 							Name = "Use",
 							Text = L.t("craft.use"),
 							Color = Theme.Blue,
-							Size = UDim2.new(0.16, 0, 0, 34),
-							AnchorPoint = Vector2.new(1, 0.5),
-							Position = UDim2.new(1, -8, 0.5, 0),
+							Size = UDim2.fromOffset(100, 34),
+							AnchorPoint = Vector2.new(1, 0),
+							Position = UDim2.new(1, -8, 0, 8),
 							ZIndex = 23,
 							MaxTextSize = 18,
 							OnClick = function()
@@ -195,9 +176,9 @@ function CraftPanel.init(gui: ScreenGui)
 								elseif item.Kind == "Catalyst" then L.t("craft.use_fusion")
 								elseif item.Kind == "Ticket" then L.t("craft.use_egg")
 								else L.t("craft.passive"),
-							UDim2.new(0.72, 0, 0, 10),
-							UDim2.new(0.26, 0, 0, 30),
-							{ TextColor3 = Theme.Gold, MaxSize = 13 }
+							UDim2.new(1, -108, 0, 6),
+							UDim2.fromOffset(102, 42),
+							{ TextColor3 = Theme.Gold, MaxSize = 15, TextWrapped = true }
 						)
 					end
 				end

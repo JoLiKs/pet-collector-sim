@@ -142,20 +142,23 @@ function Monetization.loadPlayer(player: Player)
 	recheckPasses(player, failed, 1)
 end
 
-local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
+-- Выдаёт награду продукта. Возвращает уведомление (сообщение), которое отправляется ПОСЛЕ записи чека:
+-- аудит v3.2 — сбой уведомления не должен приводить к NotProcessedYet после уже выданной награды
+-- (иначе повтор Roblox выдал бы её второй раз).
+local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any }): any
 	if def.Kind == "Gems" then
 		Economy.addGems(player, def.Amount)
-		Notify.send(player, Locale.m("shop.thanks_gems", { n = def.Amount }), "reward")
+		return Locale.m("shop.thanks_gems", { n = def.Amount })
 	elseif def.Kind == "Coins" then
 		local amount = math.max(def.Min, Economy.getPerClick(player, data) * def.Clicks)
 		Economy.addCoins(player, amount, false)
-		Notify.send(player, "shop.thanks_coins", "reward")
+		return "shop.thanks_coins"
 	elseif def.Kind == "Luck" then
 		Economy.addLuckBoost(data, def.Boost, def.Seconds)
-		Notify.send(player, Locale.m("item.activated", { item = def.Name }), "reward")
+		return Locale.m("item.activated", { item = def.Name })
 	elseif def.Kind == "Res" then
 		Economy.addResource(player, def.Res, def.Amount)
-		Notify.send(player, Locale.m("shop.thanks_res", { n = def.Amount, res = def.Res }), "reward")
+		return Locale.m("shop.thanks_res", { n = def.Amount, res = def.Res })
 	elseif def.Kind == "BpLevels" then
 		local bp = data.BattlePass
 		local level = BattlePassData.progress(bp.Xp)
@@ -165,19 +168,24 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 			xp += BattlePassData.xpForLevel(lv)
 		end
 		local _, into = BattlePassData.progress(bp.Xp)
-		Economy.addBpXp(player, math.max(0, xp - into))
 		-- v2.4 (аудит В3): платёж нельзя отменить, поэтому уровни сверх максимума не «сгорают»,
-		-- а компенсируются гемами (BP_SKIP_FALLBACK_GEMS за каждый недоданный уровень)
+		-- а компенсируются гемами (BP_SKIP_FALLBACK_GEMS за каждый недоданный уровень).
+		-- Аудит v3.2: сначала гемы (простая операция), затем опыт — меньше шансов на частичную выдачу.
 		local missing = def.Levels - (target - level)
-		if missing > 0 then
-			local gems = missing * Config.BP_SKIP_FALLBACK_GEMS
+		local gems = if missing > 0 then missing * Config.BP_SKIP_FALLBACK_GEMS else 0
+		if gems > 0 then
 			Economy.addGems(player, gems)
-			Notify.send(player, Locale.m("shop.bp_fallback", { n = missing, gems = gems }), "reward")
-		else
-			Notify.send(player, Locale.m("shop.thanks_bp", { n = def.Levels }), "reward")
 		end
+		Economy.addBpXp(player, math.max(0, xp - into))
+		if missing > 0 then
+			return Locale.m("shop.bp_fallback", { n = missing, gems = gems })
+		end
+		return Locale.m("shop.thanks_bp", { n = def.Levels })
 	end
+	-- аудит v3.2: неизвестный вид продукта — ошибка (-> NotProcessedYet), а не «пустая» выдача с записанным чеком
+	error("unknown product kind " .. tostring(def.Kind))
 end
+Monetization._grantProduct = grantProduct
 
 local function pruneReceipts(data: DataService.Data)
 	local count = 0
@@ -233,16 +241,23 @@ local function processReceipt(info: { [string]: any }): Enum.ProductPurchaseDeci
 
 	-- Награда и запись о чеке — без yield между ними (атомарно).
 	-- v2.7: ошибка при выдаче -> NotProcessedYet (Roblox повторит), чек не записывается.
-	local okGrant, err = pcall(function()
-		grantProduct(player, data, def)
-	end)
+	local okGrant, note = pcall(grantProduct, player, data, def)
 	if not okGrant then
-		warn("[Monetization] grant failed for", productKey, err)
+		warn("[Monetization] grant failed for", productKey, note)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 	data.Receipts[receiptKey] = os.time()
 	pruneReceipts(data)
-	State.markCore(player)
+	-- уведомление и синхронизация — после записи чека и в pcall: их сбой не отменяет выданную награду
+	pcall(State.markCore, player)
+	if note ~= nil then
+		local okNote, errNote = pcall(function()
+			Notify.send(player, note, "reward")
+		end)
+		if not okNote then
+			warn("[Monetization] notify failed for", productKey, errNote)
+		end
+	end
 
 	if DataService.saveNow(player) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted

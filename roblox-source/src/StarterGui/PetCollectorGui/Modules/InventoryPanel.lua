@@ -75,6 +75,9 @@ function InventoryPanel.lineText(line): string
 	return L.t(line.Key)
 end
 
+-- v3.2: ячейка сетки («дизайнерские» px): название предмета в 2 строки при тексте >= 12 px
+InventoryPanel.CELL_W, InventoryPanel.CELL_H = 100, 112
+
 function InventoryPanel.init(gui: ScreenGui)
 	local panel = Widgets.panel(gui, "Inventory", nil, { MinH = 470 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
@@ -82,10 +85,10 @@ function InventoryPanel.init(gui: ScreenGui)
 	local grid = Widgets.scroller(body, {
 		Name = "Grid",
 		Position = UDim2.fromOffset(10, 4),
-		Size = UDim2.new(0.58, -14, 1, -12),
+		Size = UDim2.new(0.62, -14, 1, -12),
 	})
 	Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(86, 98),
+		CellSize = UDim2.fromOffset(InventoryPanel.CELL_W, InventoryPanel.CELL_H),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
@@ -98,8 +101,8 @@ function InventoryPanel.init(gui: ScreenGui)
 
 	local info = Widgets.New("Frame", {
 		Name = "Info",
-		Position = UDim2.new(0.58, 0, 0, 4),
-		Size = UDim2.new(0.42, -10, 1, -12),
+		Position = UDim2.new(0.62, 0, 0, 4),
+		Size = UDim2.new(0.38, -10, 1, -12),
 		BackgroundColor3 = Theme.BgLight,
 		ZIndex = 22,
 		Parent = body,
@@ -112,9 +115,9 @@ function InventoryPanel.init(gui: ScreenGui)
 			info.Position = UDim2.new(0, 10, 0.5, 2)
 			info.Size = UDim2.new(1, -20, 0.5, -10)
 		else
-			grid.Size = UDim2.new(0.58, -14, 1, -12)
-			info.Position = UDim2.new(0.58, 0, 0, 4)
-			info.Size = UDim2.new(0.42, -10, 1, -12)
+			grid.Size = UDim2.new(0.62, -14, 1, -12)
+			info.Position = UDim2.new(0.62, 0, 0, 4)
+			info.Size = UDim2.new(0.38, -10, 1, -12)
 		end
 	end)
 
@@ -260,13 +263,11 @@ function InventoryPanel.init(gui: ScreenGui)
 		local function line(text: string, opts)
 			order += 1
 			local o = opts or {}
-			-- высота по длине текста (~34 символа в строке при 14 px), чтобы длинные строки не мельчили
-			local chars = utf8.len(text) or #text
-			local h = o.H or math.clamp(math.ceil(chars / 34) * 17 + 6, 22, 76)
-			local l = UiKit.text(list, text, UDim2.new(), UDim2.new(1, -8, 0, h), {
+			-- v3.2: строка растёт по тексту (AutomaticSize, перенос), шрифт фиксированный >= 12 px — не мельчит
+			local l = UiKit.flowText(list, text, {
 				TextColor3 = o.Color or Theme.Text,
 				Font = o.Font,
-				MaxSize = o.Max or 14,
+				TextSize = o.Max or 15,
 				LayoutOrder = order,
 				ZIndex = 24,
 			})
@@ -278,17 +279,11 @@ function InventoryPanel.init(gui: ScreenGui)
 		if HotbarData.isPetItem(id) then
 			line(L.t("inv.slot_pets"), { Color = Theme.Gold, Name = "SlotNote" })
 		end
-		line(
-			L.t("inv.where"),
-			{ Font = Theme.Font, Color = Theme.Gem, Max = 16, H = 22, Name = "WhereTitle" }
-		)
+		line(L.t("inv.where"), { Font = Theme.Font, Color = Theme.Gem, Max = 18, Name = "WhereTitle" })
 		for _, ln in ipairs(InventoryData.sources(id)) do
 			line("• " .. InventoryPanel.lineText(ln))
 		end
-		line(
-			L.t("inv.used_for"),
-			{ Font = Theme.Font, Color = Theme.Green, Max = 16, H = 22, Name = "UseTitle" }
-		)
+		line(L.t("inv.used_for"), { Font = Theme.Font, Color = Theme.Green, Max = 18, Name = "UseTitle" })
 		for _, ln in ipairs(InventoryData.uses(id)) do
 			line("• " .. InventoryPanel.lineText(ln))
 		end
@@ -374,9 +369,9 @@ function InventoryPanel.init(gui: ScreenGui)
 			local name = UiKit.text(
 				cell,
 				L.n(InventoryData.name(e.Id)),
-				UDim2.new(0, 4, 1, -34),
-				UDim2.new(1, -8, 0, 30),
-				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13, ZIndex = 41 }
+				UDim2.new(0, 2, 1, -50),
+				UDim2.new(1, -4, 0, 46),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 15, ZIndex = 41 }
 			)
 			name.Name = "Name"
 			cell.Activated:Connect(function()

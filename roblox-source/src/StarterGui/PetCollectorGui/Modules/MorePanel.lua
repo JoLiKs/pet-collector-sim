@@ -9,6 +9,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 local Util = require(Shared:WaitForChild("Util"))
 
+local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
@@ -19,16 +20,16 @@ local MorePanel = {}
 
 -- Id панели, иконка, цвет; Where — где эта станция в хабе (подсказка под кнопкой)
 MorePanel.ITEMS = {
-	{ Id = "Upgrades", Icon = "⬆️", Color = Color3.fromRGB(60, 150, 255) },
-	{ Id = "Rebirth", Icon = "♻️", Color = Color3.fromRGB(170, 90, 255) },
-	{ Id = "Talents", Icon = "✨", Color = Color3.fromRGB(140, 80, 230) },
-	{ Id = "Daily", Icon = "🎁", Color = Color3.fromRGB(255, 180, 40) },
-	{ Id = "Zones", Icon = "🌍", Color = Color3.fromRGB(60, 190, 120) },
-	{ Id = "Craft", Icon = "⚒️", Color = Color3.fromRGB(200, 130, 70) },
-	{ Id = "Market", Icon = "🏪", Color = Color3.fromRGB(240, 90, 110) },
-	{ Id = "Trade", Icon = "🤝", Color = Color3.fromRGB(255, 140, 50) },
-	{ Id = "Boards", Icon = "🏆", Color = Color3.fromRGB(230, 190, 60) },
-	{ Id = "Settings", Icon = "⚙️", Color = Color3.fromRGB(110, 120, 150) },
+	{ Id = "Upgrades", IconKind = "Up", Color = Color3.fromRGB(60, 150, 255) },
+	{ Id = "Rebirth", IconKind = "Rebirth", Color = Color3.fromRGB(170, 90, 255) },
+	{ Id = "Talents", IconKind = "Sparkle", Color = Color3.fromRGB(140, 80, 230) },
+	{ Id = "Daily", IconKind = "Gift", Color = Color3.fromRGB(255, 180, 40) },
+	{ Id = "Zones", IconKind = "Globe", Color = Color3.fromRGB(60, 190, 120) },
+	{ Id = "Craft", IconKind = "Hammer", Color = Color3.fromRGB(200, 130, 70) },
+	{ Id = "Market", IconKind = "Store", Color = Color3.fromRGB(240, 90, 110) },
+	{ Id = "Trade", IconKind = "Trade", Color = Color3.fromRGB(255, 140, 50) },
+	{ Id = "Boards", IconKind = "Trophy", Color = Color3.fromRGB(230, 190, 60) },
+	{ Id = "Settings", IconKind = "Gear", Color = Color3.fromRGB(110, 120, 150) },
 }
 
 function MorePanel.init(
@@ -39,17 +40,49 @@ function MorePanel.init(
 	local panel = Widgets.panel(gui, "More")
 	local body = panel.Body
 
-	local info = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 22), {
+	-- v3.2: строки выше — при тексте >= 12 px множители и подсказка переносятся, а не обрезаются
+	local info = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 44), {
 		Name = "Multipliers",
 		TextColor3 = Theme.Gold,
 		Font = Theme.Font,
-		MaxSize = 17,
+		MaxSize = 18,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
-	local scroll = Widgets.scroller(body, {
-		Position = UDim2.fromOffset(10, 28),
-		Size = UDim2.new(1, -20, 1, -58),
+	-- v3.2: переключатель автосбора — здесь, а не на экране: он нужен редко (настройка сохраняется), а левая
+	-- колонка HUD остаётся из трёх кнопок. Виден только владельцам пропуска «Автосбор» (сервер тоже проверяет).
+	local autoBtn = Widgets.button({
+		Name = "AutoToggle",
+		Text = L.k("hud.auto_on"),
+		Color = Theme.Green,
+		Position = UDim2.fromOffset(12, 48),
+		Size = UDim2.new(1, -24, 0, 32),
+		MaxTextSize = 18,
+		Visible = false,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			local core = ClientState.Core
+			if core and core.Passes.AUTO_COLLECT == true then
+				Actions.call("SetAutoCollect", not core.AutoCollect)
+			end
+		end,
 	})
+	local scroll = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 48),
+		Size = UDim2.new(1, -20, 1, -94),
+	})
+	local function renderAuto(core: any)
+		local owner = core ~= nil and core.Passes.AUTO_COLLECT == true
+		autoBtn.Visible = owner
+		if owner then
+			L.bind(autoBtn, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
+			autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
+		end
+		local top = if owner then 84 else 48
+		scroll.Position = UDim2.fromOffset(10, top)
+		scroll.Size = UDim2.new(1, -20, 1, -(top + 46))
+	end
 	local grid = Widgets.New("UIGridLayout", {
 		CellSize = UDim2.fromOffset(150, 64),
 		CellPadding = UDim2.fromOffset(10, 10),
@@ -58,10 +91,10 @@ function MorePanel.init(
 		Parent = scroll,
 	})
 	Widgets.New("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), Parent = scroll })
-	UiKit.text(body, L.k("more.hint"), UDim2.new(0, 12, 1, -28), UDim2.new(1, -24, 0, 24), {
+	UiKit.text(body, L.k("more.hint"), UDim2.new(0, 12, 1, -44), UDim2.new(1, -24, 0, 40), {
 		TextColor3 = Theme.TextDim,
-		MaxSize = 14,
-		MinSize = 10,
+		MaxSize = 15,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 
@@ -70,7 +103,7 @@ function MorePanel.init(
 		local b = Widgets.hudButton({
 			Name = item.Id,
 			Color = item.Color,
-			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k("menu." .. item.Id),
 			Size = UDim2.fromOffset(150, 64),
 			MaxTextSize = 20,
@@ -86,12 +119,12 @@ function MorePanel.init(
 	end
 
 	Layout.onChanged(function(lay)
-		if lay.Mode == "portrait" then
-			grid.CellSize = UDim2.new(0.5, -10, 0, 58)
-		elseif lay.Mode == "landscape" then
-			grid.CellSize = UDim2.new(0.25, -10, 0, 56)
+		-- v3.2: телефон в альбомной ориентации — три колонки; вертикально и на ПК — две
+		-- (подписи >= 14 px помещаются)
+		if lay.Mode == "landscape" then
+			grid.CellSize = UDim2.new(1 / 3, -10, 0, 54)
 		else
-			grid.CellSize = UDim2.fromOffset(150, 64)
+			grid.CellSize = UDim2.new(0.5, -10, 0, 58)
 		end
 	end)
 
@@ -114,7 +147,8 @@ function MorePanel.init(
 			dot.Visible = d[id] == true
 		end
 	end
-	ClientState.onCore(function()
+	ClientState.onCore(function(core)
+		renderAuto(core)
 		if panel.IsOpen() then
 			render()
 		end

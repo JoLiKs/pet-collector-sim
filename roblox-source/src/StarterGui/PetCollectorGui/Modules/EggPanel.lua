@@ -248,7 +248,7 @@ function EggPanel.init(gui: ScreenGui)
 			local locked = core ~= nil and egg.Zone ~= "Hub" and not (core.Zones and core.Zones[egg.Zone])
 			local b = Widgets.button({
 				Name = "Tab_" .. egg.Id,
-				Text = (if locked then "🔒 " else "") .. L.n(egg.Name),
+				Text = L.n(egg.Name),
 				Color = if egg.Id == currentEgg then Theme.Orange else Theme.BgCard,
 				Size = UDim2.fromOffset(118, 32),
 				MaxTextSize = 15,
@@ -264,6 +264,9 @@ function EggPanel.init(gui: ScreenGui)
 				end,
 				Parent = tabs,
 			})
+			if locked then
+				Widgets.buttonIcon(b, "Lock", 18) -- v3.2: замок из примитивов вместо эмодзи
+			end
 			b.LayoutOrder = i
 		end
 	end

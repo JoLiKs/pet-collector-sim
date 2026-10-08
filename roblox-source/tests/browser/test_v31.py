@@ -117,8 +117,9 @@ with serve('/tmp/gw_ui') as url:
         g.click('[data-n="SettingsPanel"] [data-n="SfxToggle"]'); g.wait(lambda: 'выкл' in g.text('[data-n="SettingsPanel"] [data-n="SfxToggle"]'), what='sfx off')
         check('звуки выключаются', True)
         g.click(M); g.wait(lambda: 'выкл' not in g.text(M), what='music on')
-        check('без ID треков — музыки нет, без ошибок (MusicTracks пусто)', page.evaluate(GATTR, 'MusicTracks') == '', page.evaluate(GATTR, 'MusicTracks'))
-        check('подсказка «музыка появится…» видна, пока ID не вписаны', g.vis('[data-n="SettingsPanel"] [data-n="MusicMissing"]'))
+        # v3.1.1: ID треков заданы (Config.SOUNDS) — оба трека созданы; в демо загрузка не падает (AudioFailed пусто)
+        check('ID треков заданы: MusicTracks = CalmEpic, ошибок загрузки нет', page.evaluate(GATTR, 'MusicTracks') == 'CalmEpic' and not page.evaluate(GATTR, 'AudioFailed'), (page.evaluate(GATTR, 'MusicTracks'), page.evaluate(GATTR, 'AudioFailed')))
+        check('ID вписаны — подсказки «музыка появится…» нет', not g.vis('[data-n="SettingsPanel"] [data-n="MusicMissing"]'))
         g.click('[data-n="SettingsPanel"] [data-n="Close"]'); page.wait_for_timeout(400)
         # --- 3. левые кнопки и окно на ПК
         sb = page.evaluate(RECT, '[data-n="ShopBtn"]'); eb = page.evaluate(RECT, '[data-n="EggsBtn"]')
@@ -128,7 +129,8 @@ with serve('/tmp/gw_ui') as url:
             r = page.evaluate(RECT, '[data-n="%s"]' % n)
             check('ПК: %s той же высоты' % n, r and abs(r['h'] - sb['h']) < 1.5, r)
         r = panel_check(page, g, 1280, 720, 'ПК')
-        check('ПК: окно в 1.5 раза меньше (507×360 -> ≈338×240)', r and abs(r['w'] - 507 / 1.5) < 8 and r['h'] <= 360 / 1.5 + 8, r)
+        # v3.2: окно чуть больше v3.1 (текст >= 12 px), но компактнее v3.0 (507×360): ≈435×317
+        check('ПК: окно компактное (v3.2: ≈435×317, меньше v3.0 507×360)', r and 400 <= r['w'] <= 460 and 290 <= r['h'] <= 330, r)
         shot(page, '90_buttons_panel_1280x720.png')
         check('ПК: без ошибок эмулятора', not errs, errs[:3])
     # ---------------- телефон 390×844
@@ -140,7 +142,9 @@ with serve('/tmp/gw_ui') as url:
             r = page.evaluate(RECT, '[data-n="%s"]' % n)
             check('телефон: %s не ниже 36 px' % n, r and r['h'] >= 35.5, r)
         r = panel_check(page, g, 390, 844, 'телефон')
-        check('телефон: окно меньше, чем в v3.0 (374×432)', r and r['w'] * r['h'] <= 374 * 432 / 1.4, r)
+        # v3.2: окно — в безопасной области над кнопками HUD (UiGeometry), не перекрывает их
+        lb = page.evaluate(RECT, '[data-n="LeftButtons"]')
+        check('телефон: окно не закрывает левые кнопки (v3.2)', r and lb and r['y'] + r['h'] <= lb['y'] + 1, (r, lb))
         shot(page, '90_buttons_panel_390x844.png')
         g.click('[data-n="ShopPanel"] [data-n="Close"]'); page.wait_for_timeout(400)
         # --- 4. быстрый слот: «+» -> предмет

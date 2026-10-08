@@ -820,6 +820,55 @@ function AudioData.gain(mix: number, base: number, vol: number): number
 	return math.sin(math.clamp(mix, 0, 1) * math.pi / 2) * base * math.clamp(vol, 0, 1)
 end
 
+-- ---------------------------------------------------------------------------
+-- v3.2: здоровье звуковых ассетов. Если ассет не загрузился (например, отклонён модерацией), звук помечается
+-- сломанным: одна запись в лог, дальше он просто пропускается (без повторных Play и спама ошибок).
+-- Пока ассет грузится, Play повторяется не чаще RETRY секунд.
+-- ---------------------------------------------------------------------------
+AudioData.RETRY = 3
+
+export type Health = { Failed: { [string]: string }, Tries: { [string]: number } }
+
+function AudioData.newHealth(): Health
+	return { Failed = {}, Tries = {} }
+end
+
+-- true — это первая ошибка по ключу (её нужно записать в лог); повторные — false
+function AudioData.reportFailure(h: Health, key: string, why: string?): boolean
+	if h.Failed[key] ~= nil then
+		return false
+	end
+	h.Failed[key] = why or "load failed" -- l10n-ok
+	return true
+end
+
+function AudioData.isFailed(h: Health, key: string): boolean
+	return h.Failed[key] ~= nil
+end
+
+-- можно ли сейчас вызвать Play для ключа (не сломан и с прошлой попытки прошло RETRY секунд); отмечает попытку
+function AudioData.tryPlay(h: Health, key: string, now: number): boolean
+	if h.Failed[key] ~= nil then
+		return false
+	end
+	local last = h.Tries[key]
+	if last and now - last < AudioData.RETRY then
+		return false
+	end
+	h.Tries[key] = now
+	return true
+end
+
+-- строка для атрибута/теста: сломанные ключи через запятую (по алфавиту)
+function AudioData.failedList(h: Health): string
+	local keys = {}
+	for k in pairs(h.Failed) do
+		table.insert(keys, k)
+	end
+	table.sort(keys)
+	return table.concat(keys, ",")
+end
+
 return AudioData
 ]]></ProtectedString>
 				</Properties>
@@ -1150,6 +1199,41 @@ function BotLogic.zonesOpen(b: { Level: number, Rebirths: number }, total: numbe
 	return math.clamp(1 + b.Level // 10 + b.Rebirths, 1, total)
 end
 
+-- ---------------------------------------------------------------------------
+-- v3.2: доля врагов для ботов (живым игрокам всегда остаются свободные враги)
+-- s.MobClaims — сколько ДРУГИХ ботов уже занимают этого врага; s.ZoneClaimed — сколько врагов мира занято ботами;
+-- s.ZoneFree — сколько в мире «ничьих» врагов (не били игроки, рядом нет игрока), включая занятые ботами.
+-- ---------------------------------------------------------------------------
+function BotLogic.canClaim(
+	s: { MobClaims: number, ZoneClaimed: number, ZoneFree: number },
+	cfg: { [string]: any }
+): boolean
+	if s.MobClaims >= (cfg.MAX_PER_MOB or 1) then
+		return false
+	end
+	if s.ZoneClaimed >= (cfg.MAX_FIGHTERS_PER_ZONE or 3) then
+		return false
+	end
+	-- после захвата остаётся не меньше RESERVE_FREE свободных (никем не занятых) врагов
+	return s.ZoneFree - s.ZoneClaimed - 1 >= (cfg.RESERVE_FREE or 3)
+end
+
+-- миры, куда ещё можно пойти: ботов там меньше cap (exempt — без лимита, например хаб)
+function BotLogic.roomyZones(
+	zones: { string },
+	counts: { [string]: number },
+	cap: number,
+	exempt: string?
+): { string }
+	local out = {}
+	for _, z in ipairs(zones) do
+		if z == exempt or (counts[z] or 0) < cap then
+			table.insert(out, z)
+		end
+	end
+	return out
+end
+
 return BotLogic
 ]]></ProtectedString>
 				</Properties>
@@ -1221,10 +1305,10 @@ Config.PRODUCT_IDS = {
 --     Затем впишите ID сюда.
 -- ============================================================================
 Config.SOUNDS = {
-	MUSIC_CALM = 0, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
-	MUSIC_EPIC = 0, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
-	CHEST_SPAWN = 0, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
-	CHEST_OPEN = 0, -- assets/audio/chest_open.ogg — открытие сундука
+	MUSIC_CALM = 125236318818944, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
+	MUSIC_EPIC = 81894939449988, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
+	CHEST_SPAWN = 102022045018776, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
+	CHEST_OPEN = 121756761410700, -- assets/audio/chest_open.ogg — открытие сундука
 }
 Config.MUSIC = {
 	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
@@ -1425,7 +1509,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.1.0"
+Config.VERSION = "3.2.1"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -1518,6 +1602,16 @@ Config.BOTS = {
 	SPEED = 16,
 	AI_BADGE = true, -- метка «ИИ» у имени над головой
 	BOT_HIT = 0.14, -- доля здоровья врага за удар бота (только враги, которых не бьют живые игроки)
+	-- v3.2: живым игрокам всегда хватает врагов. Бот бьёт только «ничьего» врага (его не били игроки, рядом
+	-- нет игрока ближе YIELD_RADIUS) и занимает его один (MAX_PER_MOB); в одном мире дерутся не больше
+	-- MAX_FIGHTERS_PER_ZONE ботов, и после захвата в мире остаётся не меньше RESERVE_FREE свободных врагов.
+	-- Подошёл игрок — бот уступает: отпускает врага и отходит. В одном мире (кроме хаба) — не больше MAX_IN_ZONE ботов.
+	MAX_PER_MOB = 1,
+	MAX_FIGHTERS_PER_ZONE = 3,
+	RESERVE_FREE = 3,
+	YIELD_RADIUS = 35,
+	MAX_IN_ZONE = 4,
+	CLAIM_TTL = 3, -- секунд: занятость врага без подтверждения (бот ушёл/исчез) снимается сама
 }
 -- v3.1: морской сундук в хабе — появляется раз в INTERVAL секунд в случайном свободном месте, о нём сообщает
 -- только тихий звук. Забирает первый открывший (ProximityPrompt или касание); всё решает сервер.
@@ -1532,6 +1626,19 @@ Config.SEA_CHEST = {
 	MIN_RADIUS = 24, -- кольцо хаба, где ищется место (центр — фонтан)
 	MAX_RADIUS = 92,
 	CLEARANCE = 6, -- свободный радиус вокруг сундука (не в зданиях и декоре)
+	-- v3.2: проверка места по миру (сервер): свободный цилиндр радиуса PART_CLEARANCE высотой CLEAR_HEIGHT
+	-- без единой детали (деревья, колонны, здания, NPC), твёрдый ровный пол хаба на уровне FLOOR_Y (луч вниз),
+	-- ничего сверху (луч вверх), не «в коробке» (из 8 горизонтальных лучей длиной EXIT_RAY упираются
+	-- не больше MAX_BLOCKED_DIRS) и не ближе SPAWN_DISTANCE к центру точки появления
+	PART_CLEARANCE = 6,
+	CLEAR_HEIGHT = 12,
+	FLOOR_Y = 0,
+	FLOOR_TOL = 1.5,
+	MIN_NORMAL_Y = 0.9,
+	EXIT_RAY = 18,
+	MAX_BLOCKED_DIRS = 4,
+	SPAWN_POS = Vector3.new(0, 0, 26),
+	SPAWN_DISTANCE = 34,
 	COIN_CLICKS = { 80, 140 }, -- монеты = сила сбора × случайно из диапазона (ежедневная награда — 500)
 	COIN_MIN = 50,
 	GEMS = { 3, 6 },
@@ -4252,6 +4359,220 @@ Icons.SPECS = {
 			L(0.5, 0.42, 0.52, 0.44, { c = c3(22, 18, 34), k = 0.5 }), -- голова
 		},
 	},
+	-- v3.2: значки интерфейса вместо эмодзи (эмодзи рисуются по-разному или не рисуются вовсе на части клиентов)
+	Cart = { -- магазин
+		Outline = c3(30, 50, 25),
+		Layers = {
+			L(0.17, 0.27, 0.26, 0.09, { c = c3(80, 85, 105), r = 18, k = 0.5 }), -- ручка
+			L(0.53, 0.47, 0.64, 0.36, { g = { c3(255, 245, 200), c3(235, 200, 110) }, gr = 90, k = 0.14 }), -- корзина
+			L(0.42, 0.47, 0.05, 0.28, { c = c3(190, 150, 70), o = false }),
+			L(0.64, 0.47, 0.05, 0.28, { c = c3(190, 150, 70), o = false }),
+			L(0.36, 0.8, 0.17, 0.17, { c = c3(60, 62, 80), k = 0.5 }), -- колёса
+			L(0.7, 0.8, 0.17, 0.17, { c = c3(60, 62, 80), k = 0.5 }),
+		},
+	},
+	Book = { -- индекс
+		Outline = c3(25, 35, 80),
+		Layers = {
+			L(0.5, 0.55, 0.92, 0.72, { g = { c3(90, 150, 255), c3(40, 90, 210) }, gr = 90, k = 0.1 }), -- обложка
+			L(
+				0.3,
+				0.5,
+				0.4,
+				0.64,
+				{ g = { c3(255, 255, 255), c3(230, 225, 210) }, gr = 0, k = 0.08, o = false }
+			),
+			L(
+				0.7,
+				0.5,
+				0.4,
+				0.64,
+				{ g = { c3(230, 225, 210), c3(255, 255, 255) }, gr = 0, k = 0.08, o = false }
+			),
+			L(0.5, 0.52, 0.05, 0.7, { c = c3(40, 70, 170), o = false }), -- корешок
+			L(0.3, 0.38, 0.26, 0.05, { c = c3(170, 175, 195), o = false }), -- строки
+			L(0.3, 0.5, 0.26, 0.05, { c = c3(170, 175, 195), o = false }),
+			L(0.7, 0.38, 0.26, 0.05, { c = c3(170, 175, 195), o = false }),
+			L(0.7, 0.5, 0.26, 0.05, { c = c3(170, 175, 195), o = false }),
+		},
+	},
+	Paw = { -- питомцы
+		Outline = c3(90, 45, 20),
+		Layers = {
+			L(0.5, 0.66, 0.46, 0.38, { g = { c3(255, 235, 210), c3(240, 190, 150) }, gr = 90, k = 0.5 }),
+			L(0.22, 0.44, 0.17, 0.22, { c = c3(255, 225, 195), k = 0.5, r = -25 }),
+			L(0.39, 0.25, 0.17, 0.22, { c = c3(255, 225, 195), k = 0.5, r = -8 }),
+			L(0.61, 0.25, 0.17, 0.22, { c = c3(255, 225, 195), k = 0.5, r = 8 }),
+			L(0.78, 0.44, 0.17, 0.22, { c = c3(255, 225, 195), k = 0.5, r = 25 }),
+		},
+	},
+	Scroll = { -- задания
+		Outline = c3(80, 50, 20),
+		Layers = {
+			L(0.5, 0.5, 0.6, 0.68, { g = { c3(255, 245, 215), c3(235, 210, 160) }, gr = 90, k = 0.06 }),
+			L(0.5, 0.17, 0.78, 0.14, { g = { c3(225, 170, 100), c3(170, 115, 55) }, gr = 90, k = 0.5 }),
+			L(0.5, 0.83, 0.78, 0.14, { g = { c3(225, 170, 100), c3(170, 115, 55) }, gr = 90, k = 0.5 }),
+			L(0.5, 0.38, 0.4, 0.05, { c = c3(160, 120, 70), o = false }),
+			L(0.5, 0.5, 0.4, 0.05, { c = c3(160, 120, 70), o = false }),
+			L(0.46, 0.62, 0.32, 0.05, { c = c3(160, 120, 70), o = false }),
+		},
+	},
+	Menu = { -- «Ещё»
+		Outline = c3(40, 30, 70),
+		Layers = {
+			L(0.5, 0.26, 0.76, 0.15, { c = WHITE, k = 0.5 }),
+			L(0.5, 0.5, 0.76, 0.15, { c = WHITE, k = 0.5 }),
+			L(0.5, 0.74, 0.76, 0.15, { c = WHITE, k = 0.5 }),
+		},
+	},
+	Up = { -- улучшения: стрелка-шеврон
+		Outline = c3(20, 50, 110),
+		Layers = {
+			L(0.5, 0.64, 0.2, 0.56, { g = { c3(170, 230, 255), c3(60, 150, 240) }, gr = 90, k = 0.3 }),
+			L(0.36, 0.33, 0.19, 0.5, { c = c3(150, 220, 255), r = 45, k = 0.4 }),
+			L(0.64, 0.33, 0.19, 0.5, { c = c3(150, 220, 255), r = -45, k = 0.4 }),
+		},
+	},
+	Rebirth = { -- перерождение: круг со стрелками
+		Outline = c3(30, 80, 40),
+		Layers = {
+			L(0.5, 0.5, 0.7, 0.7, { ring = 0.13, c = c3(120, 230, 140), k = 0.5, o = false }),
+			L(0.84, 0.42, 0.26, 0.26, { c = c3(120, 230, 140), r = 45, k = 0.1 }),
+			L(0.16, 0.58, 0.26, 0.26, { c = c3(120, 230, 140), r = 45, k = 0.1 }),
+		},
+	},
+	Sparkle = { -- таланты, бонус
+		Outline = c3(90, 60, 10),
+		Layers = {
+			L(0.44, 0.54, 0.18, 0.8, { g = { c3(255, 250, 200), c3(255, 200, 60) }, gr = 90, k = 0.5 }),
+			L(0.44, 0.54, 0.8, 0.18, { g = { c3(255, 250, 200), c3(255, 200, 60) }, gr = 0, k = 0.5 }),
+			L(0.44, 0.54, 0.32, 0.32, { c = c3(255, 235, 130), r = 45, k = 0.15, o = false }),
+			L(0.8, 0.2, 0.1, 0.3, { c = c3(255, 235, 150), k = 0.5 }),
+			L(0.8, 0.2, 0.3, 0.1, { c = c3(255, 235, 150), k = 0.5 }),
+		},
+	},
+	Globe = { -- миры
+		Outline = c3(15, 50, 90),
+		Layers = {
+			L(0.5, 0.5, 0.84, 0.84, { g = { c3(110, 200, 255), c3(30, 110, 210) }, gr = 90, k = 0.5 }),
+			L(0.36, 0.38, 0.32, 0.22, { c = c3(110, 210, 110), k = 0.5, r = -20, o = false }),
+			L(0.64, 0.66, 0.28, 0.2, { c = c3(110, 210, 110), k = 0.5, r = 15, o = false }),
+			L(0.5, 0.5, 0.4, 0.84, { ring = 0.03, c = WHITE, t = 0.4, k = 0.5, o = false }),
+			L(0.32, 0.26, 0.14, 0.07, { c = WHITE, t = 0.3, k = 0.5, r = -30, o = false }),
+		},
+	},
+	Hammer = { -- крафт
+		Outline = c3(40, 35, 45),
+		Layers = {
+			L(0.42, 0.62, 0.13, 0.72, { g = { c3(200, 140, 80), c3(130, 85, 40) }, gr = 0, r = 40, k = 0.4 }),
+			L(
+				0.64,
+				0.35,
+				0.56,
+				0.24,
+				{ g = { c3(235, 240, 250), c3(130, 140, 160) }, gr = 90, r = 40, k = 0.15 }
+			),
+		},
+	},
+	Store = { -- рынок
+		Outline = c3(70, 25, 30),
+		Layers = {
+			L(0.5, 0.64, 0.76, 0.5, { g = { c3(255, 245, 225), c3(230, 210, 180) }, gr = 90, k = 0.06 }),
+			L(0.5, 0.33, 0.88, 0.22, { c = c3(235, 70, 80), k = 0.15 }),
+			L(0.3, 0.33, 0.13, 0.2, { c = WHITE, o = false }),
+			L(0.56, 0.33, 0.13, 0.2, { c = WHITE, o = false }),
+			L(0.5, 0.76, 0.2, 0.26, { c = c3(150, 95, 55), k = 0.1, o = false }),
+		},
+	},
+	Trade = { -- обмен: две встречные стрелки
+		Outline = c3(80, 40, 10),
+		Layers = {
+			L(0.46, 0.33, 0.56, 0.13, { c = c3(255, 200, 90), k = 0.3 }),
+			L(0.76, 0.33, 0.28, 0.28, { c = c3(255, 200, 90), r = 45, k = 0.1 }),
+			L(0.54, 0.67, 0.56, 0.13, { c = c3(120, 220, 255), k = 0.3 }),
+			L(0.24, 0.67, 0.28, 0.28, { c = c3(120, 220, 255), r = 45, k = 0.1 }),
+		},
+	},
+	Trophy = { -- рейтинги
+		Outline = c3(90, 55, 5),
+		Layers = {
+			L(0.2, 0.36, 0.2, 0.26, { ring = 0.05, c = c3(240, 180, 40), k = 0.5, o = false }),
+			L(0.8, 0.36, 0.2, 0.26, { ring = 0.05, c = c3(240, 180, 40), k = 0.5, o = false }),
+			L(0.5, 0.36, 0.56, 0.46, { g = { c3(255, 235, 120), c3(235, 165, 30) }, gr = 90, k = 0.3 }),
+			L(0.5, 0.68, 0.12, 0.2, { c = c3(225, 160, 30) }),
+			L(0.5, 0.84, 0.48, 0.12, { c = c3(200, 135, 30), k = 0.3 }),
+			L(0.4, 0.28, 0.08, 0.16, { c = WHITE, t = 0.35, k = 0.5, o = false }),
+		},
+	},
+	Gear = { -- настройки
+		Outline = c3(35, 40, 55),
+		Layers = {
+			L(0.5, 0.5, 0.2, 0.9, { c = c3(185, 195, 215), k = 0.15 }),
+			L(0.5, 0.5, 0.2, 0.9, { c = c3(185, 195, 215), k = 0.15, r = 45 }),
+			L(0.5, 0.5, 0.2, 0.9, { c = c3(185, 195, 215), k = 0.15, r = 90 }),
+			L(0.5, 0.5, 0.2, 0.9, { c = c3(185, 195, 215), k = 0.15, r = 135 }),
+			L(0.5, 0.5, 0.64, 0.64, { g = { c3(215, 222, 238), c3(150, 160, 185) }, gr = 90, k = 0.5 }),
+			L(0.5, 0.5, 0.24, 0.24, { c = c3(70, 78, 100), k = 0.5, o = false }),
+		},
+	},
+	Note = { -- музыка
+		Outline = c3(30, 30, 60),
+		Layers = {
+			L(0.63, 0.2, 0.46, 0.11, { c = c3(255, 255, 255), r = -12 }),
+			L(0.43, 0.48, 0.08, 0.56, { c = c3(255, 255, 255) }),
+			L(0.82, 0.4, 0.08, 0.56, { c = c3(255, 255, 255) }),
+			L(0.32, 0.75, 0.27, 0.2, { c = c3(255, 255, 255), k = 0.5, r = -20 }),
+			L(0.71, 0.67, 0.27, 0.2, { c = c3(255, 255, 255), k = 0.5, r = -20 }),
+		},
+	},
+	Bell = { -- звуки
+		Outline = c3(90, 55, 5),
+		Layers = {
+			L(0.5, 0.15, 0.13, 0.12, { c = c3(235, 170, 40), k = 0.5 }),
+			L(0.5, 0.5, 0.58, 0.6, { g = { c3(255, 235, 120), c3(235, 165, 30) }, gr = 90, k = 0.45 }),
+			L(0.5, 0.74, 0.8, 0.13, { c = c3(235, 170, 40), k = 0.5 }),
+			L(0.5, 0.87, 0.17, 0.14, { c = c3(200, 130, 30), k = 0.5 }),
+			L(0.4, 0.42, 0.08, 0.2, { c = WHITE, t = 0.35, k = 0.5, o = false }),
+		},
+	},
+	Moon = { -- ближайшее событие (вырез — цвет плашки события)
+		Outline = c3(110, 80, 10),
+		Layers = {
+			L(0.46, 0.54, 0.76, 0.76, { g = { c3(255, 245, 180), c3(245, 200, 90) }, gr = 90, k = 0.5 }),
+			L(0.66, 0.4, 0.6, 0.6, { c = c3(24, 26, 40), k = 0.5, o = false }),
+		},
+	},
+	Clock = { -- идёт событие
+		Outline = c3(30, 35, 55),
+		Layers = {
+			L(0.5, 0.11, 0.18, 0.1, { c = c3(200, 205, 225), k = 0.3 }),
+			L(0.5, 0.56, 0.78, 0.78, { g = { c3(255, 255, 255), c3(200, 208, 228) }, gr = 90, k = 0.5 }),
+			L(0.5, 0.45, 0.07, 0.26, { c = c3(50, 55, 80), k = 0.5, o = false }),
+			L(0.59, 0.6, 0.07, 0.22, { c = c3(235, 70, 80), k = 0.5, r = -55, o = false }),
+			L(0.5, 0.56, 0.1, 0.1, { c = c3(50, 55, 80), k = 0.5, o = false }),
+		},
+	},
+	Crown = { -- босс
+		Outline = c3(90, 55, 5),
+		Layers = {
+			L(0.2, 0.42, 0.22, 0.22, { c = c3(255, 210, 70), r = 45, k = 0.1 }),
+			L(0.5, 0.33, 0.26, 0.26, { c = c3(255, 210, 70), r = 45, k = 0.1 }),
+			L(0.8, 0.42, 0.22, 0.22, { c = c3(255, 210, 70), r = 45, k = 0.1 }),
+			L(0.5, 0.66, 0.76, 0.32, { g = { c3(255, 235, 120), c3(235, 165, 30) }, gr = 90, k = 0.1 }),
+			L(0.5, 0.66, 0.14, 0.14, { c = c3(235, 60, 80), r = 45, o = false }),
+			L(0.26, 0.66, 0.1, 0.1, { c = c3(80, 170, 255), k = 0.5, o = false }),
+			L(0.74, 0.66, 0.1, 0.1, { c = c3(80, 170, 255), k = 0.5, o = false }),
+		},
+	},
+	Lock = { -- закрыто
+		Outline = c3(60, 45, 15),
+		Layers = {
+			L(0.5, 0.36, 0.46, 0.5, { ring = 0.08, c = c3(170, 175, 190), k = 0.5, o = false }),
+			L(0.5, 0.66, 0.68, 0.48, { g = { c3(255, 225, 110), c3(220, 160, 30) }, gr = 90, k = 0.16 }),
+			L(0.5, 0.63, 0.12, 0.12, { c = c3(70, 50, 15), k = 0.5, o = false }),
+			L(0.5, 0.73, 0.06, 0.14, { c = c3(70, 50, 15), o = false }),
+		},
+	},
 } :: { [string]: Spec }
 
 -- Ключ в Config.ASSETS для картинки (только у валют и ресурсов)
@@ -4571,6 +4892,168 @@ return InventoryData
 				</Properties>
 			</Item>
 			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+				<Properties>
+					<string name="Name">LabelLayout</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	LabelLayout (v3.2) — чистая раскладка подписей над головами и табличек мира (BillboardGui), покрыта тестами.
+	Клиент (WorldLabels.client.lua) раз в ~0.1 с проецирует каждую подпись на экран и вызывает solve:
+	  * дальние подписи скрыты (MaxDistance вида), ближе к пределу — плавно гаснут (alpha) и уменьшаются;
+	  * размер в пикселях (не в студах): вблизи текст не растёт на пол-экрана; на маленьких экранах — меньше;
+	  * перекрытия: важные подписи (своя, игроки, суперсила) ставятся первыми; подписи персонажей при наложении
+	    сдвигаются вверх «стопкой» (до STACK_STEPS раз), таблички и подписи ботов — просто скрываются;
+	  * подпись, задевающая HUD (хотбар, кнопки, валюты, плашки), скрывается — HUD всегда читается.
+	Виды (атрибут LabelKind у BillboardGui, ставит сервер): Own (своя — вычисляется на клиенте), Player, Super,
+	Npc, Egg, Zone, Sign, Bot.
+]]
+local LabelLayout = {}
+
+export type Kind = string
+export type Item = {
+	Kind: Kind,
+	X: number, -- центр подписи на экране (пиксели вьюпорта)
+	Y: number,
+	W: number, -- базовый размер (пиксели при масштабе 1)
+	H: number,
+	Dist: number, -- до камеры, студы
+	OnScreen: boolean,
+}
+export type Rect = { X: number, Y: number, W: number, H: number }
+export type Result = { Show: boolean, Scale: number, Alpha: number, Shift: number }
+
+-- приоритет (больше — важнее) и дальность (студы) по видам
+LabelLayout.KINDS = {
+	Own = { Pri = 100, Max = 60, Stack = true },
+	Super = { Pri = 90, Max = 160, Stack = true },
+	Player = { Pri = 80, Max = 60, Stack = true },
+	Npc = { Pri = 60, Max = 45, Stack = true },
+	Egg = { Pri = 55, Max = 55, Stack = false },
+	Zone = { Pri = 50, Max = 90, Stack = false },
+	Sign = { Pri = 45, Max = 60, Stack = false },
+	Bot = { Pri = 30, Max = 40, Stack = true },
+} :: { [string]: { Pri: number, Max: number, Stack: boolean } }
+
+LabelLayout.FADE_FROM = 0.7 -- доля дальности, с которой подпись гаснет
+LabelLayout.FAR_SCALE = 0.7 -- масштаб у предела дальности (вблизи — 1)
+LabelLayout.NEAR = 0.3 -- доля дальности, до которой масштаб 1
+LabelLayout.STACK_STEPS = 2
+LabelLayout.GAP = 2 -- px между подписями в стопке
+LabelLayout.MIN_OVERLAP = 0.12 -- доля площади меньшей подписи: меньшее касание не считается наложением
+
+function LabelLayout.kind(k: string?): { Pri: number, Max: number, Stack: boolean }
+	return LabelLayout.KINDS[k or ""] or LabelLayout.KINDS.Sign
+end
+
+-- масштаб под экран: ПК (короткая сторона >= 720) — 1, телефон — до 0.75
+function LabelLayout.viewScale(w: number, h: number): number
+	return math.clamp(math.min(w, h) / 720, 0.75, 1)
+end
+
+-- масштаб по расстоянию: 1 вблизи, FAR_SCALE у предела
+function LabelLayout.distScale(dist: number, maxDist: number): number
+	local t = math.clamp((dist / math.max(1, maxDist) - LabelLayout.NEAR) / (1 - LabelLayout.NEAR), 0, 1)
+	return 1 - (1 - LabelLayout.FAR_SCALE) * t
+end
+
+-- прозрачность (0 — видно полностью, 1 — не видно) по расстоянию
+function LabelLayout.alpha(dist: number, maxDist: number): number
+	local from = maxDist * LabelLayout.FADE_FROM
+	if dist <= from then
+		return 0
+	end
+	return math.clamp((dist - from) / math.max(1e-3, maxDist - from), 0, 1)
+end
+
+local function overlap(a: Rect, b: Rect): number
+	local w = math.min(a.X + a.W, b.X + b.W) - math.max(a.X, b.X)
+	local h = math.min(a.Y + a.H, b.Y + b.H) - math.max(a.Y, b.Y)
+	if w <= 0 or h <= 0 then
+		return 0
+	end
+	return w * h
+end
+LabelLayout.overlap = overlap
+
+local function hits(r: Rect, list: { Rect }): Rect?
+	for _, o in ipairs(list) do
+		local a = overlap(r, o)
+		if a > 0 and a >= LabelLayout.MIN_OVERLAP * math.min(r.W * r.H, o.W * o.H) then
+			return o
+		end
+	end
+	return nil
+end
+
+local function touchesHud(r: Rect, blocks: { Rect }): boolean
+	for _, b in ipairs(blocks) do
+		if overlap(r, b) > 0 then
+			return true
+		end
+	end
+	return false
+end
+
+-- items: подписи; blocks: прямоугольники HUD; view: { W, H } вьюпорта.
+-- Возвращает результаты в том же порядке.
+function LabelLayout.solve(items: { Item }, blocks: { Rect }, view: { W: number, H: number }): { Result }
+	local out: { Result } = {}
+	local order: { number } = {}
+	local vs = LabelLayout.viewScale(view.W, view.H)
+	for i, it in ipairs(items) do
+		out[i] = { Show = false, Scale = 1, Alpha = 1, Shift = 0 }
+		local k = LabelLayout.kind(it.Kind)
+		if it.OnScreen and it.Dist <= k.Max then
+			table.insert(order, i)
+		end
+	end
+	table.sort(order, function(a, b)
+		local ka, kb = LabelLayout.kind(items[a].Kind), LabelLayout.kind(items[b].Kind)
+		if ka.Pri ~= kb.Pri then
+			return ka.Pri > kb.Pri
+		end
+		if items[a].Dist ~= items[b].Dist then
+			return items[a].Dist < items[b].Dist
+		end
+		return a < b
+	end)
+	local placed: { Rect } = {}
+	for _, i in ipairs(order) do
+		local it = items[i]
+		local k = LabelLayout.kind(it.Kind)
+		local s = vs * LabelLayout.distScale(it.Dist, k.Max)
+		local w, h = it.W * s, it.H * s
+		local r: Rect = { X = it.X - w / 2, Y = it.Y - h / 2, W = w, H = h }
+		local shift = 0
+		local other = hits(r, placed)
+		local steps = 0
+		while other and k.Stack and steps < LabelLayout.STACK_STEPS do
+			-- поднять над мешающей подписью
+			local dy = (r.Y + r.H) - other.Y + LabelLayout.GAP
+			shift += dy
+			r = { X = r.X, Y = r.Y - dy, W = r.W, H = r.H }
+			steps += 1
+			other = hits(r, placed)
+		end
+		local res = out[i]
+		res.Scale = s
+		res.Alpha = LabelLayout.alpha(it.Dist, k.Max)
+		res.Shift = shift
+		local offScreen = r.Y + r.H < 0 or r.Y > view.H or r.X + r.W < 0 or r.X > view.W
+		if other or offScreen or touchesHud(r, blocks) then
+			res.Show = false
+		else
+			res.Show = true
+			table.insert(placed, r)
+		end
+	end
+	return out
+end
+
+return LabelLayout
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">Locale</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4986,7 +5469,7 @@ return Locale
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">LocaleEn</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5111,7 +5594,7 @@ LocaleEn.Strings = {
 	["chest.reward"] = "Chest: {reward}",
 	["world.sea_chest"] = "Sea Chest",
 	["seachest.reward"] = "Sea Chest: {reward}",
-	["seachest.bonus"] = "✨ bonus: {reward}",
+	["seachest.bonus"] = "+ bonus: {reward}",
 	["prompt.gather"] = "Gather",
 	["prompt.open"] = "Open",
 	["board.unavailable"] = "Leaderboard unavailable",
@@ -5328,10 +5811,10 @@ LocaleEn.Strings = {
 	["settings.detected_none"] = "Country not detected — using the device language",
 	["settings.hint"] = "Auto picks Russian for RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM (UA — by device language). Your manual choice is saved.",
 	["settings.audio"] = "Sound",
-	["settings.music_on"] = "🎵 Music: on",
-	["settings.music_off"] = "🎵 Music: off",
-	["settings.sfx_on"] = "🔔 Sounds: on",
-	["settings.sfx_off"] = "🔔 Sounds: off",
+	["settings.music_on"] = "Music: on",
+	["settings.music_off"] = "Music: off",
+	["settings.sfx_on"] = "Sounds: on",
+	["settings.sfx_off"] = "Sounds: off",
 	["settings.music_volume"] = "Music volume",
 	["settings.music_missing"] = "Music will play once the audio files are added to the game (Config.SOUNDS).",
 	-- market
@@ -5375,7 +5858,7 @@ LocaleEn.Strings = {
 	["pets.back"] = "Back to pets",
 	["pets.favorites"] = "Favorites",
 	["pets.select"] = "Select a pet",
-	["pets.click_card"] = "Click a card to see details.",
+	["pets.click_card"] = "Tap a pet card for details.",
 	["pets.equip"] = "Equip",
 	["pets.unequip"] = "Unequip",
 	["pets.fav"] = "Favorite",
@@ -5570,7 +6053,7 @@ LocaleEn.Strings = {
 	["hunt.banner_you_survived"] = "VICTORY!",
 	["hunt.banner_you_survived_sub"] = "You kept the superpower to the end",
 	["event.started"] = "{name}!",
-	["event.next"] = "🌙 {name} in {time}",
+	["event.next"] = "{name} in {time}",
 	["obj.superstop"] = "Stop the superplayer",
 	["obj.supersurvive"] = "Hold out with the superpower",
 	-- v2.6: окно «Инвентарь»
@@ -5610,7 +6093,7 @@ return LocaleEn
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
 					<string name="Name">LocaleRu</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5735,7 +6218,7 @@ LocaleRu.Strings = {
 	["chest.reward"] = "Сундук: {reward}",
 	["world.sea_chest"] = "Морской сундук",
 	["seachest.reward"] = "Морской сундук: {reward}",
-	["seachest.bonus"] = "✨ бонус: {reward}",
+	["seachest.bonus"] = "+ бонус: {reward}",
 	["prompt.gather"] = "Собрать",
 	["prompt.open"] = "Открыть",
 	["board.unavailable"] = "Таблица лидеров недоступна",
@@ -5952,10 +6435,10 @@ LocaleRu.Strings = {
 	["settings.detected_none"] = "Страна не определена — используется язык устройства",
 	["settings.hint"] = "«Авто» включает русский для RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM (UA — по языку устройства). Ручной выбор сохраняется.",
 	["settings.audio"] = "Звук",
-	["settings.music_on"] = "🎵 Музыка: вкл",
-	["settings.music_off"] = "🎵 Музыка: выкл",
-	["settings.sfx_on"] = "🔔 Звуки: вкл",
-	["settings.sfx_off"] = "🔔 Звуки: выкл",
+	["settings.music_on"] = "Музыка: вкл",
+	["settings.music_off"] = "Музыка: выкл",
+	["settings.sfx_on"] = "Звуки: вкл",
+	["settings.sfx_off"] = "Звуки: выкл",
 	["settings.music_volume"] = "Громкость музыки",
 	["settings.music_missing"] = "Музыка появится, когда в игру будут добавлены звуковые файлы (Config.SOUNDS).",
 	-- market
@@ -5999,7 +6482,7 @@ LocaleRu.Strings = {
 	["pets.back"] = "К питомцам",
 	["pets.favorites"] = "Избранные",
 	["pets.select"] = "Выберите питомца",
-	["pets.click_card"] = "Нажмите на карточку, чтобы увидеть подробности.",
+	["pets.click_card"] = "Нажмите на карточку питомца.",
 	["pets.equip"] = "В команду",
 	["pets.unequip"] = "Убрать",
 	["pets.fav"] = "В избранное",
@@ -6194,7 +6677,7 @@ LocaleRu.Strings = {
 	["hunt.banner_you_survived"] = "ПОБЕДА!",
 	["hunt.banner_you_survived_sub"] = "Суперсила твоя до самого конца",
 	["event.started"] = "{name}!",
-	["event.next"] = "🌙 {name} через {time}",
+	["event.next"] = "{name} через {time}",
 	["obj.superstop"] = "Останови суперигрока",
 	["obj.supersurvive"] = "Продержись с суперсилой",
 	-- v2.6: окно «Инвентарь»
@@ -6618,7 +7101,7 @@ return LocaleRu
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">Logo</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6734,7 +7217,7 @@ return Logo
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7243,7 +7726,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7584,7 +8067,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7898,7 +8381,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">Prices</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7995,7 +8478,7 @@ return Prices
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8281,7 +8764,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8451,7 +8934,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8534,7 +9017,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8637,7 +9120,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8805,7 +9288,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9079,7 +9562,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9347,7 +9830,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9560,7 +10043,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9714,7 +10197,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9768,7 +10251,117 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+				<Properties>
+					<string name="Name">UiGeometry</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	UiGeometry (v3.2) — чистая геометрия всплывающих окон (Widgets.panel), покрыта тестами.
+	  * масштаб содержимого окон PANEL_SCALE (0.8) одинаков на ПК и телефоне: «дизайнерский» текст 15 px
+	    виден как 12 px — минимум для основного текста (MIN_BODY), 18 -> 14 px — для заголовков (MIN_TITLE);
+	  * ПК (wide): окно компактное, по центру (≈435×317 при 1280×720; плотные окна выше — MinH);
+	  * телефон: окно занимает «безопасную область» (area) — над хотбаром/кошельком/плашками событий,
+	    между колонками кнопок (горизонтально) или над ними (вертикально), — и не закрывает кнопки HUD.
+	    Область считает HUD (Hud.lua) по реальным прямоугольникам кнопок: areaFor.
+]]
+local UiGeometry = {}
+
+export type Rect = { X: number, Y: number, W: number, H: number }
+export type Lay = { Mode: string, W: number, H: number, Touch: boolean? }
+
+UiGeometry.PANEL_SCALE = 0.8
+UiGeometry.MIN_BODY = 12
+UiGeometry.MIN_TITLE = 14
+UiGeometry.GAP = 8
+-- ПК: доля экрана и потолок видимого размера окна (px)
+UiGeometry.WIDE_W, UiGeometry.WIDE_MAX_W = 0.34, 440
+UiGeometry.WIDE_H, UiGeometry.WIDE_MAX_H = 0.44, 320
+-- телефон горизонтально: окно не шире (px)
+UiGeometry.LAND_MAX_W = 560
+-- окно не меньше (видимые px), даже если область тесная
+UiGeometry.MIN_W, UiGeometry.MIN_H = 240, 180
+
+-- Минимальный «дизайнерский» размер текста при масштабе k (видимый = результат × k)
+function UiGeometry.minText(k: number, title: boolean?): number
+	local px = if title then UiGeometry.MIN_TITLE else UiGeometry.MIN_BODY
+	return math.ceil(px / k - 1e-6)
+end
+
+-- Безопасная область для окна на телефоне (видимые px в координатах ScreenGui).
+-- left/right — колонки кнопок, bottoms — элементы внизу (хотбар, кошелёк, плашки событий).
+-- portrait: окно над колонками на всю ширину; landscape: между колонками и над нижними элементами.
+function UiGeometry.areaFor(
+	mode: string,
+	W: number,
+	H: number,
+	left: Rect?,
+	right: Rect?,
+	bottoms: { Rect },
+	top: number?
+): Rect?
+	if mode == "wide" then
+		return nil
+	end
+	local g = UiGeometry.GAP
+	local y0 = (top or 0) + 6
+	local x0, x1, y1 = g, W - g, H - g
+	if mode == "portrait" then
+		if left then
+			y1 = math.min(y1, left.Y - g)
+		end
+		if right then
+			y1 = math.min(y1, right.Y - g)
+		end
+	else
+		if left then
+			x0 = math.max(x0, left.X + left.W + g)
+		end
+		if right then
+			x1 = math.min(x1, right.X - g)
+		end
+	end
+	for _, b in ipairs(bottoms) do
+		-- только то, что под окном по горизонтали
+		if b.W > 0 and b.X < x1 and b.X + b.W > x0 then
+			y1 = math.min(y1, b.Y - g)
+		end
+	end
+	return { X = x0, Y = y0, W = math.max(0, x1 - x0), H = math.max(0, y1 - y0) }
+end
+
+-- Видимый прямоугольник окна (px): центр и размер. minH — «дизайнерская» минимальная высота плотных окон.
+function UiGeometry.panelRect(lay: Lay, k: number, minH: number?, area: Rect?): Rect
+	local w, h
+	if area and lay.Mode ~= "wide" then
+		w = math.min(area.W, if lay.Mode == "landscape" then UiGeometry.LAND_MAX_W else area.W)
+		h = area.H
+		w, h =
+			math.max(w, math.min(UiGeometry.MIN_W, lay.W - 16)),
+			math.max(h, math.min(UiGeometry.MIN_H, lay.H - 16))
+		local cx = area.X + area.W / 2
+		return { X = math.floor(cx - w / 2), Y = math.floor(area.Y), W = math.floor(w), H = math.floor(h) }
+	end
+	w = math.min(lay.W * UiGeometry.WIDE_W, UiGeometry.WIDE_MAX_W)
+	h = math.min(lay.H * UiGeometry.WIDE_H, UiGeometry.WIDE_MAX_H)
+	if lay.Mode ~= "wide" then
+		-- телефон, пока HUD не посчитал область: по центру с полями
+		w, h = math.min(lay.W - 32, UiGeometry.LAND_MAX_W), math.min(lay.H * 0.6, lay.H - 120)
+	end
+	if minH then
+		h = math.min(math.max(h, minH * k), lay.H - 24)
+	end
+	w, h =
+		math.max(w, math.min(UiGeometry.MIN_W, lay.W - 16)),
+		math.max(h, math.min(UiGeometry.MIN_H, lay.H - 16))
+	w, h = math.floor(w), math.floor(h)
+	return { X = math.floor((lay.W - w) / 2 + 0.5), Y = math.floor((lay.H - h) / 2 + 0.5), W = w, H = h }
+end
+
+return UiGeometry
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9849,7 +10442,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9976,7 +10569,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10117,7 +10710,7 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerStorage" referent="RBX0000000000000000000000000000002D">
+	<Item class="ServerStorage" referent="RBX0000000000000000000000000000002F">
 		<Properties>
 			<string name="Name">ServerStorage</string>
 		</Properties>
@@ -10558,11 +11151,11 @@ return ZoneData
     </Item>
   </Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000002E">
+	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000030">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX0000000000000000000000000000002F">
+		<Item class="Script" referent="RBX00000000000000000000000000000031">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -10621,11 +11214,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX00000000000000000000000000000030">
+		<Item class="Folder" referent="RBX00000000000000000000000000000032">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10766,7 +11359,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">Badges</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10831,7 +11424,7 @@ return Badges
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10932,7 +11525,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">BotService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11138,10 +11731,12 @@ local function addTag(head: BasePart, name: string): TextLabel
 	end
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(170, 40)
+	-- v3.2: подпись бота мельче подписи игрока и видна ближе; при наложении уступает (WorldLabels)
+	g.Size = UDim2.fromOffset(118, 28)
 	g.StudsOffset = Vector3.new(0, 2.6, 0)
-	g.MaxDistance = 70
+	g.MaxDistance = 40
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Bot")
 	g.AlwaysOnTop = false
 	local n = Instance.new("TextLabel")
 	n.Name = "NameLabel"
@@ -11398,10 +11993,25 @@ end
 local HUB_STATIONS = { "craft", "market", "altar", "upgrades", "daily", "board", "rebirth" }
 
 local function setTask(a: Agent, task_: string, now: number, seconds: number)
+	if a.EnemyId then
+		CombatService.botRelease(a.Key) -- v3.2: враг снова свободен для других
+	end
 	a.Task = task_
 	a.TaskUntil = now + seconds
 	a.Arrived = nil
 	a.EnemyId = nil
+end
+
+-- v3.2: сколько ботов в каждом мире (лимит B.MAX_IN_ZONE для миров кроме хаба)
+local function zoneCounts(except: Agent?): { [string]: number }
+	local counts: { [string]: number } = {}
+	for _, o in ipairs(agents) do
+		if o ~= except and o.Model.Parent then
+			local z = o.TravelTo or o.Zone
+			counts[z] = (counts[z] or 0) + 1
+		end
+	end
+	return counts
 end
 
 local function chooseTask(a: Agent, now: number)
@@ -11476,7 +12086,13 @@ local function chooseTask(a: Agent, now: number)
 		moveTo(a, ep + Vector3.new(rnd() * 6 - 3, 0, 7))
 	elseif choice == "travel" then
 		if inHub then
-			local zones = openZones(a)
+			-- v3.2: только в миры, где ботов меньше MAX_IN_ZONE (живым игрокам хватает врагов)
+			local zones = BotLogic.roomyZones(openZones(a), zoneCounts(a), B.MAX_IN_ZONE or 4, ZoneData.HUB)
+			if #zones == 0 then
+				setTask(a, "wander", now, 6 + rnd() * 6)
+				moveTo(a, randomPoint(a.Zone))
+				return
+			end
 			local to = pick(zones)
 			a.TravelTo = to
 			setTask(a, "travel", now, 40)
@@ -11574,7 +12190,20 @@ local function think(a: Agent, now: number)
 			gainXp(a, 1)
 		end
 	elseif t == "fight" then
-		local id, pos = CombatService.botTarget(a.Root.Position, 80)
+		-- v3.2: к врагу подошёл живой игрок — уступить: отпустить врага и отойти от него
+		if a.EnemyId and CombatService.botShouldYield(a.EnemyId) then
+			local ep = CombatService.enemyPos(a.EnemyId)
+			setTask(a, "wander", now, 5 + rnd() * 4)
+			if ep then
+				local away = flat(a.Root.Position - ep)
+				local dir = if away.Magnitude > 0.1 then away.Unit else Vector3.new(1, 0, 0)
+				moveTo(a, a.Root.Position + dir * 18)
+			else
+				moveTo(a, randomPoint(a.Zone))
+			end
+			return
+		end
+		local id, pos = CombatService.botTarget(a.Root.Position, 80, a.Key)
 		a.EnemyId = id
 		if not id or not pos then
 			-- врагов нет или их бьют живые игроки — заняться другим
@@ -11709,7 +12338,9 @@ local function spawnBot(initial: boolean): Agent?
 	refreshTag(a)
 	-- при старте сервера боты «уже играют» в разных местах; новые приходят на точку появления хаба
 	if initial and rnd() < 0.6 then
-		a.Zone = pick(zones)
+		-- v3.2: и при старте — не больше MAX_IN_ZONE ботов в одном мире
+		local roomy = BotLogic.roomyZones(zones, zoneCounts(nil), B.MAX_IN_ZONE or 4, ZoneData.HUB)
+		a.Zone = if #roomy > 0 then pick(roomy) else ZoneData.HUB
 	end
 	local cf = if a.Zone == ZoneData.HUB and not initial
 		then WorldBuilder.getZoneSpawn(ZoneData.HUB)
@@ -11731,6 +12362,7 @@ local function removeBot(a: Agent)
 		table.remove(agents, i)
 	end
 	used[a.Name] = nil
+	CombatService.botRelease(a.Key)
 	SuperpowerService.removeUnit(a.Key)
 	a.Model.Parent = nil
 	a.Model:Destroy()
@@ -11831,7 +12463,7 @@ return BotService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11914,7 +12546,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11932,6 +12564,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local BotLogic = require(Shared.BotLogic)
 local Locale = require(Shared.Locale)
 local Config = require(Shared.Config)
 local EnemyData = require(Shared.EnemyData)
@@ -12679,7 +13312,9 @@ end
 -- живые игроки этого врага не били и рядом с ним никого нет — боты не отнимают добычу и не мешают.
 -- Награды за таких врагов никто не получает (у ботов нет профиля).
 -- ---------------------------------------------------------------------------
-local BOT_FREE_RADIUS = 35
+local BOT_FREE_RADIUS = Config.BOTS.YIELD_RADIUS or 35
+-- v3.2: занятость врагов ботами: enemyId -> { Key = ключ бота, Until = os.clock() до продления }
+local botClaims: { [string]: { Key: string, Until: number } } = {}
 
 local function playerNear(pos: Vector3, radius: number): boolean
 	for _, p in ipairs(Players:GetPlayers()) do
@@ -12695,18 +13330,98 @@ local function botFree(e: Enemy): boolean
 	return not e.Dead and not e.Def.Boss and e.Special == nil and next(e.Damage) == nil
 end
 
-function CombatService.botTarget(pos: Vector3, range: number): (string?, Vector3?)
-	local best: Enemy? = nil
-	local bd = range
+local function claimOf(id: string, now: number): { Key: string, Until: number }?
+	local c = botClaims[id]
+	local e = enemies[id]
+	if c and (c.Until < now or not e or e.Dead) then
+		botClaims[id] = nil
+		return nil
+	end
+	return c
+end
+
+function CombatService.botRelease(key: string)
+	for id, c in pairs(botClaims) do
+		if c.Key == key then
+			botClaims[id] = nil
+		end
+	end
+end
+
+-- живой игрок подошёл к врагу (или уже бьёт его) — бот должен уступить
+function CombatService.botShouldYield(id: string): boolean
+	local e = enemies[id]
+	return e ~= nil and not e.Dead and (next(e.Damage) ~= nil or playerNear(e.Pos, BOT_FREE_RADIUS))
+end
+
+function CombatService.enemyPos(id: string): Vector3?
+	local e = enemies[id]
+	return if e then e.Pos else nil
+end
+
+-- для тестов: { [enemyId] = ключ бота }
+function CombatService.botClaims(): { [string]: string }
+	local now = os.clock()
+	local out = {}
+	for id in pairs(botClaims) do
+		local c = claimOf(id, now)
+		if c then
+			out[id] = c.Key
+		end
+	end
+	return out
+end
+
+-- Враг для бота key: «ничей», не занятый другим ботом, с лимитами BotLogic.canClaim. Занятый ботом враг
+-- продлевается (CLAIM_TTL), пока бот его бьёт; без key (старые вызовы) — key "?"
+function CombatService.botTarget(pos: Vector3, range: number, key: string?): (string?, Vector3?)
+	local now = os.clock()
+	local k = key or "?"
+	local ttl = Config.BOTS.CLAIM_TTL or 3
+	for id, c in pairs(botClaims) do
+		if c.Key == k then
+			local e = enemies[id]
+			if
+				e
+				and botFree(e)
+				and not playerNear(e.Pos, BOT_FREE_RADIUS)
+				and (e.Pos - pos).Magnitude <= range
+			then
+				c.Until = now + ttl
+				return id, e.Pos
+			end
+			botClaims[id] = nil
+		end
+	end
+	local free: { [string]: number } = {}
+	local claimed: { [string]: number } = {}
+	local candidates: { Enemy } = {}
 	for _, e in ipairs(order) do
-		if botFree(e) then
-			local d = (e.Pos - pos).Magnitude
-			if d < bd and not playerNear(e.Pos, BOT_FREE_RADIUS) then
-				best, bd = e, d
+		if botFree(e) and not playerNear(e.Pos, BOT_FREE_RADIUS) then
+			free[e.Zone] = (free[e.Zone] or 0) + 1
+			if claimOf(e.Id, now) then
+				claimed[e.Zone] = (claimed[e.Zone] or 0) + 1
+			else
+				table.insert(candidates, e)
 			end
 		end
 	end
+	local best: Enemy? = nil
+	local bd = range
+	for _, e in ipairs(candidates) do
+		local d = (e.Pos - pos).Magnitude
+		if
+			d < bd
+			and BotLogic.canClaim(
+				{ MobClaims = 0, ZoneClaimed = claimed[e.Zone] or 0, ZoneFree = free[e.Zone] or 0 },
+				Config.BOTS
+			)
+		then
+			best, bd = e, d
+		end
+	end
 	if best then
+		botClaims[best.Id] = { Key = k, Until = now + ttl }
 		return best.Id, best.Pos
 	end
 	return nil, nil
@@ -12721,6 +13436,7 @@ function CombatService.botHit(id: string, frac: number): (boolean, boolean)
 	e.Hp = math.max(0, e.Hp - e.MaxHp * frac)
 	updateBar(e)
 	if e.Hp <= 0 then
+		botClaims[id] = nil
 		die(e)
 		return true, true
 	end
@@ -12862,7 +13578,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13000,7 +13716,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13033,7 +13749,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13171,7 +13887,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13665,7 +14381,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14155,7 +14871,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14411,7 +15127,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14460,7 +15176,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">HealthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14584,7 +15300,7 @@ return HealthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14665,7 +15381,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14758,7 +15474,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14928,7 +15644,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15049,7 +15765,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15196,20 +15912,23 @@ function Monetization.loadPlayer(player: Player)
 	recheckPasses(player, failed, 1)
 end
 
-local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any })
+-- Выдаёт награду продукта. Возвращает уведомление (сообщение), которое отправляется ПОСЛЕ записи чека:
+-- аудит v3.2 — сбой уведомления не должен приводить к NotProcessedYet после уже выданной награды
+-- (иначе повтор Roblox выдал бы её второй раз).
+local function grantProduct(player: Player, data: DataService.Data, def: { [string]: any }): any
 	if def.Kind == "Gems" then
 		Economy.addGems(player, def.Amount)
-		Notify.send(player, Locale.m("shop.thanks_gems", { n = def.Amount }), "reward")
+		return Locale.m("shop.thanks_gems", { n = def.Amount })
 	elseif def.Kind == "Coins" then
 		local amount = math.max(def.Min, Economy.getPerClick(player, data) * def.Clicks)
 		Economy.addCoins(player, amount, false)
-		Notify.send(player, "shop.thanks_coins", "reward")
+		return "shop.thanks_coins"
 	elseif def.Kind == "Luck" then
 		Economy.addLuckBoost(data, def.Boost, def.Seconds)
-		Notify.send(player, Locale.m("item.activated", { item = def.Name }), "reward")
+		return Locale.m("item.activated", { item = def.Name })
 	elseif def.Kind == "Res" then
 		Economy.addResource(player, def.Res, def.Amount)
-		Notify.send(player, Locale.m("shop.thanks_res", { n = def.Amount, res = def.Res }), "reward")
+		return Locale.m("shop.thanks_res", { n = def.Amount, res = def.Res })
 	elseif def.Kind == "BpLevels" then
 		local bp = data.BattlePass
 		local level = BattlePassData.progress(bp.Xp)
@@ -15219,19 +15938,24 @@ local function grantProduct(player: Player, data: DataService.Data, def: { [stri
 			xp += BattlePassData.xpForLevel(lv)
 		end
 		local _, into = BattlePassData.progress(bp.Xp)
-		Economy.addBpXp(player, math.max(0, xp - into))
 		-- v2.4 (аудит В3): платёж нельзя отменить, поэтому уровни сверх максимума не «сгорают»,
-		-- а компенсируются гемами (BP_SKIP_FALLBACK_GEMS за каждый недоданный уровень)
+		-- а компенсируются гемами (BP_SKIP_FALLBACK_GEMS за каждый недоданный уровень).
+		-- Аудит v3.2: сначала гемы (простая операция), затем опыт — меньше шансов на частичную выдачу.
 		local missing = def.Levels - (target - level)
-		if missing > 0 then
-			local gems = missing * Config.BP_SKIP_FALLBACK_GEMS
+		local gems = if missing > 0 then missing * Config.BP_SKIP_FALLBACK_GEMS else 0
+		if gems > 0 then
 			Economy.addGems(player, gems)
-			Notify.send(player, Locale.m("shop.bp_fallback", { n = missing, gems = gems }), "reward")
-		else
-			Notify.send(player, Locale.m("shop.thanks_bp", { n = def.Levels }), "reward")
 		end
+		Economy.addBpXp(player, math.max(0, xp - into))
+		if missing > 0 then
+			return Locale.m("shop.bp_fallback", { n = missing, gems = gems })
+		end
+		return Locale.m("shop.thanks_bp", { n = def.Levels })
 	end
+	-- аудит v3.2: неизвестный вид продукта — ошибка (-> NotProcessedYet), а не «пустая» выдача с записанным чеком
+	error("unknown product kind " .. tostring(def.Kind))
 end
+Monetization._grantProduct = grantProduct
 
 local function pruneReceipts(data: DataService.Data)
 	local count = 0
@@ -15287,16 +16011,23 @@ local function processReceipt(info: { [string]: any }): Enum.ProductPurchaseDeci
 
 	-- Награда и запись о чеке — без yield между ними (атомарно).
 	-- v2.7: ошибка при выдаче -> NotProcessedYet (Roblox повторит), чек не записывается.
-	local okGrant, err = pcall(function()
-		grantProduct(player, data, def)
-	end)
+	local okGrant, note = pcall(grantProduct, player, data, def)
 	if not okGrant then
-		warn("[Monetization] grant failed for", productKey, err)
+		warn("[Monetization] grant failed for", productKey, note)
 		return Enum.ProductPurchaseDecision.NotProcessedYet
 	end
 	data.Receipts[receiptKey] = os.time()
 	pruneReceipts(data)
-	State.markCore(player)
+	-- уведомление и синхронизация — после записи чека и в pcall: их сбой не отменяет выданную награду
+	pcall(State.markCore, player)
+	if note ~= nil then
+		local okNote, errNote = pcall(function()
+			Notify.send(player, note, "reward")
+		end)
+		if not okNote then
+			warn("[Monetization] notify failed for", productKey, errNote)
+		end
+	end
 
 	if DataService.saveNow(player) then
 		return Enum.ProductPurchaseDecision.PurchaseGranted
@@ -15342,7 +16073,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15366,7 +16097,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15441,7 +16172,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15854,7 +16585,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15926,10 +16657,11 @@ end
 local function createTag(): BillboardGui
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(220, 56)
+	g.Size = UDim2.fromOffset(170, 42) -- v3.2: компактнее; порядок с другими подписями — клиент WorldLabels
 	g.StudsOffset = Vector3.new(0, 2.6, 0)
 	g.MaxDistance = 60
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Player")
 	local name = Instance.new("TextLabel")
 	name.Name = "NameLabel"
 	name.BackgroundTransparency = 1
@@ -16165,7 +16897,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16302,7 +17034,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16491,7 +17223,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16599,7 +17331,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16986,7 +17718,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17073,7 +17805,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 				<Properties>
 					<string name="Name">SeaChestLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17081,6 +17813,8 @@ return Router
 	SeaChestLogic (v3.1) — чистые правила морского сундука (покрыты тестами):
 	  * pickSpot — случайная точка в кольце хаба вне «занятых» кругов (спавн, порталы, станции, яйца…)
 	    и, если передана проверка isFree, без пересечения с постройками и декором;
+	  * v3.2 validate — проверка места по миру через «пробы» (сервер даёт Raycast/GetPartBoundsInBox, тест — заглушки):
+	    твёрдый ровный пол, свободный цилиндр без деталей, ничего сверху, не замкнутое пространство;
 	  * loot — состав награды по прогрессу игрока (монеты от силы сбора, ресурсы и билет по открытым мирам).
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17093,8 +17827,52 @@ local SeaChestLogic = {}
 
 export type Blocker = { Pos: Vector3, R: number }
 
+-- Пробы мира (v3.2). ground(pos) -> y?, normalY?, solid? — первая твёрдая/видимая поверхность под точкой;
+-- blocked(base, r, h) -> есть ли деталь в цилиндре r × h над base; overhead(base) -> есть ли что-то над точкой;
+-- exits(base, len) -> сколько из 8 горизонтальных направлений упирается в деталь ближе len.
+export type Probe = {
+	ground: (Vector3) -> (number?, number?, boolean?),
+	blocked: (Vector3, number, number) -> boolean,
+	overhead: (Vector3) -> boolean,
+	exits: (Vector3, number) -> number,
+}
+
+-- true или false + причина: nofloor | soft | steep | level | parts | roof | enclosed
+function SeaChestLogic.validate(pos: Vector3, probe: Probe): (boolean, string?)
+	local cfg = Config.SEA_CHEST
+	local y, ny, solid = probe.ground(pos)
+	if y == nil then
+		return false, "nofloor"
+	end
+	if not solid then
+		return false, "soft"
+	end
+	if (ny or 0) < cfg.MIN_NORMAL_Y then
+		return false, "steep"
+	end
+	if math.abs(y - cfg.FLOOR_Y) > cfg.FLOOR_TOL then
+		return false, "level" -- на крыше, на постаменте, под кроной (луч сверху упёрся в листву)
+	end
+	local base = Vector3.new(pos.X, y, pos.Z)
+	if probe.blocked(base, cfg.PART_CLEARANCE, cfg.CLEAR_HEIGHT) then
+		return false, "parts"
+	end
+	if probe.overhead(base) then
+		return false, "roof"
+	end
+	if probe.exits(base, cfg.EXIT_RAY) > cfg.MAX_BLOCKED_DIRS then
+		return false, "enclosed"
+	end
+	return true, nil
+end
+
 function SeaChestLogic.isClear(pos: Vector3, blockers: { Blocker }, clearance: number): boolean
 	local flat = Vector3.new(pos.X, 0, pos.Z)
+	local cfg = Config.SEA_CHEST
+	local sp = cfg.SPAWN_POS
+	if sp and (flat - Vector3.new(sp.X, 0, sp.Z)).Magnitude < (cfg.SPAWN_DISTANCE or 0) then
+		return false -- не у точки появления: новички не должны спотыкаться о сундук
+	end
 	for _, b in ipairs(blockers) do
 		local bp = Vector3.new(b.Pos.X, 0, b.Pos.Z)
 		if (flat - bp).Magnitude < b.R + clearance then
@@ -17190,14 +17968,15 @@ return SeaChestLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 				<Properties>
 					<string name="Name">SeaChestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
 	SeaChestService (v3.1) — морской сундук в хабе.
 	  * раз в Config.SEA_CHEST.INTERVAL секунд появляется в случайном свободном месте хаба (SeaChestLogic.pickSpot:
-	    вне спавна, порталов, станций, NPC и яиц + проверка мира GetPartBoundsInBox — не внутри построек и декора);
+	    вне спавна, порталов, станций, NPC и яиц + v3.2 проверка мира SeaChestLogic.validate: твёрдый ровный пол
+	    (луч вниз), свободный цилиндр без деталей, ничего сверху, не в замкнутом месте);
 	    неоткрытый старый сундук при этом исчезает;
 	  * о появлении сообщает только тихий звук в точке сундука (Remotes "SeaChest" -> клиент, Config.SOUNDS.CHEST_SPAWN);
 	  * открыть: ProximityPrompt или касание. Всё решает сервер: живой персонаж настоящего игрока с загруженными
@@ -17355,35 +18134,132 @@ local function groundY(pos: Vector3): number
 	return if ok and type(y) == "number" and y < 10 then y else 0
 end
 
--- проверка мира: в объёме сундука нет видимых/твёрдых деталей (здания, деревья, фонари, NPC, порталы)
-local function isFree(pos: Vector3): boolean
-	local ok, free = pcall(function()
-		local params = OverlapParams.new()
+-- v3.2: пробы мира для SeaChestLogic.validate. Игроки, боты, питомцы и прошлый сундук не учитываются
+-- (они двигаются); невидимые некасаемые детали (якоря табличек) — тоже.
+local function skipList(): { Instance }
+	local skip: { Instance } = { getFolder() }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(skip, p.Character)
+		end
+	end
+	for _, name in ipairs({ "AiBots", "Pets", "GoldenRain", "Bots" }) do
+		local f = Workspace:FindFirstChild(name)
+		if f then
+			table.insert(skip, f)
+		end
+	end
+	return skip
+end
+
+local function solidPart(p: Instance): boolean
+	return p:IsA("BasePart") and (p.CanCollide or p.Transparency < 0.95)
+end
+
+-- луч, пропускающий «пустые» детали (некасаемые и невидимые; тонкий некасаемый узор пола — тоже)
+local function castSolid(
+	origin: Vector3,
+	dir: Vector3,
+	skip: { Instance },
+	floorMode: boolean?
+): RaycastResult?
+	local ignore = table.clone(skip)
+	for _ = 1, 8 do
+		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
-		local skip: { Instance } = { getFolder() }
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Character then
-				table.insert(skip, p.Character)
-			end
+		params.FilterDescendantsInstances = ignore
+		local hit = Workspace:Raycast(origin, dir, params)
+		if not hit then
+			return nil
 		end
-		for _, name in ipairs({ "AiBots", "Pets", "GoldenRain" }) do
-			local f = Workspace:FindFirstChild(name)
-			if f then
-				table.insert(skip, f)
-			end
+		local inst = hit.Instance
+		local empty = not solidPart(inst)
+		local sz = inst.Size
+		if floorMode and not inst.CanCollide and math.min(sz.X, sz.Y, sz.Z) < 1 then
+			empty = true -- узор/плитка площади поверх пола: стоять можно, это не препятствие
 		end
-		params.FilterDescendantsInstances = skip
-		local c = Config.SEA_CHEST.CLEARANCE
-		local parts =
-			Workspace:GetPartBoundsInBox(CFrame.new(pos + Vector3.new(0, 4, 0)), Vector3.new(c, 6, c), params)
-		for _, p in ipairs(parts) do
-			if p:IsA("BasePart") and (p.CanCollide or p.Transparency < 0.95) then
-				return false
-			end
+		if not empty then
+			return hit
 		end
-		return true
+		table.insert(ignore, inst)
+	end
+	return nil
+end
+
+local function makeProbe(): SeaChestLogic.Probe
+	local skip = skipList()
+	return {
+		ground = function(pos: Vector3): (number?, number?, boolean?)
+			local hit = castSolid(Vector3.new(pos.X, 40, pos.Z), Vector3.new(0, -80, 0), skip, true)
+			if not hit then
+				return nil, nil, nil
+			end
+			local inst = hit.Instance
+			local solid = inst.CanCollide and hit.Material ~= Enum.Material.Water
+			return hit.Position.Y, hit.Normal.Y, solid
+		end,
+		blocked = function(base: Vector3, r: number, h: number): boolean
+			local params = OverlapParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = skip
+			local box = CFrame.new(base + Vector3.new(0, 0.5 + h / 2, 0))
+			for _, p in ipairs(Workspace:GetPartBoundsInBox(box, Vector3.new(r * 2, h, r * 2), params)) do
+				if solidPart(p) then
+					local d = Vector3.new(p.Position.X - base.X, 0, p.Position.Z - base.Z)
+					-- цилиндр: деталь целиком за радиусом (угол коробки) не мешает
+					local half = math.max(p.Size.X, p.Size.Z) / 2
+					if d.Magnitude - half <= r then
+						return true
+					end
+				end
+			end
+			return false
+		end,
+		overhead = function(base: Vector3): boolean
+			return castSolid(base + Vector3.new(0, 1, 0), Vector3.new(0, 60, 0), skip) ~= nil
+		end,
+		exits = function(base: Vector3, len: number): number
+			local n = 0
+			for i = 0, 7 do
+				local a = i * math.pi / 4
+				local dir = Vector3.new(math.cos(a), 0, math.sin(a)) * len
+				if castSolid(base + Vector3.new(0, 2.5, 0), dir, skip) then
+					n += 1
+				end
+			end
+			return n
+		end,
+	}
+end
+
+-- проверка мира: сервер (Raycast, GetPartBoundsInBox). Нет API (эмулятор тестов) — только круги getHubBlockers
+SeaChestService.lastReject = nil :: string?
+local function isFree(pos: Vector3): boolean
+	local ok, good, why = pcall(function()
+		return SeaChestLogic.validate(pos, makeProbe())
 	end)
-	return not ok or free == true
+	if not ok then
+		return true
+	end
+	SeaChestService.lastReject = why
+	return good == true
+end
+SeaChestService.isFree = isFree
+
+-- v3.2: полная проверка места (как при выборе): точка появления и круги хаба (isClear), затем мир (isFree).
+-- Возвращает ok и причину отказа ("spawn", "blockers" или причина SeaChestLogic.validate).
+function SeaChestService.check(pos: Vector3): (boolean, string?)
+	local cfg = Config.SEA_CHEST
+	if not SeaChestLogic.isClear(pos, WorldBuilder.getHubBlockers(), cfg.CLEARANCE) then
+		local sp = cfg.SPAWN_POS
+		local near = sp
+			and (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(sp.X, 0, sp.Z)).Magnitude < cfg.SPAWN_DISTANCE
+		SeaChestService.lastReject = if near then "spawn" else "blockers"
+		return false, SeaChestService.lastReject
+	end
+	SeaChestService.lastReject = nil
+	local ok = isFree(pos)
+	return ok, if ok then nil else SeaChestService.lastReject
 end
 
 function SeaChestService.current(): Chest?
@@ -17400,7 +18276,7 @@ end
 
 -- поставить сундук в точку pos (y игнорируется — по земле); без pos — случайное свободное место хаба
 function SeaChestService.spawn(pos: Vector3?): Chest?
-	local spot = pos or SeaChestLogic.pickSpot(rng, WorldBuilder.getHubBlockers(), isFree)
+	local spot = pos or SeaChestLogic.pickSpot(rng, WorldBuilder.getHubBlockers(), isFree, 120)
 	if not spot then
 		return nil
 	end
@@ -17567,7 +18443,7 @@ return SeaChestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17650,7 +18526,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 				<Properties>
 					<string name="Name">SettingsService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17690,7 +18566,7 @@ return SettingsService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17734,7 +18610,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17795,7 +18671,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18045,7 +18921,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18123,7 +18999,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18152,7 +19028,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18254,10 +19130,11 @@ local function buildRig(name: string, shirt: Color3): (Model, BasePart, Humanoid
 	-- табличка над головой: «Бот Max» (переводит WorldLocalizer)
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(160, 26)
+	g.Size = UDim2.fromOffset(118, 22) -- v3.2: как у ИИ-ботов
 	g.StudsOffset = Vector3.new(0, 2.4, 0)
-	g.MaxDistance = 60
+	g.MaxDistance = 40
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Bot")
 	g.AlwaysOnTop = false
 	local l = Instance.new("TextLabel")
 	l.Name = "NameLabel"
@@ -18454,7 +19331,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18689,10 +19566,11 @@ local function makeTag(model: Model): (BillboardGui?, Frame?)
 	end
 	local g = Instance.new("BillboardGui")
 	g.Name = "SuperTag"
-	g.Size = UDim2.fromOffset(170, 40)
+	g.Size = UDim2.fromOffset(150, 36)
 	g.StudsOffset = Vector3.new(0, 4.8, 0) -- над именем игрока (имя на 2.6)
 	g.MaxDistance = 160
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Super")
 	g.AlwaysOnTop = false
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"
@@ -19319,7 +20197,7 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
 				<Properties>
 					<string name="Name">ToolService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -19482,7 +20360,7 @@ return ToolService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -20015,7 +20893,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -20092,7 +20970,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -20149,7 +21027,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -20159,6 +21037,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage.Shared
 
+local LabelLayout = require(Shared.LabelLayout)
 local Locale = require(Shared.Locale)
 local Logo = require(Shared.Logo)
 local PetData = require(Shared.PetData)
@@ -20239,13 +21118,24 @@ local function makeLabel(
 	return l
 end
 
-local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
+-- v3.2: размер подписи в пикселях (а не в студах): вблизи текст не растёт на пол-экрана и не закрывает HUD.
+-- width/height — «дизайнерский» размер прежних табличек; на экране — × LABEL_PX (клиент WorldLabels ещё
+-- уменьшает их на телефоне и вдали, гасит у предела и убирает наложения). kind — вид для LabelLayout.
+local LABEL_PX = 0.72
+local function billboard(
+	parent: BasePart,
+	offset: Vector3,
+	width: number,
+	height: number,
+	kind: string?
+): BillboardGui
+	local k = kind or "Sign"
 	local gui = Instance.new("BillboardGui")
-	-- размер в студах: подпись уменьшается с расстоянием и не закрывает HUD на телефоне
-	gui.Size = UDim2.fromScale(width / 16, height / 16)
+	gui.Size = UDim2.fromOffset(math.floor(width * LABEL_PX + 0.5), math.floor(height * LABEL_PX + 0.5))
 	gui.StudsOffset = offset
-	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
+	gui.MaxDistance = LabelLayout.kind(k).Max -- дальние подписи не видны
 	gui.LightInfluence = 0
+	gui:SetAttribute("LabelKind", k)
 	gui.Parent = parent
 	return gui
 end
@@ -20454,7 +21344,7 @@ local function buildEgg(parent: Instance, egg: PetData.EggDef, pos: Vector3)
 		end
 	end)
 
-	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70)
+	local gui = billboard(shell, Vector3.new(0, 6, 0), 220, 70, "Egg")
 	makeLabel(gui, egg.Name, UDim2.fromScale(1, 0.55), Color3.fromRGB(255, 255, 255))
 	local priceColor = if egg.Currency == "Gems"
 		then Color3.fromRGB(120, 230, 255)
@@ -20568,10 +21458,10 @@ local function sign(
 	color: Color3,
 	height: number,
 	w: number?,
-	h: number?
+	h: number?,
+	kind: string?
 )
-	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76)
-	gui.MaxDistance = 60
+	local gui = billboard(target, Vector3.new(0, height, 0), w or 240, h or 76, kind)
 	makeLabel(gui, text, UDim2.fromScale(1, if subtext then 0.56 else 0.9), Color3.fromRGB(255, 255, 255))
 	if subtext then
 		local sub = makeLabel(gui, subtext, UDim2.fromScale(1, 0.38), color)
@@ -20681,7 +21571,7 @@ local function buildNpc(
 	)
 	m.PrimaryPart = torso
 	m:SetAttribute("NpcId", id)
-	sign(torso, name, title, color, 5.5)
+	sign(torso, name, title, color, 5.5, nil, nil, "Npc")
 	addPrompt(torso, id, action, name, 0)
 	m.Parent = parent
 	stationPositions[id] = pos
@@ -21336,8 +22226,7 @@ function WorldBuilder.build()
 			Color3.fromRGB(110, 80, 60),
 			Enum.Material.Wood
 		)
-		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90)
-		gui.MaxDistance = 90
+		local gui = billboard(signPost, Vector3.new(0, 8, 0), 320, 90, "Zone")
 		makeLabel(gui, zone.Name, UDim2.fromScale(1, 0.58), Color3.fromRGB(255, 255, 255))
 		local mult =
 			makeLabel(gui, "world.zone_mult", UDim2.fromScale(1, 0.38), zone.Accent, { n = zone.Multiplier })
@@ -21438,7 +22327,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
 				<Properties>
 					<string name="Name">WorldDecor</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -21457,7 +22346,7 @@ local WorldDecor = {}
 export type Hooks = {
 	prompt: (BasePart, string, string, string, number?) -> (),
 	label: (Instance, string, UDim2, Color3, { [string]: any }?) -> TextLabel,
-	billboard: (BasePart, Vector3, number, number) -> BillboardGui,
+	billboard: (BasePart, Vector3, number, number, string?) -> BillboardGui,
 }
 
 export type Style = {
@@ -21862,8 +22751,7 @@ function WorldDecor.buildArch(
 		s.Stone,
 		s.Material
 	)
-	local gui = hooks.billboard(plaque, Vector3.new(0, o.SignHeight or 5.2, 0), 250, 80)
-	gui.MaxDistance = 75
+	local gui = hooks.billboard(plaque, Vector3.new(0, o.SignHeight or 5.2, 0), 250, 80, "Sign")
 	hooks.label(gui, o.Title, UDim2.fromScale(1, if o.Sub then 0.56 else 0.9), Color3.new(1, 1, 1))
 	if o.Sub then
 		local sub = hooks.label(
@@ -22203,7 +23091,7 @@ local function signpost(m: Instance, at: Vector3, targets: { SignTarget }, hooks
 			board.Color,
 			Enum.Material.Wood
 		)
-		local gui = hooks.billboard(board, Vector3.new(0, 0, 0), 84, 15)
+		local gui = hooks.billboard(board, Vector3.new(0, 0, 0), 120, 22, "Sign")
 		gui.MaxDistance = 28
 		gui.StudsOffsetWorldSpace = dir * 1.2
 		hooks.label(gui, t.Key, UDim2.fromScale(1, 1), Color3.fromRGB(255, 240, 200))
@@ -22350,7 +23238,7 @@ return WorldDecor
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -22453,15 +23341,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000005F">
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000061">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000060">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000062">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000061">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000063">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -22519,7 +23407,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000062">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000064">
 				<Properties>
 					<string name="Name">EnemyVisuals</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -22542,6 +23430,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local EnemyData = require(Shared:WaitForChild("EnemyData"))
 local EnemyVisual = require(Shared:WaitForChild("EnemyVisual"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local Locale = require(Shared:WaitForChild("Locale"))
 
 local BUILD_DIST = 170
@@ -22665,8 +23554,18 @@ local function makeBar(e: Entry, def: any)
 		name.Font = Enum.Font.FredokaOne
 		name.TextScaled = true
 		name.TextColor3 = Color3.fromRGB(255, 215, 90)
-		name.Text = "👑 " .. Locale.n(def.Name)
+		name.Text = Locale.n(def.Name)
+		name.Position = UDim2.fromOffset(24, 0)
+		name.Size = UDim2.new(1, -48, 0, 22)
 		name.Parent = g
+		-- v3.2: корона из примитивов (Icons) вместо эмодзи
+		Icons.make("Crown", {
+			Name = "Crown",
+			Px = 20,
+			Size = UDim2.fromOffset(20, 20),
+			Position = UDim2.fromOffset(2, 1),
+			Parent = g,
+		})
 		stroke(name, 2).ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		e.BarText = name
 	end
@@ -23019,7 +23918,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000063">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000065">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -23181,7 +24080,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000064">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000066">
 				<Properties>
 					<string name="Name">PortalSwirl</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -23241,7 +24140,283 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000065">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000067">
+				<Properties>
+					<string name="Name">WorldLabels</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	WorldLabels (v3.2) — порядок среди подписей мира на этом клиенте (LabelLayout — правила, покрыты тестами).
+	Сервер ставит у BillboardGui атрибут LabelKind (Player, Bot, Npc, Super, Egg, Zone, Sign) и размер в пикселях.
+	Раз в UPDATE секунд:
+	  * подпись проецируется на экран (Camera:WorldToViewportPoint) — дальше предела вида скрыта, у предела гаснет;
+	  * размер = базовый × масштаб экрана × масштаб расстояния (на телефоне меньше, вдали чуть меньше);
+	  * при наложении важные подписи (своя, игроки) остаются, подписи персонажей поднимаются «стопкой»,
+	    таблички и подписи ботов скрываются;
+	  * подпись, задевающая HUD (хотбар, кнопки, валюты, плашки событий), скрывается.
+	Меняются только локальные копии (Enabled, Size, StudsOffset, прозрачность текста) — у других игроков своё.
+	Атрибуты для тестов на BillboardGui: LabelShown (true/false).
+]]
+local GuiService = game:GetService("GuiService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local LabelLayout = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("LabelLayout"))
+
+local UPDATE = 0.1
+local player = Players.LocalPlayer
+
+type Fade = { Obj: Instance, Text: number?, Stroke: number?, Back: number? }
+type Rec = {
+	Gui: BillboardGui,
+	Kind: string,
+	W: number,
+	H: number,
+	Offset: Vector3,
+	Fades: { Fade }?,
+	Shown: boolean?,
+	Scale: number?,
+	Alpha: number?,
+	Shift: number?,
+}
+
+local recs: { [BillboardGui]: Rec } = {}
+
+local function collectFades(g: BillboardGui): { Fade }
+	local list: { Fade } = {}
+	for _, d in ipairs(g:GetDescendants()) do
+		if d:IsA("TextLabel") or d:IsA("TextButton") then
+			table.insert(list, {
+				Obj = d :: Instance,
+				Text = d.TextTransparency,
+				Stroke = d.TextStrokeTransparency,
+				Back = d.BackgroundTransparency,
+			})
+		elseif d:IsA("Frame") then
+			table.insert(list, { Obj = d :: Instance, Back = d.BackgroundTransparency })
+		end
+	end
+	return list
+end
+
+local orig: { [Instance]: any } = setmetatable({}, { __mode = "k" }) :: any
+
+local function track(inst: Instance)
+	if not inst:IsA("BillboardGui") or recs[inst] then
+		return
+	end
+	local kind = inst:GetAttribute("LabelKind")
+	if type(kind) ~= "string" then
+		return
+	end
+	-- Аудит v3.2: исходный размер запоминается один раз — подпись, вынутая из Workspace и вставленная
+	-- обратно, не берёт за «исходный» уже уменьшенный нами размер; подписки тоже ставятся один раз
+	local o = orig[inst]
+	local first = o == nil
+	if not o then
+		local size = inst.Size
+		if size.X.Offset <= 0 or size.Y.Offset <= 0 then
+			return -- размер в студах — не наш случай (например, логотип на щите)
+		end
+		o = { W = size.X.Offset, H = size.Y.Offset, Offset = inst.StudsOffset }
+		orig[inst] = o
+	end
+	local oo = o :: { W: number, H: number, Offset: Vector3 }
+	recs[inst] = {
+		Gui = inst,
+		Kind = kind,
+		W = oo.W,
+		H = oo.H,
+		Offset = oo.Offset,
+	}
+	if not first then
+		return
+	end
+	inst.AncestryChanged:Connect(function()
+		if not inst:IsDescendantOf(Workspace) then
+			recs[inst] = nil
+		end
+	end)
+	inst.DescendantAdded:Connect(function()
+		local r = recs[inst]
+		if r then
+			r.Fades = nil -- пересобрать список при следующем изменении прозрачности
+			r.Alpha = nil
+		end
+	end)
+end
+
+for _, d in ipairs(Workspace:GetDescendants()) do
+	track(d)
+end
+Workspace.DescendantAdded:Connect(track)
+
+-- HUD: прямоугольники, которые подписи не должны задевать (в координатах вьюпорта)
+local SELF = { "Hotbar", "Currency", "Tutorial" }
+local KIDS = { "LeftButtons", "RightButtons", "Timer" }
+
+local function visibleChain(o: Instance, stop: Instance): boolean
+	local cur: Instance? = o
+	while cur and cur ~= stop do
+		if cur:IsA("GuiObject") and not cur.Visible then
+			return false
+		end
+		cur = cur.Parent
+	end
+	return true
+end
+
+local function hudBlocks(): { LabelLayout.Rect }
+	local out: { LabelLayout.Rect } = {}
+	local pg = player:FindFirstChildOfClass("PlayerGui")
+	local gui = pg and pg:FindFirstChild("PetCollectorGui")
+	if not gui or not gui:IsA("ScreenGui") then
+		return out
+	end
+	local inset = Vector2.zero
+	if not gui.IgnoreGuiInset then
+		local ok, tl = pcall(function()
+			return (GuiService:GetGuiInset())
+		end)
+		if ok and typeof(tl) == "Vector2" then
+			inset = tl
+		end
+	end
+	local function add(o: Instance)
+		if o:IsA("GuiObject") and visibleChain(o, gui) then
+			local p, s = o.AbsolutePosition, o.AbsoluteSize
+			if s.X > 1 and s.Y > 1 then
+				table.insert(out, { X = p.X + inset.X, Y = p.Y + inset.Y, W = s.X, H = s.Y })
+			end
+		end
+	end
+	for _, name in ipairs(SELF) do
+		local o = gui:FindFirstChild(name)
+		if o then
+			add(o)
+		end
+	end
+	for _, name in ipairs(KIDS) do
+		local o = gui:FindFirstChild(name)
+		if o then
+			for _, c in ipairs(o:GetChildren()) do
+				add(c)
+			end
+		end
+	end
+	return out
+end
+
+local function adorneePos(g: BillboardGui): Vector3?
+	local ad: Instance? = g.Adornee or g.Parent
+	if ad and ad:IsA("BasePart") then
+		return ad.Position
+	elseif ad and ad:IsA("Attachment") then
+		return ad.WorldPosition
+	elseif ad and ad:IsA("Model") then
+		local pp = ad.PrimaryPart
+		return if pp then pp.Position else nil
+	end
+	return nil
+end
+
+local function applyAlpha(r: Rec, a: number)
+	if r.Alpha and math.abs(r.Alpha - a) < 0.04 then
+		return
+	end
+	r.Alpha = a
+	local fades = r.Fades or collectFades(r.Gui)
+	r.Fades = fades
+	for _, f in ipairs(fades) do
+		local o = f.Obj :: any
+		if f.Text then
+			o.TextTransparency = f.Text + (1 - f.Text) * a
+		end
+		if f.Stroke then
+			o.TextStrokeTransparency = f.Stroke + (1 - f.Stroke) * a
+		end
+		if f.Back and f.Back < 1 then
+			o.BackgroundTransparency = f.Back + (1 - f.Back) * a
+		end
+	end
+end
+
+local function update()
+	local cam = Workspace.CurrentCamera
+	if not cam then
+		return
+	end
+	local vp = cam.ViewportSize
+	if vp.X <= 1 or vp.Y <= 1 then
+		return
+	end
+	local camPos = cam.CFrame.Position
+	local char = player.Character
+	local items: { LabelLayout.Item } = {}
+	local list: { Rec } = {}
+
+	for g, r in pairs(recs) do
+		local pos = adorneePos(g)
+		if pos then
+			local wp = pos + r.Offset + g.StudsOffsetWorldSpace
+			local sp, on = cam:WorldToViewportPoint(wp)
+			local kind = r.Kind
+			if char and (kind == "Player" or kind == "Super") and g:IsDescendantOf(char) then
+				kind = if kind == "Player" then "Own" else kind
+			end
+			table.insert(list, r)
+			table.insert(items, {
+				Kind = kind,
+				X = sp.X,
+				Y = sp.Y,
+				W = r.W,
+				H = r.H,
+				Dist = (camPos - wp).Magnitude,
+				OnScreen = on and sp.Z > 0,
+			})
+		end
+	end
+	local res = LabelLayout.solve(items, hudBlocks(), { W = vp.X, H = vp.Y })
+	local tanHalf = math.tan(math.rad(cam.FieldOfView) / 2)
+	for i, r in ipairs(list) do
+		local x = res[i]
+		local g = r.Gui
+		if r.Shown ~= x.Show then
+			r.Shown = x.Show
+			g.Enabled = x.Show
+			g:SetAttribute("LabelShown", x.Show)
+		end
+		if x.Show then
+			if not r.Scale or math.abs(r.Scale - x.Scale) > 0.02 then
+				r.Scale = x.Scale
+				g.Size = UDim2.fromOffset(math.floor(r.W * x.Scale + 0.5), math.floor(r.H * x.Scale + 0.5))
+			end
+			-- сдвиг «стопкой»: пиксели -> студы на расстоянии подписи
+			local studsPerPx = 2 * items[i].Dist * tanHalf / vp.Y
+			local shift = x.Shift * studsPerPx
+			if r.Shift == nil or math.abs(r.Shift - shift) > 0.05 then
+				r.Shift = shift
+				g.StudsOffset = r.Offset + Vector3.new(0, shift, 0)
+			end
+			applyAlpha(r, x.Alpha)
+		end
+	end
+end
+
+local acc = 0
+RunService.RenderStepped:Connect(function(dt)
+	acc += dt
+	if acc < UPDATE then
+		return
+	end
+	acc = 0
+	update()
+end)
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000068">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -23348,22 +24523,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX00000000000000000000000000000066">
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000069">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000067">
+		<Item class="ScreenGui" referent="RBX0000000000000000000000000000006A">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX00000000000000000000000000000068">
+			<Item class="Folder" referent="RBX0000000000000000000000000000006B">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23396,7 +24571,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23495,7 +24670,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23613,7 +24788,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23696,22 +24871,20 @@ function CraftPanel.init(gui: ScreenGui)
 			for i, recipe in ipairs(RecipeData.Recipes) do
 				local item = RecipeData.Items[recipe.Item]
 				local ok = RecipeData.canCraft(recipe, core.Resources, core.Coins)
-				local card = UiKit.card(scroll, 58, if ok then Theme.Green else nil, i)
+				-- v3.2: карточка растёт по тексту: название, цена, описание — строками, текст >= 12 px
+				local card, col = UiKit.flowCard(scroll, 58, if ok then Theme.Green else nil, i, 60, 112)
 				card.Name = recipe.Id
 				Icons.make(recipe.Item, {
 					Px = 44,
 					Size = UDim2.fromOffset(44, 44),
-					AnchorPoint = Vector2.new(0, 0.5),
-					Position = UDim2.new(0, 8, 0.5, 0),
+					Position = UDim2.fromOffset(8, 7),
 					ZIndex = 23,
 					Parent = card,
 				})
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					L.t("reward.item", { n = recipe.Count, item = item.Name }),
-					UDim2.fromOffset(60, 4),
-					UDim2.new(0.55, -50, 0, 22),
-					{ Font = Theme.Font, MaxSize = 18 }
+					{ Font = Theme.Font, TextSize = 18, LayoutOrder = 1 }
 				)
 				local parts = {}
 				for _, res in ipairs(ResourceData.Order) do
@@ -23729,27 +24902,19 @@ function CraftPanel.init(gui: ScreenGui)
 						L.t("reward.coins_fmt", { price = Util.formatNumber(recipe.Coins), n = recipe.Coins })
 					)
 				end
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					table.concat(parts, "  +  "),
-					UDim2.fromOffset(60, 28),
-					UDim2.new(0.6, -50, 0, 22),
-					{ TextColor3 = if ok then Theme.TextDim else Theme.Red, MaxSize = 14 }
+					{ TextColor3 = if ok then Theme.TextDim else Theme.Red, LayoutOrder = 2 }
 				)
-				UiKit.text(
-					card,
-					L.n(item.Desc),
-					UDim2.new(0.55, 0, 0, 4),
-					UDim2.new(0.25, 0, 1, -8),
-					{ TextColor3 = Theme.Gem, MaxSize = 13 }
-				)
+				UiKit.flowText(col, L.n(item.Desc), { TextColor3 = Theme.Gem, LayoutOrder = 3 })
 				local b = Widgets.button({
 					Name = "Make",
 					Text = L.t("craft.make"),
 					Color = Theme.Green,
-					Size = UDim2.new(0.16, 0, 0, 38),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(100, 38),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 10),
 					ZIndex = 23,
 					MaxTextSize = 18,
 					OnClick = function()
@@ -23766,38 +24931,29 @@ function CraftPanel.init(gui: ScreenGui)
 				if n > 0 then
 					any = true
 					local item = RecipeData.Items[id]
-					local card = UiKit.card(scroll, 52, Theme.BgLight, i)
+					local card, col = UiKit.flowCard(scroll, 52, Theme.BgLight, i, 56, 112)
 					card.Name = id
 					Icons.make(id, {
 						Px = 40,
 						Size = UDim2.fromOffset(40, 40),
-						AnchorPoint = Vector2.new(0, 0.5),
-						Position = UDim2.new(0, 8, 0.5, 0),
+						Position = UDim2.fromOffset(8, 6),
 						ZIndex = 23,
 						Parent = card,
 					})
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						("%s  x%d"):format(L.n(item.Name), n),
-						UDim2.fromOffset(56, 4),
-						UDim2.new(0.6, -46, 0, 22),
-						{ Font = Theme.Font, MaxSize = 18 }
+						{ Font = Theme.Font, TextSize = 18, LayoutOrder = 1 }
 					)
-					UiKit.text(
-						card,
-						L.n(item.Desc),
-						UDim2.fromOffset(56, 28),
-						UDim2.new(0.62, -46, 0, 20),
-						{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-					)
+					UiKit.flowText(col, L.n(item.Desc), { TextColor3 = Theme.TextDim, LayoutOrder = 2 })
 					if item.Kind == "BoostLuck" or item.Kind == "BoostCoins" then
 						Widgets.button({
 							Name = "Use",
 							Text = L.t("craft.use"),
 							Color = Theme.Blue,
-							Size = UDim2.new(0.16, 0, 0, 34),
-							AnchorPoint = Vector2.new(1, 0.5),
-							Position = UDim2.new(1, -8, 0.5, 0),
+							Size = UDim2.fromOffset(100, 34),
+							AnchorPoint = Vector2.new(1, 0),
+							Position = UDim2.new(1, -8, 0, 8),
 							ZIndex = 23,
 							MaxTextSize = 18,
 							OnClick = function()
@@ -23813,9 +24969,9 @@ function CraftPanel.init(gui: ScreenGui)
 								elseif item.Kind == "Catalyst" then L.t("craft.use_fusion")
 								elseif item.Kind == "Ticket" then L.t("craft.use_egg")
 								else L.t("craft.passive"),
-							UDim2.new(0.72, 0, 0, 10),
-							UDim2.new(0.26, 0, 0, 30),
-							{ TextColor3 = Theme.Gold, MaxSize = 13 }
+							UDim2.new(1, -108, 0, 6),
+							UDim2.fromOffset(102, 42),
+							{ TextColor3 = Theme.Gold, MaxSize = 15, TextWrapped = true }
 						)
 					end
 				end
@@ -23870,7 +25026,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24364,29 +25520,30 @@ function DailyPanel.init(gui: ScreenGui)
 	-- раскладка под экран: в один ряд (ПК и телефон горизонтально) или 4+3 (телефон вертикально)
 	local cur = { W = 1280, H = 720, Mode = "wide", CardW = 110, CardH = 160, K = Theme.UI_SCALE }
 	local function layout(li)
-		-- v3.0: окно в Theme.uiScale раз меньше; раскладка считается в «виртуальных» пикселях W/k × H/k
-		local k = Theme.uiScale(li)
+		-- v3.0: окно в k раз меньше; раскладка считается в «виртуальных» пикселях W/k × H/k
+		-- v3.2: k = Theme.panelScale (как у окон): текст не мельче 12 px (Widgets.textFloor)
+		local k = Theme.panelScale(li)
 		local W, H = li.W / k, li.H / k
 		local portrait = li.Mode == "portrait"
 		local pad, gap = 14, 8
 		local headerH = if li.Mode == "landscape" then 50 else 62
 		local winW, cols, rows
-		-- v3.1: окно меньше (Theme.PANEL_SHRINK): ПК — в 1.5 раза по ширине, телефон — мягче (текст читается)
+		-- v3.1: окно меньше; v3.2: на ПК — в 1.25 раза (текст >= 12 px), телефон — мягче (текст читается)
 		if portrait then
-			winW = math.min(W - 16, 520) * 0.86
+			winW = math.min(W - 16, 520) * 0.95
 			cols, rows = 4, 2
 		elseif li.Mode == "landscape" then
 			winW = math.min(W - 24, 960) / 1.3
 			cols, rows = 7, 1
 		else
-			winW = math.min(W - 80, 940) / Theme.PANEL_SHRINK
+			winW = math.min(W - 80, 940) / 1.25
 			cols, rows = 7, 1
 		end
 		winW = math.floor(winW)
 		local cardW = math.floor((winW - 2 * pad - (cols - 1) * gap) / cols)
 		local cardH = math.floor(cardW * (if portrait then 1.62 else 1.48))
 		local btnH = if li.Mode == "landscape" then 44 else 54
-		local hintH = if portrait then 30 else 18
+		local hintH = 40
 		local fixed = headerH + 10 + hintH + 8 + btnH + 16
 		local maxCardsH = H - 24 - fixed
 		local cardsH = rows * cardH + (rows - 1) * (gap + 6)
@@ -24438,10 +25595,10 @@ function DailyPanel.init(gui: ScreenGui)
 			c.Rays.Size = UDim2.fromOffset(cardW * 0.94, cardW * 0.94)
 			c.Rays.Position = UDim2.fromScale(0.5, 0.5)
 			c.Halo.Size = UDim2.fromOffset(iconPx * 1.05, iconPx * 1.05)
-			local topH = math.max(14, math.floor(cardH * 0.15))
-			c.Top.Position = UDim2.fromOffset(4, math.floor(cardH * 0.05))
-			c.Top.Size = UDim2.new(1, -8, 0, topH)
-			local amtH = math.max(16, math.floor(cardH * 0.19))
+			local topH = math.max(20, math.floor(cardH * 0.15))
+			c.Top.Position = UDim2.fromOffset(2, math.floor(cardH * 0.05))
+			c.Top.Size = UDim2.new(1, -4, 0, topH)
+			local amtH = math.max(20, math.floor(cardH * 0.19))
 			c.Amount.Position = UDim2.new(0, 4, 1, -amtH - math.floor(cardH * 0.05))
 			c.Amount.Size = UDim2.new(1, -8, 0, amtH)
 			c.VipTag.Size = UDim2.fromOffset(math.max(34, cardW * 0.46), math.max(16, cardH * 0.12))
@@ -24456,7 +25613,7 @@ function DailyPanel.init(gui: ScreenGui)
 		end
 		hint.Position = UDim2.fromOffset(pad, headerH + 4 + cardsH + 6)
 		hint.Size = UDim2.new(1, -2 * pad, 0, hintH)
-		hintSize.MaxTextSize = if portrait then 12 else 15
+		hintSize.MaxTextSize = 15
 		local bw = math.min(winW - 2 * pad, if portrait then 300 else 340)
 		claimBtn.Size = UDim2.fromOffset(bw, btnH)
 		claimBtn.Position = UDim2.new(0.5, 0, 1, -12)
@@ -24486,6 +25643,7 @@ function DailyPanel.init(gui: ScreenGui)
 		end
 	end
 	Layout.onChanged(layout)
+	Widgets.textFloor(root)
 
 	local lastClaimed = -1
 	local function refresh()
@@ -24731,7 +25889,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24922,7 +26080,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25175,7 +26333,7 @@ function EggPanel.init(gui: ScreenGui)
 			local locked = core ~= nil and egg.Zone ~= "Hub" and not (core.Zones and core.Zones[egg.Zone])
 			local b = Widgets.button({
 				Name = "Tab_" .. egg.Id,
-				Text = (if locked then "🔒 " else "") .. L.n(egg.Name),
+				Text = L.n(egg.Name),
 				Color = if egg.Id == currentEgg then Theme.Orange else Theme.BgCard,
 				Size = UDim2.fromOffset(118, 32),
 				MaxTextSize = 15,
@@ -25191,6 +26349,9 @@ function EggPanel.init(gui: ScreenGui)
 				end,
 				Parent = tabs,
 			})
+			if locked then
+				Widgets.buttonIcon(b, "Lock", 18) -- v3.2: замок из примитивов вместо эмодзи
+			end
 			b.LayoutOrder = i
 		end
 	end
@@ -25234,7 +26395,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25246,6 +26407,7 @@ local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local HotbarData = require(Shared:WaitForChild("HotbarData"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local L = require(Shared:WaitForChild("Locale"))
 
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -25340,7 +26502,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		HorizontalAlignment = Enum.HorizontalAlignment.Right,
 		Parent = timer,
 	})
-	local function chip(name: string, order: number, accent: Color3): (Frame, TextLabel)
+	local function chip(name: string, order: number, accent: Color3, iconKind: string?): (Frame, TextLabel)
 		local f = Widgets.New("Frame", {
 			Name = name,
 			Size = UDim2.new(1, 0, 0, 30),
@@ -25365,6 +26527,20 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			ZIndex = 7,
 			Parent = f,
 		})
+		if iconKind then
+			-- v3.2: значок Icons.lua слева (вместо эмодзи луны и часов в тексте)
+			Icons.make(iconKind, {
+				Name = "Icon",
+				Px = 22,
+				Size = UDim2.fromOffset(22, 22),
+				AnchorPoint = Vector2.new(0, 0.5),
+				Position = UDim2.new(0, 6, 0.5, 0),
+				ZIndex = 7,
+				Parent = f,
+			})
+			t.Size = UDim2.new(1, -40, 1, -6)
+			t.Position = UDim2.fromOffset(33, 3)
+		end
 		return f, t
 	end
 
@@ -25436,14 +26612,14 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 	end
 
-	-- события: одна строка на событие «⏱ Имя 1:45»; описание — в баннере при старте
+	-- события: одна строка на событие «[часы] Имя 1:45»; описание — в баннере при старте
 	local huntCard = HuntHud.init(gui, timer)
 	local eventList: any = {}
 	local seenActive: { [string]: boolean } = {}
 	local EVENT_COLORS = { GoldenRain = Theme.Gold, LunarNight = Theme.Purple, BossRaid = Theme.Red }
 	local eventChips: { [string]: any } = {}
-	-- как в образце: когда ничего не идёт — одна компактная плашка «🌙 Имя через 1:45» (ближайшее событие)
-	local nextChip, nextText = chip("NextEvent", 100, Color3.fromRGB(200, 205, 230))
+	-- как в образце: когда ничего не идёт — одна компактная плашка «[луна] Имя через 1:45» (ближайшее событие)
+	local nextChip, nextText = chip("NextEvent", 100, Color3.fromRGB(200, 205, 230), "Moon")
 	nextChip.Visible = false
 	local function drawEvents()
 		local soon, soonLeft, anyOn = nil, math.huge, false
@@ -25463,12 +26639,11 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			local c = eventChips[e.Id]
 			if e.Active then
 				if not c then
-					local f, t = chip("Event_" .. e.Id, 10 + i, EVENT_COLORS[e.Id] or Theme.Gold)
+					local f, t = chip("Event_" .. e.Id, 10 + i, EVENT_COLORS[e.Id] or Theme.Gold, "Clock")
 					c = { Frame = f, Text = t }
 					eventChips[e.Id] = c
 				end
-				c.Text.Text = "⏱ "
-					.. L.n(e.Name)
+				c.Text.Text = L.n(e.Name)
 					.. "  "
 					.. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0))))
 			elseif c then
@@ -25653,7 +26828,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25856,7 +27031,7 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
 					<Properties>
 						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26300,7 +27475,13 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [strin
 			task.defer(paint)
 		end)
 	end
+	local watches: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 	local function watch(container: Instance)
+		-- аудит v3.2: onCharacter может прийти дважды для одного персонажа/рюкзака — подписки ставятся один раз
+		if watches[container] then
+			return
+		end
+		watches[container] = true
 		for _, c in ipairs(container:GetChildren()) do
 			bind(c)
 		end
@@ -26437,13 +27618,14 @@ return Hotbar
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
 --[[
 	Hud (v2.5) — минимум кнопок на экране, крупно и ярко (жирный шрифт, толстая чёрная обводка):
-	  * слева по центру — «Магазин» и «Индекс» + переключатель автосбора (если есть пропуск) + маленькая «Ещё»;
+	  * слева по центру — «Магазин», «Индекс» и маленькая «Ещё» (v3.2: переключатель автосбора — в листе «Ещё»,
+	    только у владельцев пропуска «Автосбор»);
 	  * справа по центру — три квадратные иконки: Яйца, Питомцы, Задания (с точкой «!»);
 	  * слева снизу — монеты и самоцветы (большие числа с обводкой, без плашек);
 	  * снизу по центру — хотбар инструментов (Hotbar), справа снизу — таймеры событий (Fx «Timer»).
@@ -26479,11 +27661,17 @@ Hud.state = nil :: any -- флаги «есть что забрать» для �
 Hud.buttons = nil :: any
 
 Hud.LEFT = {
-	{ Id = "Shop", Name = "ShopBtn", Icon = "🛒", Text = "hud.shop", Color = Color3.fromRGB(70, 200, 80) },
+	{
+		Id = "Shop",
+		Name = "ShopBtn",
+		IconKind = "Cart",
+		Text = "hud.shop",
+		Color = Color3.fromRGB(70, 200, 80),
+	},
 	{
 		Id = "Index",
 		Name = "IndexBtn",
-		Icon = "📖",
+		IconKind = "Book",
 		Text = "hud.index",
 		Color = Color3.fromRGB(60, 150, 255),
 	},
@@ -26503,12 +27691,24 @@ function Hud.leftLayout(lay: any, side: number): (number, number, number)
 	return math.max(k, Theme.MIN_TAP / Hud.LEFT_H), Hud.LEFT_W.touch, Hud.LEFT_W.touchMore
 end
 Hud.RIGHT = {
-	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
-	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
+	{
+		Id = "Eggs",
+		Name = "EggsBtn",
+		IconKind = "Egg",
+		Text = "hud.eggs",
+		Color = Color3.fromRGB(240, 70, 70),
+	},
+	{
+		Id = "Pets",
+		Name = "PetsBtn",
+		IconKind = "Paw",
+		Text = "hud.pets",
+		Color = Color3.fromRGB(255, 150, 40),
+	},
 	{
 		Id = "Quests",
 		Name = "QuestsBtn",
-		Icon = "📜",
+		IconKind = "Scroll",
 		Text = "hud.quests",
 		Color = Color3.fromRGB(80, 200, 100),
 	},
@@ -26581,12 +27781,12 @@ local function currencyRow(
 end
 
 function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
-	-- ---------- слева: Магазин / Индекс / авто / Ещё ----------
+	-- ---------- слева: Магазин / Индекс / Ещё ----------
 	local left = Widgets.New("Frame", {
 		Name = "LeftButtons",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 12, 0.45, 0),
-		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 4 * Hud.LEFT_H + 3 * 6),
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 3 * Hud.LEFT_H + 2 * 6),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -26611,7 +27811,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
-			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
 			MaxTextSize = 30,
@@ -26623,32 +27823,14 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		})
 		compact(buttons[item.Id])
 	end
-	local autoBtn = Widgets.hudButton({
-		Name = "AutoToggle",
-		Color = Theme.Green,
-		Text = L.k("hud.auto_on"),
-		Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
-		MaxTextSize = 30,
-		Radius = 17,
-		LayoutOrder = 3,
-		OnClick = function()
-			local core = ClientState.Core
-			if core then
-				Actions.call("SetAutoCollect", not core.AutoCollect)
-			end
-		end,
-		Parent = left,
-	})
-	autoBtn.Visible = false
-	compact(autoBtn)
 	local moreBtn = Widgets.hudButton({
 		Name = "MoreBtn",
 		Color = Color3.fromRGB(150, 90, 240),
-		Icon = "☰",
+		IconKind = "Menu",
 		Text = L.k("hud.more"),
 		Size = UDim2.fromOffset(Hud.LEFT_W.wideMore, Hud.LEFT_H),
 		MaxTextSize = 30,
-		LayoutOrder = 4,
+		LayoutOrder = 3,
 		OnClick = function()
 			openPanel("More")
 		end,
@@ -26668,16 +27850,21 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = gui,
 	})
 	local rightScale = Widgets.New("UIScale", { Parent = right })
-	Widgets.New("UIListLayout", {
+	local rightList = Widgets.New("UIListLayout", {
 		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = right,
+	})
+	-- v3.2: телефон вертикально — кнопки справа сеткой 2×2 внизу: верх экрана свободен под окна
+	local rightGrid = Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(76, 76),
+		CellPadding = UDim2.fromOffset(10, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
 	for i, item in ipairs(Hud.RIGHT) do
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
-			Icon = item.Icon,
 			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Layout = "column",
@@ -26793,15 +27980,24 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		for _, item in ipairs(Hud.LEFT) do
 			buttons[item.Id].Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		end
-		autoBtn.Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		moreBtn.Size = UDim2.fromOffset(wm, Hud.LEFT_H)
-		left.Size = UDim2.fromOffset(w, 4 * Hud.LEFT_H + 3 * 6)
+		left.Size = UDim2.fromOffset(w, 3 * Hud.LEFT_H + 2 * 6)
 		leftScale.Scale, rightScale.Scale, walletScale.Scale = leftSide, rightSide, s
+		left.AnchorPoint, right.AnchorPoint = Vector2.new(0, 0.5), Vector2.new(1, 0.5)
+		rightGrid.Parent, rightList.Parent = nil, right
+		right.Size = UDim2.fromOffset(76, #Hud.RIGHT * 76 + (#Hud.RIGHT - 1) * 10)
 		if lay.Mode == "portrait" then
-			left.Position = UDim2.new(0, 10, 0.45, 0)
-			right.Position = UDim2.new(1, -10, 0.42, 0)
 			-- над хотбаром: снизу по центру тесно (хотбар + кнопка прыжка)
-			wallet.Position = UDim2.new(0, 12, 1, -math.floor(90 * s + 4))
+			local walletOff = math.floor(90 * s + 4)
+			wallet.Position = UDim2.new(0, 12, 1, -walletOff)
+			-- v3.2: обе колонки кнопок — внизу, прямо над кошельком: верх экрана целиком под окна (UiGeometry),
+			-- открытое окно не закрывает кнопки
+			local colBottom = walletOff + math.ceil(88 * s) + 10
+			left.AnchorPoint, right.AnchorPoint = Vector2.new(0, 1), Vector2.new(1, 1)
+			left.Position = UDim2.new(0, 10, 1, -colBottom)
+			right.Position = UDim2.new(1, -10, 1, -colBottom)
+			rightList.Parent, rightGrid.Parent = nil, right
+			right.Size = UDim2.fromOffset(2 * 76 + 10, 2 * 76 + 10)
 		elseif lay.Mode == "landscape" then
 			left.Position = UDim2.new(0, 10, 0.45, 0)
 			right.Position = UDim2.new(1, -10, 0.4, 0)
@@ -26813,16 +28009,74 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		end
 	end)
 
+	-- v3.2: безопасная область окон на телефоне — по реальным прямоугольникам кнопок и нижних плашек
+	-- (UiGeometry.areaFor). Пересчёт после смены раскладки и раз в секунду (плашки событий появляются и исчезают).
+	-- Видимый прямоугольник элемента с UIScale. В Roblox AbsoluteSize уже учитывает UIScale; веб-эмулятор
+	-- (roblox2web) отдаёт размер без масштаба и масштабирует вокруг центра — это распознаётся по размеру.
+	local function rectOf(o: GuiObject?): any
+		if not o or not o.Visible or o.AbsoluteSize.X < 1 then
+			return nil
+		end
+		-- координаты — относительно ScreenGui (в эмуляторе AbsolutePosition включает полосу GuiInset)
+		local ap, as = o.AbsolutePosition - gui.AbsolutePosition, o.AbsoluteSize
+		local sc = o:FindFirstChildOfClass("UIScale")
+		local k = if sc then sc.Scale else 1
+		local parent = o.Parent :: any
+		local pw = if parent and parent:IsA("GuiBase2d") then parent.AbsoluteSize.X else 0
+		local unscaledW = o.Size.X.Scale * pw + o.Size.X.Offset
+		if math.abs(k - 1) > 0.01 and math.abs(as.X - unscaledW) < 1 then
+			local cx, cy = ap.X + as.X / 2, ap.Y + as.Y / 2
+			return { X = cx - as.X * k / 2, Y = cy - as.Y * k / 2, W = as.X * k, H = as.Y * k }
+		end
+		return { X = ap.X, Y = ap.Y, W = as.X, H = as.Y }
+	end
+	local function updateArea()
+		local lay = Layout.get()
+		if lay.Mode == "wide" then
+			Layout.setPanelArea(nil)
+			gui:SetAttribute("PanelArea", "")
+			return
+		end
+		local bottoms = {}
+		for _, name in ipairs({ "Hotbar", "Currency" }) do
+			local r = rectOf(gui:FindFirstChild(name) :: GuiObject?)
+			if r then
+				table.insert(bottoms, r)
+			end
+		end
+		local timer = gui:FindFirstChild("Timer")
+		if timer then
+			for _, c in ipairs(timer:GetChildren()) do
+				local r = if c:IsA("GuiObject") then rectOf(c) else nil
+				if r then
+					table.insert(bottoms, r)
+				end
+			end
+		end
+		local gs = gui.AbsoluteSize
+		local area = Theme.Geometry.areaFor(lay.Mode, gs.X, gs.Y, rectOf(left), rectOf(right), bottoms, 0)
+		Layout.setPanelArea(area)
+		-- для тестов и отладки: область окон в координатах ScreenGui
+		gui:SetAttribute(
+			"PanelArea",
+			if area then string.format("%d,%d,%d,%d", area.X, area.Y, area.W, area.H) else ""
+		)
+	end
+	Hud.updateArea = updateArea
+	Layout.onChanged(function()
+		task.delay(0.1, updateArea)
+	end)
+	task.spawn(function()
+		while gui.Parent do
+			updateArea()
+			task.wait(1)
+		end
+	end)
+
 	-- ---------- данные ----------
 	ClientState.onCore(function(core)
 		coinsLabel.Text = Util.formatNumber(core.Coins)
 		gemsLabel.Text = Util.formatNumber(core.Gems)
-		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
-		local cap = autoBtn:FindFirstChild("Caption")
-		if cap then
-			L.bind(cap, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
-		end
-		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
 		local readyQuest = false
 		for id, e in pairs(core.Quests.Daily) do
 			local def = QuestData.DailyById[id]
@@ -26851,7 +28105,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27304,7 +28558,7 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
 					<Properties>
 						<string name="Name">IndexPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27372,7 +28626,8 @@ function IndexPanel.init(gui: ScreenGui)
 		Size = UDim2.new(1, -20, 1, -50),
 	})
 	UiKit.list(scroll, 8)
-	local cell = 96
+	-- v3.2: ячейка шире и выше — имя в 2 строки, редкость в строку при тексте >= 12 px
+	local cell = 120
 
 	local lastKey = ""
 	local function render(force: boolean?)
@@ -27417,7 +28672,7 @@ function IndexPanel.init(gui: ScreenGui)
 				Parent = frame,
 			})
 			Widgets.New("UIGridLayout", {
-				CellSize = UDim2.fromOffset(cell, cell + 14),
+				CellSize = UDim2.fromOffset(cell, 138),
 				CellPadding = UDim2.fromOffset(8, 8),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 				Parent = grid,
@@ -27455,27 +28710,26 @@ function IndexPanel.init(gui: ScreenGui)
 				UiKit.text(
 					c,
 					if known then L.n(def.Name) else "???",
-					UDim2.fromOffset(4, 58),
-					UDim2.new(1, -8, 0, 22),
+					UDim2.fromOffset(3, 57),
+					UDim2.new(1, -6, 0, 46),
 					{
 						Font = Theme.Font,
-						MaxSize = 15,
-						MinSize = 9,
+						MaxSize = 18,
+						TextWrapped = true,
 						TextXAlignment = Enum.TextXAlignment.Center,
 						TextColor3 = if known then Theme.Text else Theme.TextDim,
 					}
 				)
-				UiKit.text(c, L.n(def.Rarity), UDim2.fromOffset(4, 82), UDim2.new(1, -8, 0, 20), {
-					MaxSize = 13,
-					MinSize = 9,
+				UiKit.text(c, L.n(def.Rarity), UDim2.fromOffset(3, 106), UDim2.new(1, -6, 0, 26), {
+					MaxSize = 15,
 					TextXAlignment = Enum.TextXAlignment.Center,
 					TextColor3 = if known then rarity.Color else Theme.TextDim,
 				})
 			end
 		end
 	end
-	Layout.onChanged(function(lay)
-		cell = if lay.Mode == "wide" then 96 else 84
+	Layout.onChanged(function()
+		cell = 120
 		if panel.IsOpen() then
 			render(true)
 		end
@@ -27506,7 +28760,7 @@ return IndexPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
 					<Properties>
 						<string name="Name">InventoryPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27586,6 +28840,9 @@ function InventoryPanel.lineText(line): string
 	return L.t(line.Key)
 end
 
+-- v3.2: ячейка сетки («дизайнерские» px): название предмета в 2 строки при тексте >= 12 px
+InventoryPanel.CELL_W, InventoryPanel.CELL_H = 100, 112
+
 function InventoryPanel.init(gui: ScreenGui)
 	local panel = Widgets.panel(gui, "Inventory", nil, { MinH = 470 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
@@ -27593,10 +28850,10 @@ function InventoryPanel.init(gui: ScreenGui)
 	local grid = Widgets.scroller(body, {
 		Name = "Grid",
 		Position = UDim2.fromOffset(10, 4),
-		Size = UDim2.new(0.58, -14, 1, -12),
+		Size = UDim2.new(0.62, -14, 1, -12),
 	})
 	Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(86, 98),
+		CellSize = UDim2.fromOffset(InventoryPanel.CELL_W, InventoryPanel.CELL_H),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
@@ -27609,8 +28866,8 @@ function InventoryPanel.init(gui: ScreenGui)
 
 	local info = Widgets.New("Frame", {
 		Name = "Info",
-		Position = UDim2.new(0.58, 0, 0, 4),
-		Size = UDim2.new(0.42, -10, 1, -12),
+		Position = UDim2.new(0.62, 0, 0, 4),
+		Size = UDim2.new(0.38, -10, 1, -12),
 		BackgroundColor3 = Theme.BgLight,
 		ZIndex = 22,
 		Parent = body,
@@ -27623,9 +28880,9 @@ function InventoryPanel.init(gui: ScreenGui)
 			info.Position = UDim2.new(0, 10, 0.5, 2)
 			info.Size = UDim2.new(1, -20, 0.5, -10)
 		else
-			grid.Size = UDim2.new(0.58, -14, 1, -12)
-			info.Position = UDim2.new(0.58, 0, 0, 4)
-			info.Size = UDim2.new(0.42, -10, 1, -12)
+			grid.Size = UDim2.new(0.62, -14, 1, -12)
+			info.Position = UDim2.new(0.62, 0, 0, 4)
+			info.Size = UDim2.new(0.38, -10, 1, -12)
 		end
 	end)
 
@@ -27771,13 +29028,11 @@ function InventoryPanel.init(gui: ScreenGui)
 		local function line(text: string, opts)
 			order += 1
 			local o = opts or {}
-			-- высота по длине текста (~34 символа в строке при 14 px), чтобы длинные строки не мельчили
-			local chars = utf8.len(text) or #text
-			local h = o.H or math.clamp(math.ceil(chars / 34) * 17 + 6, 22, 76)
-			local l = UiKit.text(list, text, UDim2.new(), UDim2.new(1, -8, 0, h), {
+			-- v3.2: строка растёт по тексту (AutomaticSize, перенос), шрифт фиксированный >= 12 px — не мельчит
+			local l = UiKit.flowText(list, text, {
 				TextColor3 = o.Color or Theme.Text,
 				Font = o.Font,
-				MaxSize = o.Max or 14,
+				TextSize = o.Max or 15,
 				LayoutOrder = order,
 				ZIndex = 24,
 			})
@@ -27789,17 +29044,11 @@ function InventoryPanel.init(gui: ScreenGui)
 		if HotbarData.isPetItem(id) then
 			line(L.t("inv.slot_pets"), { Color = Theme.Gold, Name = "SlotNote" })
 		end
-		line(
-			L.t("inv.where"),
-			{ Font = Theme.Font, Color = Theme.Gem, Max = 16, H = 22, Name = "WhereTitle" }
-		)
+		line(L.t("inv.where"), { Font = Theme.Font, Color = Theme.Gem, Max = 18, Name = "WhereTitle" })
 		for _, ln in ipairs(InventoryData.sources(id)) do
 			line("• " .. InventoryPanel.lineText(ln))
 		end
-		line(
-			L.t("inv.used_for"),
-			{ Font = Theme.Font, Color = Theme.Green, Max = 16, H = 22, Name = "UseTitle" }
-		)
+		line(L.t("inv.used_for"), { Font = Theme.Font, Color = Theme.Green, Max = 18, Name = "UseTitle" })
 		for _, ln in ipairs(InventoryData.uses(id)) do
 			line("• " .. InventoryPanel.lineText(ln))
 		end
@@ -27885,9 +29134,9 @@ function InventoryPanel.init(gui: ScreenGui)
 			local name = UiKit.text(
 				cell,
 				L.n(InventoryData.name(e.Id)),
-				UDim2.new(0, 4, 1, -34),
-				UDim2.new(1, -8, 0, 30),
-				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13, ZIndex = 41 }
+				UDim2.new(0, 2, 1, -50),
+				UDim2.new(1, -4, 0, 46),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 15, ZIndex = 41 }
 			)
 			name.Name = "Name"
 			cell.Activated:Connect(function()
@@ -27977,7 +29226,7 @@ return InventoryPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28060,6 +29309,40 @@ function Layout.onChanged(fn: (Info) -> ())
 	fn(current)
 end
 
+-- v3.2: безопасная область для окон на телефоне (UiGeometry.areaFor) — её считает Hud по реальным кнопкам.
+-- nil — область не задана (ПК: окна по центру).
+local area: any = nil
+local areaListeners: { (any) -> () } = {}
+
+function Layout.panelArea(): any
+	return area
+end
+
+function Layout.setPanelArea(a: any)
+	local same = (a == nil and area == nil)
+		or (
+			a ~= nil
+			and area ~= nil
+			and math.abs(a.X - area.X) < 1
+			and math.abs(a.Y - area.Y) < 1
+			and math.abs(a.W - area.W) < 1
+			and math.abs(a.H - area.H) < 1
+		)
+	if same then
+		return
+	end
+	area = a
+	for _, fn in ipairs(areaListeners) do
+		task.spawn(fn, area)
+	end
+end
+
+-- fn(area) вызывается сразу и при каждом изменении области
+function Layout.onPanelArea(fn: (any) -> ())
+	table.insert(areaListeners, fn)
+	fn(area)
+end
+
 local started = false
 function Layout.init()
 	if started then
@@ -28095,7 +29378,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28132,23 +29415,24 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 	local body = panel.Body
 	local view = "Shop"
 	local scroll =
-		Widgets.scroller(body, { Position = UDim2.fromOffset(10, 78), Size = UDim2.new(1, -20, 1, -86) })
+		Widgets.scroller(body, { Position = UDim2.fromOffset(10, 108), Size = UDim2.new(1, -20, 1, -116) })
 	UiKit.list(scroll, 6)
 	local header = UiKit.text(
 		body,
 		"",
-		UDim2.fromOffset(10, 38),
-		UDim2.new(1, -230, 0, 34),
+		UDim2.fromOffset(10, 40),
+		UDim2.new(1, -20, 0, 28),
 		{ TextColor3 = Theme.Gold, MaxSize = 16 }
 	)
-	local bpBar = UiKit.bar(body, UDim2.new(1, -330, 0, 44), UDim2.fromOffset(200, 18), Theme.Blue)
+	-- v3.2: шапка в две строки: текст на всю ширину, ниже — полоса опыта и кнопки (текст >= 12 px не обрезается)
+	local bpBar = UiKit.bar(body, UDim2.fromOffset(10, 76), UDim2.new(1, -284, 0, 22), Theme.Blue)
 	Widgets.button({
 		Name = "ClaimAll",
 		Text = L.k("market.claim_all"),
 		Color = Theme.Green,
-		Size = UDim2.fromOffset(100, 28),
+		Size = UDim2.fromOffset(120, 30),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -112, 0, 40),
+		Position = UDim2.new(1, -134, 0, 72),
 		ZIndex = 23,
 		MaxTextSize = 15,
 		OnClick = function()
@@ -28161,9 +29445,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 		Name = "RobuxStore",
 		Text = L.k("market.robux_store"),
 		Color = Theme.Purple,
-		Size = UDim2.fromOffset(100, 28),
+		Size = UDim2.fromOffset(120, 30),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 40),
+		Position = UDim2.new(1, -8, 0, 72),
 		ZIndex = 23,
 		MaxTextSize = 14,
 		OnClick = function()
@@ -28203,21 +29487,14 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 			)
 			for i, o in ipairs(core.Shop.Offers) do
 				local sold = o.Left <= 0
-				local card = UiKit.card(scroll, 56, nil, i)
+				-- v3.2: карточка растёт по тексту (название и описание переносятся, текст >= 12 px)
+				local card, col = UiKit.flowCard(scroll, 56, nil, i, 10, 148)
 				card.Name = o.Id
-				UiKit.text(
-					card,
-					L.n(o.Name),
-					UDim2.fromOffset(10, 4),
-					UDim2.new(0.55, 0, 0, 22),
-					{ Font = Theme.Font, MaxSize = 18 }
-				)
-				UiKit.text(
-					card,
+				UiKit.flowText(col, L.n(o.Name), { Font = Theme.Font, TextSize = 18, LayoutOrder = 1 })
+				UiKit.flowText(
+					col,
 					L.t("market.left", { desc = o.Desc, n = o.Left, stock = o.Stock }),
-					UDim2.fromOffset(10, 28),
-					UDim2.new(0.6, 0, 0, 20),
-					{ TextColor3 = Theme.TextDim, MaxSize = 13 }
+					{ TextColor3 = Theme.TextDim, LayoutOrder = 2 }
 				)
 				local afford = (if o.Currency == "Gems" then core.Gems else core.Coins) >= o.Price
 				local b = Widgets.button({
@@ -28229,9 +29506,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 							{ price = Util.formatNumber(o.Price), n = o.Price }
 						),
 					Color = if o.Currency == "Gems" then Theme.Gem else Theme.Gold,
-					Size = UDim2.new(0.3, 0, 0, 38),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(132, 38),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 9),
 					ZIndex = 23,
 					MaxTextSize = 16,
 					OnClick = function()
@@ -28258,22 +29535,16 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 				if bp.Need > 0 then L.t("market.xp", { n = bp.Into, need = bp.Need }) else L.t("common.max")
 			)
 			if not premium then
-				local row = UiKit.card(scroll, 44, Theme.Gold, 0)
+				local row, col = UiKit.flowCard(scroll, 48, Theme.Gold, 0, 10, 148)
 				row.Name = "PremiumBanner"
-				UiKit.text(
-					row,
-					L.t("market.premium_banner"),
-					UDim2.fromOffset(10, 0),
-					UDim2.fromScale(0.62, 1),
-					{ MaxSize = 14, TextColor3 = Theme.Gold }
-				)
+				UiKit.flowText(col, L.t("market.premium_banner"), { TextColor3 = Theme.Gold })
 				Widgets.button({
 					Name = "GetPass",
 					Text = L.t("market.get_premium"),
 					Color = Theme.Gold,
-					Size = UDim2.new(0.28, 0, 0, 32),
-					AnchorPoint = Vector2.new(1, 0.5),
-					Position = UDim2.new(1, -8, 0.5, 0),
+					Size = UDim2.fromOffset(132, 34),
+					AnchorPoint = Vector2.new(1, 0),
+					Position = UDim2.new(1, -8, 0, 7),
 					ZIndex = 24,
 					MaxTextSize = 16,
 					OnClick = buyPass,
@@ -28283,13 +29554,13 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 			for lv = 1, BattlePassData.MaxLevel do
 				local reached = bp.Level >= lv
 				local fr, pr = BattlePassData.Free[lv], BattlePassData.Premium[lv]
-				local card = UiKit.card(scroll, 50, if reached then Theme.Blue else nil, lv)
+				local card = UiKit.card(scroll, 66, if reached then Theme.Blue else nil, lv)
 				card.Name = "L" .. lv
 				UiKit.text(
 					card,
 					L.t("market.lv", { n = lv }),
 					UDim2.fromOffset(8, 0),
-					UDim2.fromOffset(40, 50),
+					UDim2.fromOffset(40, 66),
 					{
 						Font = Theme.Font,
 						TextColor3 = if reached then Theme.Blue else Theme.TextDim,
@@ -28305,9 +29576,9 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 					UiKit.text(
 						card,
 						rewardLabel(r),
-						UDim2.new(x, 0, 0, 2),
-						UDim2.new(0.28, 0, 0, 24),
-						{ TextColor3 = if track == "Free" then Theme.Text else Theme.Gold, MaxSize = 12 }
+						UDim2.new(x, 0, 0, 3),
+						UDim2.new(0.42, -10, 0, 24),
+						{ TextColor3 = if track == "Free" then Theme.Text else Theme.Gold, MaxSize = 15 }
 					)
 					local b = Widgets.button({
 						Name = "Claim" .. track,
@@ -28316,10 +29587,10 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 							elseif track == "Premium" and not premium then L.t("talents.locked")
 							else L.t("quests.claim"),
 						Color = if track == "Free" then Theme.Green else Theme.Gold,
-						Size = UDim2.new(0.25, 0, 0, 20),
-						Position = UDim2.new(x, 0, 0, 27),
+						Size = UDim2.new(0.3, 0, 0, 30),
+						Position = UDim2.new(x, 0, 0, 30),
 						ZIndex = 24,
-						MaxTextSize = 12,
+						MaxTextSize = 16,
 						OnClick = function()
 							Actions.call("BpClaim", track, lv)
 						end,
@@ -28327,29 +29598,23 @@ function MarketPanel.init(gui: ScreenGui, openStore: () -> ())
 					})
 					Widgets.setEnabled(b, ok, if track == "Free" then Theme.Green else Theme.Gold)
 				end
-				cell("Free", fr, 0.08)
-				cell("Premium", pr, 0.4)
+				cell("Free", fr, 0.1)
+				cell("Premium", pr, 0.55)
 			end
 			-- докупка уровней продуктом (v2.4, аудит В3: на максимальном уровне строка скрыта —
 			-- покупать уже нечего; при покупке «впритык» сервер компенсирует недостающие уровни гемами)
 			local id = Config.PRODUCT_IDS.BP_SKIP
-			local row = UiKit.card(scroll, 44, nil, 1000)
+			local row, col = UiKit.flowCard(scroll, 48, nil, 1000, 10, 148)
 			row.Visible = bp.Level < BattlePassData.MaxLevel
 			row.Name = "SkipLevels"
-			UiKit.text(
-				row,
-				L.t("market.skip", { n = BattlePassData.SKIP_LEVELS }),
-				UDim2.fromOffset(10, 0),
-				UDim2.fromScale(0.6, 1),
-				{ MaxSize = 16 }
-			)
+			UiKit.flowText(col, L.t("market.skip", { n = BattlePassData.SKIP_LEVELS }))
 			local skipBtn = Widgets.button({
 				Name = "BuySkip",
 				Text = if id == 0 then L.t("shop.soon") else L.t("market.buy"),
 				Color = Theme.Purple,
-				Size = UDim2.new(0.28, 0, 0, 32),
-				AnchorPoint = Vector2.new(1, 0.5),
-				Position = UDim2.new(1, -8, 0.5, 0),
+				Size = UDim2.fromOffset(132, 34),
+				AnchorPoint = Vector2.new(1, 0),
+				Position = UDim2.new(1, -8, 0, 7),
 				ZIndex = 24,
 				MaxTextSize = 16,
 				OnClick = function()
@@ -28420,7 +29685,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
 					<Properties>
 						<string name="Name">MorePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28434,6 +29699,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 local Util = require(Shared:WaitForChild("Util"))
 
+local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
@@ -28444,16 +29710,16 @@ local MorePanel = {}
 
 -- Id панели, иконка, цвет; Where — где эта станция в хабе (подсказка под кнопкой)
 MorePanel.ITEMS = {
-	{ Id = "Upgrades", Icon = "⬆️", Color = Color3.fromRGB(60, 150, 255) },
-	{ Id = "Rebirth", Icon = "♻️", Color = Color3.fromRGB(170, 90, 255) },
-	{ Id = "Talents", Icon = "✨", Color = Color3.fromRGB(140, 80, 230) },
-	{ Id = "Daily", Icon = "🎁", Color = Color3.fromRGB(255, 180, 40) },
-	{ Id = "Zones", Icon = "🌍", Color = Color3.fromRGB(60, 190, 120) },
-	{ Id = "Craft", Icon = "⚒️", Color = Color3.fromRGB(200, 130, 70) },
-	{ Id = "Market", Icon = "🏪", Color = Color3.fromRGB(240, 90, 110) },
-	{ Id = "Trade", Icon = "🤝", Color = Color3.fromRGB(255, 140, 50) },
-	{ Id = "Boards", Icon = "🏆", Color = Color3.fromRGB(230, 190, 60) },
-	{ Id = "Settings", Icon = "⚙️", Color = Color3.fromRGB(110, 120, 150) },
+	{ Id = "Upgrades", IconKind = "Up", Color = Color3.fromRGB(60, 150, 255) },
+	{ Id = "Rebirth", IconKind = "Rebirth", Color = Color3.fromRGB(170, 90, 255) },
+	{ Id = "Talents", IconKind = "Sparkle", Color = Color3.fromRGB(140, 80, 230) },
+	{ Id = "Daily", IconKind = "Gift", Color = Color3.fromRGB(255, 180, 40) },
+	{ Id = "Zones", IconKind = "Globe", Color = Color3.fromRGB(60, 190, 120) },
+	{ Id = "Craft", IconKind = "Hammer", Color = Color3.fromRGB(200, 130, 70) },
+	{ Id = "Market", IconKind = "Store", Color = Color3.fromRGB(240, 90, 110) },
+	{ Id = "Trade", IconKind = "Trade", Color = Color3.fromRGB(255, 140, 50) },
+	{ Id = "Boards", IconKind = "Trophy", Color = Color3.fromRGB(230, 190, 60) },
+	{ Id = "Settings", IconKind = "Gear", Color = Color3.fromRGB(110, 120, 150) },
 }
 
 function MorePanel.init(
@@ -28464,17 +29730,49 @@ function MorePanel.init(
 	local panel = Widgets.panel(gui, "More")
 	local body = panel.Body
 
-	local info = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 22), {
+	-- v3.2: строки выше — при тексте >= 12 px множители и подсказка переносятся, а не обрезаются
+	local info = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 44), {
 		Name = "Multipliers",
 		TextColor3 = Theme.Gold,
 		Font = Theme.Font,
-		MaxSize = 17,
+		MaxSize = 18,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
-	local scroll = Widgets.scroller(body, {
-		Position = UDim2.fromOffset(10, 28),
-		Size = UDim2.new(1, -20, 1, -58),
+	-- v3.2: переключатель автосбора — здесь, а не на экране: он нужен редко (настройка сохраняется), а левая
+	-- колонка HUD остаётся из трёх кнопок. Виден только владельцам пропуска «Автосбор» (сервер тоже проверяет).
+	local autoBtn = Widgets.button({
+		Name = "AutoToggle",
+		Text = L.k("hud.auto_on"),
+		Color = Theme.Green,
+		Position = UDim2.fromOffset(12, 48),
+		Size = UDim2.new(1, -24, 0, 32),
+		MaxTextSize = 18,
+		Visible = false,
+		ZIndex = 23,
+		Parent = body,
+		OnClick = function()
+			local core = ClientState.Core
+			if core and core.Passes.AUTO_COLLECT == true then
+				Actions.call("SetAutoCollect", not core.AutoCollect)
+			end
+		end,
 	})
+	local scroll = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 48),
+		Size = UDim2.new(1, -20, 1, -94),
+	})
+	local function renderAuto(core: any)
+		local owner = core ~= nil and core.Passes.AUTO_COLLECT == true
+		autoBtn.Visible = owner
+		if owner then
+			L.bind(autoBtn, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
+			autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
+		end
+		local top = if owner then 84 else 48
+		scroll.Position = UDim2.fromOffset(10, top)
+		scroll.Size = UDim2.new(1, -20, 1, -(top + 46))
+	end
 	local grid = Widgets.New("UIGridLayout", {
 		CellSize = UDim2.fromOffset(150, 64),
 		CellPadding = UDim2.fromOffset(10, 10),
@@ -28483,10 +29781,10 @@ function MorePanel.init(
 		Parent = scroll,
 	})
 	Widgets.New("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), Parent = scroll })
-	UiKit.text(body, L.k("more.hint"), UDim2.new(0, 12, 1, -28), UDim2.new(1, -24, 0, 24), {
+	UiKit.text(body, L.k("more.hint"), UDim2.new(0, 12, 1, -44), UDim2.new(1, -24, 0, 40), {
 		TextColor3 = Theme.TextDim,
-		MaxSize = 14,
-		MinSize = 10,
+		MaxSize = 15,
+		TextWrapped = true,
 		TextXAlignment = Enum.TextXAlignment.Center,
 	})
 
@@ -28495,7 +29793,7 @@ function MorePanel.init(
 		local b = Widgets.hudButton({
 			Name = item.Id,
 			Color = item.Color,
-			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k("menu." .. item.Id),
 			Size = UDim2.fromOffset(150, 64),
 			MaxTextSize = 20,
@@ -28511,12 +29809,12 @@ function MorePanel.init(
 	end
 
 	Layout.onChanged(function(lay)
-		if lay.Mode == "portrait" then
-			grid.CellSize = UDim2.new(0.5, -10, 0, 58)
-		elseif lay.Mode == "landscape" then
-			grid.CellSize = UDim2.new(0.25, -10, 0, 56)
+		-- v3.2: телефон в альбомной ориентации — три колонки; вертикально и на ПК — две
+		-- (подписи >= 14 px помещаются)
+		if lay.Mode == "landscape" then
+			grid.CellSize = UDim2.new(1 / 3, -10, 0, 54)
 		else
-			grid.CellSize = UDim2.fromOffset(150, 64)
+			grid.CellSize = UDim2.new(0.5, -10, 0, 58)
 		end
 	end)
 
@@ -28539,7 +29837,8 @@ function MorePanel.init(
 			dot.Visible = d[id] == true
 		end
 	end
-	ClientState.onCore(function()
+	ClientState.onCore(function(core)
+		renderAuto(core)
 		if panel.IsOpen() then
 			render()
 		end
@@ -28561,7 +29860,7 @@ return MorePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007D">
 					<Properties>
 						<string name="Name">Music</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28574,7 +29873,11 @@ return MorePanel
 	  * Sound создаются на клиенте в SoundService — слышит только этот игрок.
 	Music.sfx(key, pos?) — короткий звук из Config.SOUNDS (если звуки включены); с pos — в точке мира.
 	Звуки морского сундука (Remotes "SeaChest"): тихий сигнал появления и звук открытия.
+	v3.2: если ассет не загрузился (отклонён модерацией, удалён, нет сети) — одна запись в лог, звук пропускается,
+	игра работает дальше (вторая тема играет вместо сломанной; Play не повторяется каждый кадр). Атрибут gui
+	AudioFailed — список сломанных ключей (для тестов).
 ]]
+local ContentProvider = game:GetService("ContentProvider")
 local Debris = game:GetService("Debris")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -28589,9 +29892,59 @@ local ClientState = require(script.Parent.ClientState)
 
 local Music = {}
 
-local tracks: { [string]: { Sound: Sound, Mix: number, Base: number } } = {}
+local tracks: { [string]: { Sound: Sound, Mix: number, Base: number, Key: string } } = {}
 local settings = AudioData.normalize(nil)
 local hunt = false
+local health = AudioData.newHealth()
+local guiRef: ScreenGui? = nil
+
+local function publish()
+	local g = guiRef
+	if g then
+		g:SetAttribute(
+			"MusicTracks",
+			(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
+		)
+		g:SetAttribute("AudioFailed", AudioData.failedList(health))
+	end
+end
+
+-- ассет недоступен: одна запись в лог, трек убирается (вместо него играет другой), звук больше не создаётся
+function Music.fail(key: string, why: string?)
+	if not AudioData.reportFailure(health, key, why) then
+		return
+	end
+	warn(
+		("[Music] sound %s (%s) unavailable: %s; skipped"):format(
+			key,
+			tostring(Config.SOUNDS[key]),
+			why or "?"
+		)
+	)
+	for name, t in pairs(tracks) do
+		if t.Key == key then
+			tracks[name] = nil
+			t.Sound:Destroy()
+		end
+	end
+	publish()
+end
+
+-- проверка загрузки ассета (асинхронно): Failure / TimedOut — звук сломан
+local function probe(key: string, target: any)
+	task.spawn(function()
+		local ok, err = pcall(function()
+			ContentProvider:PreloadAsync({ target }, function(_contentId, status)
+				if status == Enum.AssetFetchStatus.Failure or status == Enum.AssetFetchStatus.TimedOut then
+					Music.fail(key, tostring(status))
+				end
+			end)
+		end)
+		if not ok then
+			Music.fail(key, tostring(err))
+		end
+	end)
+end
 
 function Music.settings()
 	return settings
@@ -28611,6 +29964,9 @@ local function step(dt: number)
 		local s = t.Sound
 		s.Volume = AudioData.gain(t.Mix, t.Base, settings.MusicVol)
 		if t.Mix > 0 and not s.IsPlaying then
+			if not AudioData.tryPlay(health, t.Key, os.clock()) then
+				continue -- ещё грузится (повтор не чаще RETRY с) или ассет сломан
+			end
 			if s.IsPaused and name == "Calm" then
 				s:Resume() -- спокойная тема продолжает с того же места
 			else
@@ -28624,6 +29980,7 @@ local function step(dt: number)
 end
 
 function Music.init(gui: ScreenGui)
+	guiRef = gui
 	local folder = Instance.new("Folder")
 	folder.Name = "PcsMusic"
 	folder.Parent = SoundService
@@ -28640,13 +29997,18 @@ function Music.init(gui: ScreenGui)
 				Sound = s,
 				Mix = 0,
 				Base = if name == "Epic" then Config.MUSIC.EPIC_VOLUME else Config.MUSIC.CALM_VOLUME,
+				Key = key,
 			}
+			probe(key, s)
 		end
 	end
-	gui:SetAttribute(
-		"MusicTracks",
-		(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
-	)
+	for _, key in ipairs({ "CHEST_SPAWN", "CHEST_OPEN" }) do
+		local id = AudioData.soundId(Config.SOUNDS[key])
+		if id then
+			probe(key, id)
+		end
+	end
+	publish()
 	gui:GetAttributeChangedSignal("HuntActive"):Connect(function()
 		hunt = gui:GetAttribute("HuntActive") == true
 	end)
@@ -28673,7 +30035,7 @@ end
 
 function Music.sfx(key: string, pos: Vector3?, volume: number?)
 	local id = AudioData.soundId(Config.SOUNDS[key])
-	if not id or not settings.Sfx then
+	if not id or not settings.Sfx or AudioData.isFailed(health, key) then
 		return
 	end
 	local s = Instance.new("Sound")
@@ -28701,7 +30063,7 @@ return Music
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007E">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -28751,7 +30113,7 @@ local function nextOf(list: { string }, current: string): string
 end
 
 function PetsPanel.init(gui: ScreenGui)
-	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 480 }) -- v3.1: плотная раскладка — уменьшается меньше
+	local panel = Widgets.panel(gui, "Pets", nil, { MinH = 580 }) -- v3.1: плотная раскладка — уменьшается меньше
 	local body = panel.Body
 
 	local filters = { Element = "All", Role = "All", Rarity = "All", Sort = "Power", FavOnly = false }
@@ -28841,7 +30203,7 @@ function PetsPanel.init(gui: ScreenGui)
 		Size = UDim2.new(1, -20, 1, -66 - 134),
 	})
 	Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(104, 112),
+		CellSize = UDim2.fromOffset(108, 142),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = scroll,
@@ -29048,33 +30410,34 @@ function PetsPanel.init(gui: ScreenGui)
 			favBtn.Size = UDim2.new(0.5, -14, 0, 26)
 			favBtn.Position = UDim2.new(0.5, 4, 0, 92)
 			scroll.Position = UDim2.fromOffset(10, 124)
-			scroll.Size = UDim2.new(1, -20, 1, -124 - 180)
+			scroll.Size = UDim2.new(1, -20, 1, -124 - 198)
 			if grid then
-				grid.CellSize = UDim2.fromOffset(98, 108)
+				grid.CellSize = UDim2.fromOffset(104, 142)
 				grid.CellPadding = UDim2.fromOffset(6, 6)
 			end
-			footer.Position = UDim2.new(0, 10, 1, -176)
-			footer.Size = UDim2.new(1, -20, 0, 172)
-			detailName.Size = UDim2.new(1, -24, 0, 22)
-			detailLine.Position = UDim2.fromOffset(12, 30)
-			detailLine.Size = UDim2.new(1, -24, 0, 16)
-			detailAbility.Position = UDim2.fromOffset(12, 48)
-			detailAbility.Size = UDim2.new(1, -24, 0, 28)
-			xpBar.Back.Position = UDim2.fromOffset(12, 80)
+			-- v3.2: строки сведений выше — текст >= 12 px не обрезается
+			footer.Position = UDim2.new(0, 10, 1, -194)
+			footer.Size = UDim2.new(1, -20, 0, 190)
+			detailName.Size = UDim2.new(1, -24, 0, 24)
+			detailLine.Position = UDim2.fromOffset(12, 32)
+			detailLine.Size = UDim2.new(1, -24, 0, 20)
+			detailAbility.Position = UDim2.fromOffset(12, 54)
+			detailAbility.Size = UDim2.new(1, -24, 0, 38)
+			xpBar.Back.Position = UDim2.fromOffset(12, 96)
 			xpBar.Back.Size = UDim2.new(1, -24, 0, 14)
 			for name, b in pairs(buttons) do
 				local cr = GRID_COMPACT[name]
-				b.Size = UDim2.new(1 / 3, -8, 0, 32)
-				b.Position = UDim2.new((cr[1] - 1) / 3, 10 - (cr[1] - 1) * 2, 0, 100 + (cr[2] - 1) * 36)
+				b.Size = UDim2.new(1 / 3, -8, 0, 34)
+				b.Position = UDim2.new((cr[1] - 1) / 3, 10 - (cr[1] - 1) * 2, 0, 116 + (cr[2] - 1) * 38)
 			end
 		else
-			info.Size = UDim2.new(1, -330, 0, 24)
+			info.Size = UDim2.new(1, -400, 0, 24)
 			modeBtn.AnchorPoint = Vector2.new(1, 0)
-			modeBtn.Position = UDim2.new(1, -150, 0, 4)
-			modeBtn.Size = UDim2.fromOffset(120, 26)
+			modeBtn.Position = UDim2.new(1, -196, 0, 4)
+			modeBtn.Size = UDim2.fromOffset(150, 26)
 			local best = body:FindFirstChild("EquipBest") :: GuiObject
 			best.Position = UDim2.new(1, -12, 0, 4)
-			best.Size = UDim2.fromOffset(130, 26)
+			best.Size = UDim2.fromOffset(176, 26)
 			for i, key in ipairs(filterOrder) do
 				local b = filterBtns[key]
 				b.Size = UDim2.new(0.2, -6, 0, 26)
@@ -29085,14 +30448,14 @@ function PetsPanel.init(gui: ScreenGui)
 			scroll.Position = UDim2.fromOffset(10, 66)
 			scroll.Size = UDim2.new(1, -20, 1, -66 - 134)
 			if grid then
-				grid.CellSize = UDim2.fromOffset(104, 112)
+				grid.CellSize = UDim2.fromOffset(108, 142)
 				grid.CellPadding = UDim2.fromOffset(8, 8)
 			end
 			footer.Position = UDim2.new(0, 10, 1, -128)
 			footer.Size = UDim2.new(1, -20, 0, 124)
 			detailName.Size = UDim2.new(0.5, 0, 0, 24)
 			detailLine.Position = UDim2.fromOffset(12, 32)
-			detailLine.Size = UDim2.new(0.55, 0, 0, 18)
+			detailLine.Size = UDim2.new(0.53, 0, 0, 22)
 			detailAbility.Position = UDim2.fromOffset(12, 52)
 			detailAbility.Size = UDim2.new(0.53, 0, 0, 34)
 			xpBar.Back.Position = UDim2.fromOffset(12, 90)
@@ -29109,18 +30472,18 @@ function PetsPanel.init(gui: ScreenGui)
 			autoBtn.Size = UDim2.new(0.14, -4, 0, 34)
 			autoBtn.Position = UDim2.new(0.55 + 0.30, 4, 0, 88)
 			if li.Mode == "landscape" then
-				-- Низкий экран: нижняя панель ужимается, чтобы под карточки остался хотя бы ряд
-				scroll.Size = UDim2.new(1, -20, 1, -66 - 98)
-				footer.Position = UDim2.new(0, 10, 1, -94)
-				footer.Size = UDim2.new(1, -20, 0, 90)
+				-- v3.2: низкий экран — панель выше (текст >= 12 px не обрезается), под карточки остаётся ряд
+				scroll.Size = UDim2.new(1, -20, 1, -66 - 122)
+				footer.Position = UDim2.new(0, 10, 1, -118)
+				footer.Size = UDim2.new(1, -20, 0, 114)
 				detailName.Position = UDim2.fromOffset(12, 4)
-				detailName.Size = UDim2.new(0.5, 0, 0, 20)
-				detailLine.Position = UDim2.fromOffset(12, 26)
-				detailLine.Size = UDim2.new(0.53, 0, 0, 16)
-				detailAbility.Position = UDim2.fromOffset(12, 44)
-				detailAbility.Size = UDim2.new(0.53, 0, 0, 22)
-				xpBar.Back.Position = UDim2.fromOffset(12, 70)
-				xpBar.Back.Size = UDim2.new(0.5, 0, 0, 14)
+				detailName.Size = UDim2.new(0.5, 0, 0, 22)
+				detailLine.Position = UDim2.fromOffset(12, 28)
+				detailLine.Size = UDim2.new(0.53, 0, 0, 22)
+				detailAbility.Position = UDim2.fromOffset(12, 52)
+				detailAbility.Size = UDim2.new(0.53, 0, 0, 34)
+				xpBar.Back.Position = UDim2.fromOffset(12, 90)
+				xpBar.Back.Size = UDim2.new(0.5, 0, 0, 18)
 				for name, b in pairs(buttons) do
 					local cr = GRID_WIDE[name]
 					if cr then
@@ -29341,30 +30704,29 @@ function PetsPanel.init(gui: ScreenGui)
 				if picked then 4 else 2
 			)
 			UiKit.petIcon(card, pet.Id, pet.Variant, 44, UDim2.new(0.5, -22, 0, 8))
-			UiKit.text(
-				card,
-				L.n(def.Name),
-				UDim2.fromOffset(3, 54),
-				UDim2.new(1, -6, 0, 18),
-				{ TextColor3 = rarity.Color, TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 14 }
-			)
+			UiKit.text(card, L.n(def.Name), UDim2.fromOffset(3, 52), UDim2.new(1, -6, 0, 42), {
+				TextColor3 = rarity.Color,
+				TextXAlignment = Enum.TextXAlignment.Center,
+				MaxSize = 15,
+				TextWrapped = true,
+			})
 			UiKit.text(
 				card,
 				L.t("pets.card_lv", { n = pet.Level, x = Util.formatNumber(pet.Power) }),
-				UDim2.fromOffset(3, 73),
-				UDim2.new(1, -6, 0, 16),
-				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 13 }
+				UDim2.fromOffset(3, 95),
+				UDim2.new(1, -6, 0, 21),
+				{ TextXAlignment = Enum.TextXAlignment.Center, MaxSize = 15 }
 			)
 			UiKit.text(
 				card,
 				(if pet.Variant ~= "Normal" then L.n(pet.Variant) .. " " else "")
 					.. (if pet.Evo > 0 then string.rep("*", pet.Evo) else ""),
-				UDim2.fromOffset(3, 91),
-				UDim2.new(1, -6, 0, 14),
+				UDim2.fromOffset(3, 117),
+				UDim2.new(1, -6, 0, 21),
 				{
 					TextColor3 = (PetMeta.Variants[pet.Variant] or PetMeta.Variants.Normal).Color,
 					TextXAlignment = Enum.TextXAlignment.Center,
-					MaxSize = 12,
+					MaxSize = 15,
 				}
 			)
 			UiKit.badge(
@@ -29377,13 +30739,13 @@ function PetsPanel.init(gui: ScreenGui)
 				card,
 				L.t("role_icon." .. meta.Role),
 				PetMeta.Roles[meta.Role].Color,
-				UDim2.fromOffset(4, 22)
+				UDim2.fromOffset(4, 27)
 			)
 			if equippedIndex(core, entry.Uid) then
 				UiKit.badge(card, L.t("pets.on_badge"), Theme.Green, UDim2.new(1, -30, 0, 4), 26)
 			end
 			if pet.Fav then
-				UiKit.badge(card, "*", Theme.Gold, UDim2.new(1, -30, 0, 22), 26)
+				UiKit.badge(card, "*", Theme.Gold, UDim2.new(1, -30, 0, 27), 26)
 			end
 			card.Activated:Connect(function()
 				if mode == "Fusion" then
@@ -29457,7 +30819,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007F">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29472,7 +30834,6 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
-local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -29507,47 +30868,32 @@ function QuestsPanel.init(gui: ScreenGui)
 				if def then
 					order += 1
 					local done = entry.P >= def.Obj.Count
-					local narrow = Layout.compact()
-					local card = UiKit.card(
+					-- v3.2: карточка растёт по тексту (перенос, текст >= 12 px), полоса прогресса — с подписью
+					local card, col = UiKit.flowCard(
 						scroll,
-						if narrow then 84 else 64,
+						64,
 						if done and not entry.C then Theme.Green else nil,
-						order
+						order,
+						10,
+						120
 					)
 					card.Name = id
-					UiKit.text(
-						card,
-						L.n(def.Name),
-						UDim2.fromOffset(10, 4),
-						UDim2.new(0.5, 0, 0, 22),
-						{ Font = Theme.Font, MaxSize = 18 }
-					)
-					UiKit.text(
-						card,
+					UiKit.flowText(col, L.n(def.Name), { Font = Theme.Font, TextSize = 18, LayoutOrder = 1 })
+					UiKit.flowText(
+						col,
 						L.t("quests.obj_reward", { obj = objText(def.Obj), reward = rewardText(def.Reward) }),
-						UDim2.fromOffset(10, 26),
-						UDim2.new(0.7, 0, 0, if narrow then 34 else 16),
-						{
-							TextColor3 = Theme.TextDim,
-							MaxSize = 13,
-							TextWrapped = narrow,
-							TextYAlignment = Enum.TextYAlignment.Top,
-						}
+						{ TextColor3 = Theme.TextDim, LayoutOrder = 2 }
 					)
-					local bar = UiKit.bar(
-						card,
-						UDim2.fromOffset(10, if narrow then 64 else 45),
-						UDim2.new(0.65, 0, 0, 14),
-						Theme.Green
-					)
+					local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Green)
+					bar.Back.LayoutOrder = 3
 					bar.Set(entry.P / def.Obj.Count, ("%d / %d"):format(entry.P, def.Obj.Count))
 					local b = Widgets.button({
 						Name = "Claim",
 						Text = if entry.C then L.t("quests.claimed") else L.t("quests.claim"),
 						Color = Theme.Green,
-						Size = UDim2.new(0.2, 0, 0, 36),
-						AnchorPoint = Vector2.new(1, 0.5),
-						Position = UDim2.new(1, -8, 0.5, 0),
+						Size = UDim2.fromOffset(104, 36),
+						AnchorPoint = Vector2.new(1, 0),
+						Position = UDim2.new(1, -8, 0, 12),
 						ZIndex = 23,
 						MaxTextSize = 18,
 						OnClick = function()
@@ -29558,36 +30904,28 @@ function QuestsPanel.init(gui: ScreenGui)
 					Widgets.setEnabled(b, done and not entry.C, Theme.Green)
 				end
 			end
-			UiKit.text(
-				scroll,
-				L.t("quests.refresh_utc"),
-				UDim2.fromOffset(4, 0),
-				UDim2.new(1, -8, 0, 20),
-				{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-			)
+			UiKit.flowText(scroll, L.t("quests.refresh_utc"), { TextColor3 = Theme.TextDim, LayoutOrder = 0 })
 		elseif view == "Story" then
 			for i, npcId in ipairs(QuestData.NpcOrder) do
 				local npc = QuestData.Npcs[npcId]
 				local chain = QuestData.Chains[npcId]
 				local st = core.Quests.Chains[npcId] or { Step = 1, Accepted = false, Progress = 0 }
 				local step = chain.Steps[st.Step]
-				local card = UiKit.card(scroll, 78, npc.Color, i)
+				local card, col = UiKit.flowCard(scroll, 60, npc.Color, i, 10, 10)
 				card.Name = npcId
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					("%s - %s (%d/%d)"):format(
 						L.n(npc.Name),
 						L.n(chain.Name),
 						math.min(st.Step - 1, #chain.Steps),
 						#chain.Steps
 					),
-					UDim2.fromOffset(10, 4),
-					UDim2.new(1, -20, 0, 22),
-					{ Font = Theme.Font, TextColor3 = npc.Color, MaxSize = 17 }
+					{ Font = Theme.Font, TextColor3 = npc.Color, TextSize = 18, LayoutOrder = 1 }
 				)
 				if step then
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						L.n(step.Title)
 							.. ": "
 							.. (
@@ -29595,33 +30933,23 @@ function QuestsPanel.init(gui: ScreenGui)
 									then objText(step.Obj)
 									else L.t("quests.talk_to", { npc = npc.Name })
 							),
-						UDim2.fromOffset(10, 28),
-						UDim2.new(1, -20, 0, 18),
-						{ MaxSize = 14 }
+						{ LayoutOrder = 2 }
 					)
-					local bar =
-						UiKit.bar(card, UDim2.fromOffset(10, 52), UDim2.new(0.6, 0, 0, 16), Theme.Blue)
+					local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Blue)
+					bar.Back.LayoutOrder = 3
 					bar.Set(
 						if st.Accepted then st.Progress / step.Obj.Count else 0,
 						if st.Accepted
 							then ("%d / %d"):format(st.Progress, step.Obj.Count)
 							else L.t("quests.not_started")
 					)
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						L.t("quests.reward", { reward = rewardText(step.Reward) }),
-						UDim2.new(0.64, 0, 0, 50),
-						UDim2.new(0.34, 0, 0, 22),
-						{ TextColor3 = Theme.Gold, MaxSize = 12 }
+						{ TextColor3 = Theme.Gold, LayoutOrder = 4 }
 					)
 				else
-					UiKit.text(
-						card,
-						L.t("quests.all_done"),
-						UDim2.fromOffset(10, 32),
-						UDim2.new(1, -20, 0, 22),
-						{ TextColor3 = Theme.Green, MaxSize = 15 }
-					)
+					UiKit.flowText(col, L.t("quests.all_done"), { TextColor3 = Theme.Green, LayoutOrder = 2 })
 				end
 			end
 		else
@@ -29632,45 +30960,33 @@ function QuestsPanel.init(gui: ScreenGui)
 				if done then
 					got += 1
 				end
-				local card = UiKit.card(scroll, 54, if done then Theme.Gold else nil, i)
+				local card, col = UiKit.flowCard(scroll, 54, if done then Theme.Gold else nil, i, 10, 96)
 				card.Name = a.Id
-				UiKit.text(
-					card,
-					L.n(a.Name) .. (if done then L.t("quests.done_suffix") else ""),
-					UDim2.fromOffset(10, 3),
-					UDim2.new(0.6, 0, 0, 20),
-					{ Font = Theme.Font, TextColor3 = if done then Theme.Gold else Theme.Text, MaxSize = 16 }
-				)
-				UiKit.text(
-					card,
-					L.n(a.Desc),
-					UDim2.fromOffset(10, 22),
-					UDim2.new(0.6, 0, 0, 16),
-					{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-				)
-				local bar = UiKit.bar(card, UDim2.fromOffset(10, 39), UDim2.new(0.55, 0, 0, 11), Theme.Gold)
-				bar.Set(math.min(1, value / a.Goal), "")
-				UiKit.text(
-					card,
-					("%s / %s"):format(Util.formatNumber(math.min(value, a.Goal)), Util.formatNumber(a.Goal)),
-					UDim2.new(0.58, 0, 0, 36),
-					UDim2.new(0.2, 0, 0, 14),
-					{ MaxSize = 12 }
+				UiKit.flowText(col, L.n(a.Name) .. (if done then L.t("quests.done_suffix") else ""), {
+					Font = Theme.Font,
+					TextColor3 = if done then Theme.Gold else Theme.Text,
+					TextSize = 18,
+					LayoutOrder = 1,
+				})
+				UiKit.flowText(col, L.n(a.Desc), { TextColor3 = Theme.TextDim, LayoutOrder = 2 })
+				local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Gold)
+				bar.Back.LayoutOrder = 3
+				bar.Set(
+					math.min(1, value / a.Goal),
+					("%s / %s"):format(Util.formatNumber(math.min(value, a.Goal)), Util.formatNumber(a.Goal))
 				)
 				UiKit.text(
 					card,
 					"+" .. L.t("reward.gems", { n = a.Gems }),
-					UDim2.new(0.8, 0, 0, 16),
-					UDim2.new(0.18, 0, 0, 22),
-					{ TextColor3 = Theme.Gem, MaxSize = 15, TextXAlignment = Enum.TextXAlignment.Right }
+					UDim2.new(1, -92, 0, 8),
+					UDim2.fromOffset(84, 24),
+					{ TextColor3 = Theme.Gem, MaxSize = 16, TextXAlignment = Enum.TextXAlignment.Right }
 				)
 			end
-			UiKit.text(
+			UiKit.flowText(
 				scroll,
 				L.t("quests.ach_count", { n = got, total = total }),
-				UDim2.fromOffset(4, 0),
-				UDim2.new(1, -8, 0, 20),
-				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
+				{ TextColor3 = Theme.TextDim, LayoutOrder = 0 }
 			)
 		end
 	end
@@ -29715,7 +31031,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000080">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29834,7 +31150,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000081">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -29933,6 +31249,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 			setAudio("Music", not audio().Music)
 		end,
 	})
+	Widgets.buttonIcon(musicBtn, "Note", 24) -- v3.2: значок вместо эмодзи
 	local sfxBtn = Widgets.button({
 		Name = "SfxToggle",
 		Text = "",
@@ -29946,6 +31263,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 			setAudio("Sfx", not audio().Sfx)
 		end,
 	})
+	Widgets.buttonIcon(sfxBtn, "Bell", 24) -- v3.2: значок вместо эмодзи
 	UiKit.text(body, L.k("settings.music_volume"), UDim2.fromOffset(0, 236), UDim2.new(0.45, 0, 0, 40), {
 		MaxSize = 18,
 	})
@@ -30049,7 +31367,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000082">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30072,6 +31390,8 @@ local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
 
 local ShopPanel = {}
+-- v3.2: высота карточки («дизайнерские» px): название в 2 строки, описание до 5 строк, кнопка покупки
+ShopPanel.CARD_H = 196
 
 local localPlayer = Players.LocalPlayer
 
@@ -30095,14 +31415,16 @@ local function section(parent: Instance, title: any, order: number): (Frame, Tex
 		Parent = parent,
 	})
 	local gl = Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(150, 150),
+		CellSize = UDim2.new(0.5, -4, 0, ShopPanel.CARD_H),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
 	})
-	-- Портрет телефона: две карточки на всю ширину панели (текст описаний крупнее)
+	-- v3.2: карточки делят ширину окна (2 колонки; телефон горизонтально — 3): текст не мельче 12 px
+	-- и не обрезается (Theme.panelScale)
 	Layout.onChanged(function(li)
-		gl.CellSize = if li.Mode == "portrait" then UDim2.new(0.5, -4, 0, 150) else UDim2.fromOffset(150, 150)
+		local n = if li.Mode == "landscape" then 3 else 2
+		gl.CellSize = UDim2.new(1 / n, -math.ceil(8 * (n - 1) / n), 0, ShopPanel.CARD_H)
 	end)
 	return grid, header
 end
@@ -30111,28 +31433,30 @@ local function card(parent: Instance, name: any, desc: any, color: Color3): (Fra
 	local c = Widgets.New("Frame", { BackgroundColor3 = Theme.BgCard, ZIndex = 23, Parent = parent })
 	Widgets.corner(c, 12)
 	Widgets.stroke(c, color, 2)
-	Widgets.label({
+	local title = Widgets.label({
+		Name = "Title",
 		Text = name,
-		Size = UDim2.new(1, -10, 0, 26),
-		Position = UDim2.fromOffset(5, 5),
+		Size = UDim2.new(1, -10, 0, 40),
+		Position = UDim2.fromOffset(5, 4),
 		Font = Theme.Font,
 		TextColor3 = color,
 		ZIndex = 24,
 		Parent = c,
 	})
-	local d = Widgets.label({
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 22, Parent = title })
+	Widgets.label({
+		Name = "Desc",
 		Text = desc,
-		Size = UDim2.new(1, -12, 0, 54),
-		Position = UDim2.fromOffset(6, 34),
+		Size = UDim2.new(1, -12, 1, -(48 + 52)),
+		Position = UDim2.fromOffset(6, 48),
 		TextColor3 = Theme.TextDim,
+		-- v3.2.1: фиксированный размер (12 px на экране при масштабе окна 0.8) с переносом — у всех карточек одинаковый
+		TextScaled = false,
+		TextSize = 15,
+		TextYAlignment = Enum.TextYAlignment.Top,
 		ZIndex = 24,
 		Parent = c,
 	})
-	local tsc = Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = d })
-	-- v2.4 (М6): на телефоне (портрет и ландшафт) описание не мельче 10 px
-	Layout.onChanged(function(li)
-		tsc.MinTextSize = if li.Mode ~= "wide" then 10 else 8
-	end)
 	local buy = Widgets.button({
 		Text = "...",
 		Color = Theme.Green,
@@ -30202,7 +31526,11 @@ function ShopPanel.init(gui: ScreenGui)
 	local order = 10
 	local restrictedNote = Widgets.label({
 		Text = L.k("shop.restricted"),
-		Size = UDim2.new(1, -8, 0, 40),
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, -- v3.2.1: фиксированный размер с переносом, высота по тексту
+		TextScaled = false,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 9,
 		Visible = false,
@@ -30252,8 +31580,13 @@ function ShopPanel.init(gui: ScreenGui)
 	end
 
 	Widgets.label({
+		Name = "Disclaimer",
 		Text = L.k("shop.disclaimer"),
-		Size = UDim2.new(1, -8, 0, 36),
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, -- v3.2.1: фиксированный размер с переносом, высота по тексту
+		TextScaled = false,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 1000,
 		ZIndex = 22,
@@ -30282,7 +31615,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000080">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000083">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30295,6 +31628,7 @@ local TalentData = require(Shared:WaitForChild("TalentData"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -30308,23 +31642,23 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 		body,
 		"",
 		UDim2.fromOffset(12, 6),
-		UDim2.new(0.5, 0, 0, 26),
-		{ Font = Theme.Font, TextColor3 = Theme.Gold, MaxSize = 20 }
+		UDim2.new(1, -330, 0, 30),
+		{ Font = Theme.Font, TextColor3 = Theme.Gold, MaxSize = 22 }
 	)
 	local info = UiKit.text(
 		body,
 		L.k("talents.hint"),
-		UDim2.fromOffset(12, 32),
-		UDim2.new(0.6, 0, 0, 18),
-		{ TextColor3 = Theme.TextDim, MaxSize = 14 }
+		UDim2.fromOffset(12, 44),
+		UDim2.new(1, -24, 0, 22),
+		{ TextColor3 = Theme.TextDim, MaxSize = 16 }
 	)
-	Widgets.button({
+	local goBtn = Widgets.button({
 		Name = "GoRebirth",
 		Text = L.k("talents.go_rebirth"),
 		Color = Theme.Purple,
-		Size = UDim2.fromOffset(110, 34),
+		Size = UDim2.fromOffset(140, 36),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -130, 0, 8),
+		Position = UDim2.new(1, -166, 0, 4),
 		ZIndex = 23,
 		MaxTextSize = 18,
 		OnClick = function()
@@ -30333,13 +31667,13 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 		end,
 		Parent = body,
 	})
-	Widgets.button({
+	local respecBtn = Widgets.button({
 		Name = "Respec",
 		Text = L.k("talents.reset", { n = TalentData.RESPEC_GEMS }),
 		Color = Theme.Red,
-		Size = UDim2.fromOffset(120, 34),
+		Size = UDim2.fromOffset(150, 36),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -8, 0, 8),
+		Position = UDim2.new(1, -8, 0, 4),
 		ZIndex = 23,
 		MaxTextSize = 14,
 		OnClick = function()
@@ -30349,12 +31683,25 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 	})
 
 	local cols = Widgets.New("Frame", {
-		Position = UDim2.fromOffset(8, 56),
-		Size = UDim2.new(1, -16, 1, -62),
+		Position = UDim2.fromOffset(8, 72),
+		Size = UDim2.new(1, -16, 1, -78),
 		BackgroundTransparency = 1,
 		ZIndex = 21,
 		Parent = body,
 	})
+	-- v3.2: узкое окно (телефон вертикально) — кнопки второй строкой, очки талантов — на всю ширину
+	Layout.onChanged(function(li)
+		local narrow = li.Mode == "portrait"
+		points.Size = if narrow then UDim2.new(1, -24, 0, 30) else UDim2.new(1, -330, 0, 30)
+		goBtn.AnchorPoint = if narrow then Vector2.new(0, 0) else Vector2.new(1, 0)
+		goBtn.Position = if narrow then UDim2.fromOffset(10, 38) else UDim2.new(1, -166, 0, 4)
+		goBtn.Size = if narrow then UDim2.new(0.5, -14, 0, 36) else UDim2.fromOffset(140, 36)
+		respecBtn.Size = if narrow then UDim2.new(0.5, -14, 0, 36) else UDim2.fromOffset(150, 36)
+		respecBtn.Position = if narrow then UDim2.new(1, -10, 0, 38) else UDim2.new(1, -8, 0, 4)
+		info.Position = UDim2.fromOffset(12, if narrow then 80 else 44)
+		cols.Position = UDim2.fromOffset(8, if narrow then 106 else 72)
+		cols.Size = UDim2.new(1, -16, 1, if narrow then -112 else -78)
+	end)
 	local columns = {}
 	for i, branch in ipairs(TalentData.BranchOrder) do
 		local col = Widgets.New("Frame", {
@@ -30398,27 +31745,31 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 				end
 			end
 			local color = TalentData.Branches[t.Branch].Color
-			local card = UiKit.card(columns[t.Branch], 84, if lvl > 0 then color else nil, i)
+			-- v3.2: карточка выше — название в 2 строки, описание до 3 строк при тексте >= 12 px
+			local card = UiKit.card(columns[t.Branch], 154, if lvl > 0 then color else nil, i)
 			card.Name = t.Id
-			UiKit.text(
-				card,
-				L.n(t.Name),
-				UDim2.fromOffset(6, 2),
-				UDim2.new(1, -12, 0, 18),
-				{ Font = Theme.Font, TextColor3 = if locked then Theme.TextDim else Theme.Text, MaxSize = 15 }
-			)
-			UiKit.text(card, L.n(t.Desc), UDim2.fromOffset(6, 20), UDim2.new(1, -12, 0, 30), {
+			UiKit.text(card, L.n(t.Name), UDim2.fromOffset(6, 2), UDim2.new(1, -12, 0, 44), {
+				Font = Theme.Font,
+				TextColor3 = if locked then Theme.TextDim else Theme.Text,
+				MaxSize = 18,
+				TextWrapped = true,
+			})
+			-- v3.2.1: описание — фиксированный размер с переносом (не TextScaled), одинаковый у всех талантов
+			local desc = UiKit.text(card, L.n(t.Desc), UDim2.fromOffset(6, 46), UDim2.new(1, -12, 0, 72), {
 				TextColor3 = Theme.TextDim,
-				MaxSize = 11,
+				TextScaled = false,
+				TextSize = 15,
+				NoLimit = true,
 				TextWrapped = true,
 				TextYAlignment = Enum.TextYAlignment.Top,
 			})
+			desc.Name = "Desc"
 			UiKit.text(
 				card,
 				("%d / %d"):format(lvl, t.Max),
-				UDim2.fromOffset(6, 56),
-				UDim2.new(0.4, 0, 0, 20),
-				{ TextColor3 = color, MaxSize = 14 }
+				UDim2.new(0, 6, 1, -28),
+				UDim2.new(0.42, 0, 0, 22),
+				{ TextColor3 = color, MaxSize = 16 }
 			)
 			local b = Widgets.button({
 				Name = "Buy",
@@ -30427,11 +31778,11 @@ function TalentsPanel.init(gui: ScreenGui, openRebirth: () -> ())
 					elseif lvl >= t.Max then L.t("talents.max")
 					else "+1",
 				Color = color,
-				Size = UDim2.new(0.5, 0, 0, 24),
+				Size = UDim2.new(0.5, 0, 0, 26),
 				AnchorPoint = Vector2.new(1, 1),
 				Position = UDim2.new(1, -6, 1, -5),
 				ZIndex = 24,
-				MaxTextSize = 14,
+				MaxTextSize = 16,
 				OnClick = function()
 					Actions.call("TalentBuy", t.Id)
 				end,
@@ -30464,7 +31815,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000081">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000084">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -30501,38 +31852,28 @@ function Theme.uiScale(lay: any?): number
 	return Theme.UI_SCALE
 end
 
--- v3.1: всплывающие окна (Widgets.panel) в 1.5 раза меньше, чем в v3.0, при том же масштабе текста k:
--- на ПК окно в 1.5 раза меньше по каждой стороне (было до 760×540 «дизайнерских» px × k), на телефоне —
--- в ~1.5 раза меньше по площади (текст не мельче 0.8, кнопки >= MIN_TAP). Возвращает размер окна
--- в «дизайнерских» пикселях (до UIScale k): видимый размер = результат × k.
-Theme.PANEL_SHRINK = 1.5
--- minH — минимальная высота окна в «дизайнерских» px для окон с плотной раскладкой (питомцы, инвентарь,
--- яйцо, обмен): они уменьшаются меньше, чтобы ничего не обрезалось.
-function Theme.panelDesign(lay: any, k: number, minH: number?): (number, number)
-	local w, h
-	if lay.Mode == "portrait" then
-		w, h = math.min(lay.W - 30, 360), math.min(lay.H * 0.36, 310)
-	elseif lay.Mode == "landscape" and lay.Touch then
-		w, h = math.min(lay.W - 170, 500), math.min(lay.H - 60, 300)
-	elseif lay.Mode == "landscape" then
-		w, h = math.min(lay.W * 0.84, 760 * k), math.min(lay.H - 24, 540 * k)
-		w, h = w / Theme.PANEL_SHRINK, math.max(h / Theme.PANEL_SHRINK, math.min(lay.H - 24, 240))
-	else
-		w = math.min(lay.W * 0.62, 760 * k) / Theme.PANEL_SHRINK
-		h = math.min(lay.H * 0.72, 540 * k) / Theme.PANEL_SHRINK
-	end
-	if minH then
-		local maxH = if lay.Mode == "portrait" then lay.H * 0.6 else lay.H - 24
-		h = math.min(math.max(h, minH * k), math.max(h, maxH))
-	end
-	return math.floor(w / k), math.floor(h / k)
+-- v3.2: окна (Widgets.panel) — своя геометрия и масштаб (UiGeometry): содержимое в PANEL_SCALE (0.8) и на ПК,
+-- чтобы основной текст был не мельче 12 px, заголовки — 14 px; окно на ПК компактное, на телефоне — в безопасной
+-- области над хотбаром и не закрывает кнопки HUD. Возвращает размер окна в «дизайнерских» px (видимый = × k).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UiGeometry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UiGeometry"))
+Theme.Geometry = UiGeometry
+Theme.PANEL_SCALE = UiGeometry.PANEL_SCALE
+
+function Theme.panelScale(_lay: any?): number
+	return UiGeometry.PANEL_SCALE
+end
+
+function Theme.panelDesign(lay: any, k: number, minH: number?, area: any?): (number, number)
+	local r = UiGeometry.panelRect(lay, k, minH, area)
+	return math.floor(r.W / k), math.floor(r.H / k)
 end
 
 return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000082">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000085">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30692,7 +32033,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000083">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000086">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -30733,16 +32074,16 @@ function TradePanel.init(gui: ScreenGui)
 	UiKit.text(
 		idle,
 		L.k("trade.ui.intro"),
-		UDim2.fromOffset(12, 6),
-		UDim2.new(1, -24, 0, 22),
-		{ TextColor3 = Theme.TextDim, MaxSize = 15 }
+		UDim2.fromOffset(12, 4),
+		UDim2.new(1, -24, 0, 40), -- v3.2: 2 строки при тексте >= 12 px
+		{ TextColor3 = Theme.TextDim, MaxSize = 15, TextWrapped = true }
 	)
 	Widgets.button({
 		Name = "TradeBot",
 		Text = L.k("trade.ui.with_bot", { name = Config.DEMO_BOT_NAME }),
 		Color = Theme.Purple,
-		Size = UDim2.new(1, -24, 0, 48),
-		Position = UDim2.fromOffset(12, 34),
+		Size = UDim2.new(1, -24, 0, 44),
+		Position = UDim2.fromOffset(12, 48),
 		ZIndex = 23,
 		MaxTextSize = 20,
 		Visible = Config.DEMO_BOT_ENABLED, -- v2.4 (аудит В1): NPC-партнёр только в веб-демо
@@ -30754,12 +32095,12 @@ function TradePanel.init(gui: ScreenGui)
 	UiKit.text(
 		idle,
 		L.k("trade.ui.nearby"),
-		UDim2.fromOffset(12, 92),
-		UDim2.new(1, -24, 0, 20),
+		UDim2.fromOffset(12, 98),
+		UDim2.new(1, -24, 0, 22),
 		{ MaxSize = 15 }
 	)
 	local plist =
-		Widgets.scroller(idle, { Position = UDim2.fromOffset(12, 116), Size = UDim2.new(1, -24, 1, -190) })
+		Widgets.scroller(idle, { Position = UDim2.fromOffset(12, 124), Size = UDim2.new(1, -24, 1, -198) })
 	UiKit.list(plist, 4)
 	local inviteBox = Widgets.New("Frame", {
 		Name = "Invite",
@@ -30837,13 +32178,7 @@ function TradePanel.init(gui: ScreenGui)
 			end
 		end
 		if not any then
-			UiKit.text(
-				plist,
-				L.t("trade.ui.nobody"),
-				UDim2.fromOffset(4, 4),
-				UDim2.new(1, -8, 0, 22),
-				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
-			)
+			UiKit.flowText(plist, L.t("trade.ui.nobody"), { TextColor3 = Theme.TextDim })
 		end
 	end
 
@@ -31199,7 +32534,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000084">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000087">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -31344,7 +32679,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000085">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000088">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -31423,6 +32758,55 @@ function UiKit.text(
 	return l
 end
 
+-- v3.2: текст «по содержимому» для списков (UIListLayout): ширина — по родителю, высота растёт с переносом
+-- строк (AutomaticSize.Y), размер шрифта фиксированный (TextSize, «дизайнерские» px) — не мельчит и не обрезается.
+function UiKit.flowText(parent: Instance, text: any, opts: { [string]: any }?): TextLabel
+	local p = {
+		Text = text,
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextScaled = false,
+		TextWrapped = true,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 23,
+		Parent = parent,
+	}
+	if opts then
+		for k, v in pairs(opts) do
+			p[k] = v
+		end
+	end
+	return Widgets.label(p)
+end
+
+-- v3.2: карточка, растущая по содержимому: слева место под значок (left), справа — под кнопку (right),
+-- в середине колонка строк UiKit.flowText (UIListLayout). Возвращает карточку и колонку.
+function UiKit.flowCard(
+	parent: Instance,
+	minH: number,
+	accent: Color3?,
+	order: number?,
+	left: number,
+	right: number
+): (Frame, Frame)
+	local card = UiKit.card(parent, minH, accent, order)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	local col = New("Frame", {
+		Name = "Text",
+		Position = UDim2.fromOffset(left, 5),
+		Size = UDim2.new(1, -(left + right), 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 23,
+		Parent = card,
+	})
+	New("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder, Parent = col })
+	New("UIPadding", { PaddingBottom = UDim.new(0, 6), Parent = col })
+	return card, col
+end
+
 function UiKit.bar(parent: Instance, pos: UDim2, size: UDim2, color: Color3)
 	local back = New(
 		"Frame",
@@ -31482,12 +32866,13 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 	paint()
 	-- На узком экране вкладки делят ширину родителя поровну, а не по фиксированной ширине.
 	local n = #names
-	Layout.onChanged(function(li)
+	local function relayoutTabs()
+		local li = Layout.get()
 		local c = (20 + 6 * (n - 1)) / n
 		for i, name in ipairs(names) do
 			local b = buttons[name]
 			-- v3.1: окна стали меньше — делим ширину и на ПК, если вкладки не влезают в окно
-			local pw = Theme.panelDesign(li, Theme.uiScale(li))
+			local pw = Theme.panelDesign(li, Theme.panelScale(li), nil, Layout.panelArea())
 			if (10 + n * (w + 6)) > math.min(pw, li.W - 40) then
 				b.Size = UDim2.new(1 / n, -c, 0, 30)
 				b.Position = UDim2.new((i - 1) / n, 10 + (i - 1) * (6 - c), 0, y or 4)
@@ -31496,7 +32881,9 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 				b.Position = UDim2.fromOffset(10 + (i - 1) * (w + 6), y or 4)
 			end
 		end
-	end)
+	end
+	Layout.onChanged(relayoutTabs)
+	Layout.onPanelArea(relayoutTabs)
 	return {
 		Select = function(name: string)
 			current = name
@@ -31548,14 +32935,14 @@ function UiKit.badge(parent: Instance, text: any, color: Color3, pos: UDim2, w: 
 		BackgroundTransparency = 0,
 		BackgroundColor3 = color,
 		TextColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(w or 22, 16),
+		Size = UDim2.fromOffset(w or 22, 21), -- v3.2: буква значка не мельче 12 px
 		Position = pos,
 		Font = Theme.Font,
 		ZIndex = 26,
 		Parent = parent,
 	})
 	Widgets.corner(b, 5)
-	New("UITextSizeConstraint", { MaxTextSize = 12, MinTextSize = 6, Parent = b })
+	New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 6, Parent = b })
 	return b
 end
 
@@ -31604,7 +32991,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000086">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000089">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -31619,6 +33006,7 @@ local Util = require(Shared:WaitForChild("Util"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
 local UpgradesPanel = {}
@@ -31635,43 +33023,37 @@ function UpgradesPanel.init(gui: ScreenGui)
 
 	local rows = {}
 	for i, def in ipairs(UpgradeData.List) do
-		local row = Widgets.New("Frame", {
-			Size = UDim2.new(1, -8, 0, 74),
-			BackgroundColor3 = Theme.BgCard,
-			LayoutOrder = i,
-			ZIndex = 22,
-			Parent = scroll,
-		})
-		Widgets.corner(row, 12)
-		local name = Widgets.label({
-			Text = L.kn(def.Name),
-			Size = UDim2.new(0.55, 0, 0, 26),
-			Position = UDim2.fromOffset(12, 6),
-			TextXAlignment = Enum.TextXAlignment.Left,
+		-- v3.2.1: карточка растёт по тексту; название и описание — фиксированный размер шрифта с переносом
+		-- (раньше TextScaled: короткое описание было крупным, длинное — мелким)
+		local row, col = UiKit.flowCard(scroll, 84, nil, i, 12, 150)
+		row.Name = def.Id
+		local name = UiKit.flowText(col, L.kn(def.Name), {
+			Name = "Title",
 			Font = Theme.Font,
-			ZIndex = 23,
-			Parent = row,
+			TextSize = 18,
+			LayoutOrder = 1,
 		})
-		Widgets.label({
-			Text = L.kn(def.Description),
-			Size = UDim2.new(0.55, 0, 0, 30),
-			Position = UDim2.fromOffset(12, 34),
-			TextXAlignment = Enum.TextXAlignment.Left,
+		UiKit.flowText(col, L.kn(def.Description), {
+			Name = "Desc",
 			TextColor3 = Theme.TextDim,
-			ZIndex = 23,
-			Parent = row,
+			TextSize = 15,
+			LayoutOrder = 2,
 		})
 		local level = Widgets.label({
-			Size = UDim2.new(0.2, 0, 0, 22),
-			Position = UDim2.new(0.58, 0, 0, 6),
+			Name = "Level",
+			TextScaled = false,
+			TextSize = 15,
+			Size = UDim2.fromOffset(136, 22),
+			Position = UDim2.new(1, -144, 0, 6),
 			ZIndex = 23,
 			Parent = row,
 		})
 		local buy = Widgets.button({
 			Text = "",
-			Size = UDim2.new(0.34, -8, 0, 40),
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -10, 0.5, 8),
+			Name = "Buy",
+			Size = UDim2.fromOffset(136, 40),
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 34),
 			ZIndex = 23,
 			OnClick = function()
 				Actions.call("BuyUpgrade", def.Id)
@@ -31709,7 +33091,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000087">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000008A">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -31809,6 +33191,7 @@ function Widgets.button(props: { [string]: any }): TextButton
 		Font = Theme.Font,
 		TextColor3 = Theme.Text,
 		TextScaled = true,
+		TextWrapped = true, -- v3.2: длинная подпись при тексте >= 12 px переносится, а не обрезается
 		AutoButtonColor = false,
 		Text = "",
 		Size = UDim2.fromOffset(120, 40),
@@ -31840,6 +33223,23 @@ function Widgets.button(props: { [string]: any }): TextButton
 		btn.Activated:Connect(onClick)
 	end
 	return btn
+end
+
+-- v3.2: значок Icons.lua слева в обычной кнопке (вместо эмодзи в тексте); текст сдвигается вправо
+function Widgets.buttonIcon(btn: TextButton, kind: string, px: number?): Frame
+	local size = px or 24
+	local icon = Icons.make(kind, {
+		Name = "Icon",
+		Px = size,
+		Size = UDim2.fromOffset(size, size),
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 8, 0.5, 0),
+		ZIndex = btn.ZIndex + 1,
+		Parent = btn,
+	})
+	New("UIPadding", { PaddingLeft = UDim.new(0, size + 12), PaddingRight = UDim.new(0, 6), Parent = btn })
+	icon.Position = UDim2.new(0, -(size + 4), 0.5, 0) -- внутри отступа (UIPadding сдвигает и значок)
+	return icon
 end
 
 -- v2.5: жирная подпись HUD с толстой чёрной обводкой (как в популярных симуляторах)
@@ -32017,6 +33417,93 @@ function Widgets.setEnabled(btn: TextButton, enabled: boolean, color: Color3?)
 	btn.BackgroundColor3 = if enabled then (color or Theme.Green) else Theme.Disabled
 end
 
+-- v3.2: «пол» размера текста внутри окна масштаба Theme.PANEL_SCALE: основной текст и кнопки не мельче
+-- UiGeometry.MIN_BODY (12 px), заголовки (подписи шрифтом Theme.Font длиннее 2 символов) — MIN_TITLE (14 px)
+-- на экране. TextScaled-подписи получают UITextSizeConstraint.MinTextSize, остальные — TextSize; пол держится
+-- и при последующих изменениях (раскладка панелей меняет MinTextSize/TextSize). Атрибут NoTextFloor — исключение.
+local floorHooked: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
+
+local function isTitle(t: TextLabel): boolean
+	return t:IsA("TextLabel")
+		and t.Font == Theme.Font
+		and utf8.len(t.Text) ~= nil
+		and (utf8.len(t.Text) or 0) > 2
+end
+
+local floorText: (Instance) -> ()
+floorText = function(o: Instance)
+	if not o.Parent or o:GetAttribute("NoTextFloor") then
+		return
+	end
+	if not (o:IsA("TextLabel") or o:IsA("TextButton") or o:IsA("TextBox")) then
+		return
+	end
+	local t = o :: TextLabel
+	local min = Theme.Geometry.minText(Theme.PANEL_SCALE, isTitle(t))
+	if t.TextScaled then
+		local c = t:FindFirstChildOfClass("UITextSizeConstraint")
+		if not c then
+			c = New("UITextSizeConstraint", { Name = "TextFloor", Parent = t })
+		end
+		local cc = c :: UITextSizeConstraint
+		if cc.MinTextSize < min then
+			cc.MinTextSize = min
+		end
+		if cc.MaxTextSize < min then
+			cc.MaxTextSize = min
+		end
+		if not floorHooked[cc] then
+			floorHooked[cc] = true
+			cc:GetPropertyChangedSignal("MinTextSize"):Connect(function()
+				task.defer(floorText, t)
+			end)
+			cc:GetPropertyChangedSignal("MaxTextSize"):Connect(function()
+				task.defer(floorText, t)
+			end)
+		end
+	elseif t.TextSize < min then
+		t.TextSize = min
+	end
+	if not floorHooked[t] then
+		floorHooked[t] = true
+		t:GetPropertyChangedSignal("TextSize"):Connect(function()
+			if not t.TextScaled then
+				task.defer(floorText, t)
+			end
+		end)
+		t:GetPropertyChangedSignal("TextScaled"):Connect(function()
+			task.defer(floorText, t)
+		end)
+		t:GetPropertyChangedSignal("Text"):Connect(function()
+			-- заголовок/бейдж определяется по длине текста
+			task.defer(floorText, t)
+		end)
+	end
+end
+Widgets.floorText = floorText
+
+function Widgets.textFloor(root: Instance)
+	for _, d in ipairs(root:GetDescendants()) do
+		floorText(d)
+	end
+	root.DescendantAdded:Connect(function(d)
+		-- отложенно: конструктор подписи успевает добавить свой UITextSizeConstraint
+		if d:IsA("UITextSizeConstraint") then
+			task.defer(function()
+				local own = d.Parent and d.Parent:FindFirstChild("TextFloor")
+				if own and own ~= d then
+					own:Destroy()
+				end
+				if d.Parent then
+					floorText(d.Parent)
+				end
+			end)
+		else
+			task.defer(floorText, d)
+		end
+	end)
+end
+
 -- Модальная панель с заголовком и крестиком. Возвращает { Root, Body, Open, Close, IsOpen }.
 -- title — английское имя панели (Name = title .. "Panel"); заголовок берётся из ключа "panel.<title без пробелов>".
 function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts: { MinH: number? }?)
@@ -32034,25 +33521,22 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?, opts
 	Widgets.stroke(root, Theme.BgLight, 3)
 	New("UISizeConstraint", { MinSize = Vector2.new(300, 240), Parent = root })
 	local scale = New("UIScale", { Name = "UiScale", Parent = root })
-	-- v3.0: содержимое панели в Theme.uiScale раз меньше (k).
-	-- v3.1: и само окно в 1.5 раза меньше (Theme.panelDesign): размер задаётся явно в пикселях «до масштаба»
-	-- (без UISizeConstraint.MaxSize — итоговый размер не зависит от порядка применения ограничения и UIScale).
-	local k = Theme.UI_SCALE
-	-- телефон (v2.4): вертикально — чуть выше центра, снизу место для тостов
-	Layout.onChanged(function(lay)
-		k = Theme.uiScale(lay)
-		local w, h = Theme.panelDesign(lay, k, opts and opts.MinH)
-		root.Size = UDim2.fromOffset(w, h)
-		if lay.Mode == "portrait" then
-			root.Position = UDim2.fromScale(0.5, 0.46)
-		elseif lay.Mode == "landscape" and lay.Touch then
-			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
-			root.Position = UDim2.new(0.5, -55, 0.5, 0)
-		else
-			root.Position = UDim2.fromScale(0.5, 0.5)
-		end
+	-- v3.2: геометрия окна — UiGeometry (Theme.panelDesign): содержимое в масштабе k = Theme.panelScale (0.8),
+	-- размер задаётся в «дизайнерских» px (видимый = × k). ПК — компактное окно по центру; телефон — безопасная
+	-- область над хотбаром, не закрывающая кнопки HUD (Layout.panelArea, считает Hud).
+	local k = Theme.PANEL_SCALE
+	local function relayout()
+		local lay = Layout.get()
+		k = Theme.panelScale(lay)
+		local area = if lay.Mode ~= "wide" then Layout.panelArea() else nil
+		local r = Theme.Geometry.panelRect(lay, k, opts and opts.MinH, area)
+		root.Size = UDim2.fromOffset(math.floor(r.W / k), math.floor(r.H / k))
+		root.Position = UDim2.fromOffset(r.X + r.W / 2, r.Y + r.H / 2)
 		scale.Scale = k
-	end)
+	end
+	Layout.onChanged(relayout)
+	Layout.onPanelArea(relayout)
+	Widgets.textFloor(root)
 
 	local header = New("Frame", {
 		Name = "Header",
@@ -32135,7 +33619,11 @@ function Widgets.scroller(parent: Instance, props: { [string]: any }?): Scrollin
 		Size = UDim2.fromScale(1, 1),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		ScrollBarThickness = 6,
+		-- v3.2: заметная полоса прокрутки (светлая, толще) и отступ под неё — видно, что список листается
+		ScrollBarThickness = 10,
+		ScrollBarImageColor3 = Theme.TextDim,
+		ScrollBarImageTransparency = 0.1,
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 		CanvasSize = UDim2.new(),
 		ZIndex = 21,
@@ -32171,7 +33659,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000088">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000008B">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -32237,8 +33725,13 @@ function ZonesPanel.init(gui: ScreenGui)
 			end
 		end
 		local eggsLabel = Widgets.label({
+			Name = "Desc",
 			Text = "",
-			Size = UDim2.new(0.5, 0, 0, 34),
+			-- v3.2.1: список яиц — фиксированный размер с переносом (не TextScaled), одинаковый во всех мирах
+			TextScaled = false,
+			TextSize = 15,
+			TextYAlignment = Enum.TextYAlignment.Top,
+			Size = UDim2.new(0.5, 0, 0, 38),
 			Position = UDim2.fromOffset(80, 36),
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextColor3 = Theme.TextDim,
@@ -32303,7 +33796,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000089">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000008C">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict

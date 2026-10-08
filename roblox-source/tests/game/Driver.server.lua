@@ -847,5 +847,75 @@ Workspace:SetAttribute("BotsDisabled", true)
 task.wait(1)
 check("bots: BotsDisabled removes all", #BotService.list() == 0 and #aiFolder:GetChildren() == 0)
 
+-- § v3.2: боты не отнимают врагов у живых игроков (лимиты на мир и на врага, уступают подошедшему игроку)
+task.wait(3.2) -- занятость от ушедших ботов снимается сама (CLAIM_TTL)
+do
+	local BC = Config.BOTS
+	local zoneId = "Forest"
+	local center
+	for _, en in ipairs(Workspace.Enemies:GetChildren()) do
+		if en:GetAttribute("Zone") == zoneId and not en:GetAttribute("IsBoss") then
+			center = en.PrimaryPart.Position
+			break
+		end
+	end
+	moveTo(WorldBuilder.getZoneSpawn("Hub").Position) -- игрок далеко от мира Forest
+	task.wait(0.5)
+	local got, ids = 0, {}
+	for i = 1, 8 do
+		local id = CombatService.botTarget(center, 2000, "tb" .. i)
+		if id then
+			got += 1
+			ids[id] = (ids[id] or 0) + 1
+		end
+	end
+	local dup = false
+	for _, n in pairs(ids) do
+		dup = dup or n > BC.MAX_PER_MOB
+	end
+	local claims = CombatService.botClaims()
+	local inZone, freeLeft = 0, 0
+	for _, en in ipairs(Workspace.Enemies:GetChildren()) do
+		local id = en:GetAttribute("Id")
+		if en:GetAttribute("Zone") == zoneId and not en:GetAttribute("IsBoss") then
+			if claims[id] then
+				inZone += 1
+			else
+				freeLeft += 1
+			end
+		end
+	end
+	check("bots v3.2: per-mob cap (one bot per enemy)", got > 0 and not dup, got)
+	check(
+		"bots v3.2: per-zone cap of fighting bots",
+		inZone <= BC.MAX_FIGHTERS_PER_ZONE,
+		inZone .. " > " .. BC.MAX_FIGHTERS_PER_ZONE
+	)
+	check("bots v3.2: free enemies left for players", freeLeft >= BC.RESERVE_FREE, freeLeft)
+	-- игрок подошёл к занятому врагу — бот уступает (botShouldYield), враг освобождается
+	local yid = next(ids)
+	local ye
+	for _, en in ipairs(Workspace.Enemies:GetChildren()) do
+		if en:GetAttribute("Id") == yid then
+			ye = en
+		end
+	end
+	moveTo(ye.PrimaryPart.Position + Vector3.new(6, 0, 0))
+	task.wait(0.5)
+	check("bots v3.2: bot yields when a player approaches", CombatService.botShouldYield(yid) == true)
+	local owner = CombatService.botClaims()[yid]
+	local again = CombatService.botTarget(center, 2000, owner or "tb1")
+	check(
+		"bots v3.2: yielded enemy is not taken by bots",
+		again ~= yid and CombatService.botClaims()[yid] == nil,
+		again
+	)
+	check("bots v3.2: bot cannot hit an enemy next to a player", CombatService.botHit(yid, 0.1) == false)
+	for i = 1, 8 do
+		CombatService.botRelease("tb" .. i)
+	end
+	check("bots v3.2: release frees enemies", next(CombatService.botClaims()) == nil)
+end
+
 print(fails == 0 and "ALL GAME CHECKS PASSED" or ("GAME CHECKS FAILED: " .. fails))
 print("DONE")

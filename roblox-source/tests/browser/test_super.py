@@ -36,7 +36,7 @@ def card(page): return page.evaluate("(()=>{const t=document.querySelector('[dat
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
     page.goto(url + 'index.html?persist=0&seed=1&country=RU&attr.DailyAutoOpen=false&attr.BotsDisabled=true')
-    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); page.wait_for_timeout(2000)
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); g.vwait(2.0)
     g.cmd('seed'); g.cmd('tp:0,10'); g.vwait(1.0)
     nb = page.evaluate("(()=>{const b=R2W.ENV.workspace.findChild('Bots'); return b? b.children.length: 0})()")
     check('в демо есть 3 бота-игрока (DEMO_BOTS)', nb == 3, nb)
@@ -59,29 +59,30 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     fx = page.evaluate(FX)
     check('3D-стрелка над персонажем', fx.get('HuntArrow', 0) == 1 and fx.get('HuntArrowHead', 0) == 2, fx)
     check('аура суперигрока (оболочка + кольцо)', fx.get('SuperAura', 0) == 1 and fx.get('SuperRing', 0) >= 10, fx)
-    page.evaluate('R2W.ENV.paused=true'); page.wait_for_timeout(500); g.shot('24_super_hunt'); page.evaluate('R2W.ENV.paused=false')
+    g.pause(); g.raf(3); g.shot('24_super_hunt'); page.evaluate('R2W.ENV.paused=false')
 
     # удары по суперигроку: v2.5 — меч из хотбара (Q / клик по миру), кнопки «УДАР» больше нет
     hp0 = page.evaluate(TARGET)['hp']; low = hp0; stopped = False; shot_stop = False
     for i in range(420):  # до конца раунда (клавиша Q быстрее старого клика по кнопке)
         if i % 3 == 0: g.cmd('super:near')
-        page.keyboard.press('q'); page.wait_for_timeout(120)
+        # v3.2: шаг — игровое время (0.15 с), а не настенное; остановку ловим сразу на паузе
+        page.keyboard.press('q'); g.vwait(0.15)
         t = page.evaluate(TARGET)
         if t is None:
             stopped = True
+            g.pause()
             break
         low = min(low, t['hp'] or low)
         if i % 10 == 0: print('   hp', t['hp'], '/', t['max'], 't=%.1f' % page.evaluate('R2W.ENV.rt.now'), card(page).replace('\n', ' | '))
     check('удары охотника снижают HP суперигрока', low < hp0, (hp0, low))
     # кадр остановки: ловим взрыв частиц
-    for _ in range(40):
-        fx = page.evaluate(FX)
-        if fx.get('StopParticle', 0) >= 8: page.evaluate('R2W.ENV.paused=true'); shot_stop = True; break
-        page.wait_for_timeout(25)
+    if stopped:
+        fx = g.step_until(lambda: (lambda f: f if f.get('StopParticle', 0) >= 8 else None)(page.evaluate(FX)), frames=40) or page.evaluate(FX)
+        shot_stop = fx.get('StopParticle', 0) >= 8
     check('суперигрок остановлен', stopped, toasts(page))
     check('взрыв частиц при остановке', shot_stop, fx)
     page.evaluate('R2W.ENV.cam.dist=20; R2W.ENV.cam.pitch=0.7')  # сверху: боты не загораживают кадр
-    page.wait_for_timeout(400); g.shot('25_super_stop'); page.evaluate('R2W.ENV.paused=false')
+    g.raf(3); g.shot('25_super_stop'); page.evaluate('R2W.ENV.paused=false')
     g.wait(lambda: 'ОХОТА УДАЛАСЬ' in toasts(page), timeout=10, what='stop banner')
     check('баннер «ОХОТА УДАЛАСЬ!»', 'ОХОТА УДАЛАСЬ' in toasts(page))
     check('награда охотнику', 'Награда' in toasts(page), toasts(page))
@@ -105,16 +106,14 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.vwait(4.6)   # боты подбегают, баннер уходит
     wave = None
     for _ in range(6):
-        page.keyboard.press('q')
-        for _ in range(30):
-            fx = page.evaluate(FX)
-            if fx.get('ShockShard', 0) >= 10: wave = fx; page.evaluate('R2W.ENV.paused=true'); break
-            page.wait_for_timeout(15)
-        if wave: break
-        g.vwait(2.4)
+        g.pause(); page.keyboard.press('q')
+        wave = g.step_until(lambda: (lambda f: f if f.get('ShockShard', 0) >= 10 else None)(page.evaluate(FX)), frames=40)
+        if wave: fx = wave; break
+        fx = page.evaluate(FX)
+        page.evaluate('R2W.ENV.paused=false'); g.vwait(2.4)
     check('ударная волна по удару мечом (Q)', bool(wave), fx)
     page.evaluate('R2W.ENV.cam.dist=26; R2W.ENV.cam.pitch=0.35')
-    page.wait_for_timeout(400); g.shot('23_super_me'); page.evaluate('R2W.ENV.paused=false')
+    g.raf(3); g.shot('23_super_me'); page.evaluate('R2W.ENV.paused=false')
     t = page.evaluate(TARGET)
     for _ in range(8):
         if t and t['hp'] < t['max']: break

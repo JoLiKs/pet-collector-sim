@@ -230,10 +230,11 @@ local function makeTag(model: Model): (BillboardGui?, Frame?)
 	end
 	local g = Instance.new("BillboardGui")
 	g.Name = "SuperTag"
-	g.Size = UDim2.fromOffset(170, 40)
+	g.Size = UDim2.fromOffset(150, 36)
 	g.StudsOffset = Vector3.new(0, 4.8, 0) -- над именем игрока (имя на 2.6)
 	g.MaxDistance = 160
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Super")
 	g.AlwaysOnTop = false
 	local title = Instance.new("TextLabel")
 	title.Name = "Title"

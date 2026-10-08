@@ -29,7 +29,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     page.goto(url + 'index.html?persist=0&seed=1&country=US&attr.DailyAutoOpen=false')
     g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     check('HUD загружен, ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0)
-    page.wait_for_timeout(1500)
+    g.vwait(1.5)  # v3.2: ожидания — по игровому времени и состоянию, а не по настенным часам
     g.shot('01_hub')
     # v2.5: компактный HUD как в Roblox-симуляторах — без сетки из 12 кнопок и без кнопки «УДАР»
     for n in ['ShopBtn', 'IndexBtn', 'MoreBtn']:
@@ -48,7 +48,8 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     check('в валютах и хотбаре нет эмодзи', not any(ch in hud_txt for ch in '🪙💎⚔🧲🧪'), hud_txt)
     g.wait(lambda: g.vis('[data-n="Timer"] [data-n="NextEvent"]'), what='next event chip', timeout=30)
     nxt = g.p.locator('[data-n="Timer"] [data-n="NextEvent"]').first.inner_text()
-    check('справа снизу — компактный таймер до ближайшего события', ':' in nxt and '🌙' in nxt, nxt)
+    # v3.2: луна — значок из примитивов (Icons), а не эмодзи в тексте
+    check('справа снизу — компактный таймер до ближайшего события (значок-луна из примитивов)', ':' in nxt and '🌙' not in nxt and page.evaluate(NLAYERS, '[data-n="Timer"] [data-n="NextEvent"] [data-n="Icon"]') >= 2, nxt)
     check('нет старого меню и кнопок УДАР/СБОР', not g.vis('[data-n="Menu"]') and not g.vis('[data-n="Attack"]') and not g.vis('[data-n="Collect"]'))
     # Удар — выбрать меч в хотбаре и кликнуть по миру (настоящий Tool в руке); в воздухе — без тоста
     JS_TOOL = "(()=>{const c=R2W.ENV.localPlayer.props.Character; if(!c) return ''; const t=c.children.find(x=>x.className==='Tool'); return t? t.props.Name: ''})()"
@@ -79,18 +80,18 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.cmd('tp:-22,-76')
     g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='egg prompt')
     page.keyboard.press('e')
-    g.wait(lambda: g.vis('[data-n="EggPanel"]'), what='egg panel'); g.p.wait_for_timeout(800)
+    g.wait(lambda: g.vis('[data-n="EggPanel"] [data-n="Hatch1"]'), what='egg panel')
     g.shot('02_egg')
     g.click('[data-n="EggPanel"] [data-n="Hatch1"]')
-    g.wait(lambda: g.vis('[data-n="HatchOverlay"]'), what='hatch popup'); g.p.wait_for_timeout(1500)
+    g.wait(lambda: g.vis('[data-n="HatchOverlay"] [data-n="Awesome"]'), what='hatch popup'); g.vwait(1.2)
     g.shot('02b_hatch')
     check('вылупление из яйца', True)
     g.click('[data-n="HatchOverlay"] [data-n="Awesome"]')
     if g.vis('[data-n="EggPanel"]'): g.click('[data-n="EggPanel"] [data-n="Close"]')
     # Индекс: вылупленные питомцы открыты, остальные — «???»
     open_panel('Index')
-    g.wait(lambda: g.vis('[data-n="IndexPanel"] [data-n="Progress"]'), what='index')
-    g.p.wait_for_timeout(600)
+    # v3.2: ждём состояния — прогресс и клетки отрисованы (под нагрузкой DOM догоняет кадры эмулятора не сразу)
+    g.wait(lambda: g.vis('[data-n="IndexPanel"] [data-n="Progress"]') and re.search(r'\d+\s*/\s*\d+', g.text('[data-n="IndexPanel"] [data-n="Progress"]')) is not None and '???' in g.text('[data-n="IndexPanel"]'), timeout=90, what='index')
     prog = g.text('[data-n="IndexPanel"] [data-n="Progress"]')
     m = re.search(r'(\d+)\s*/\s*(\d+)', prog)
     check('Индекс: открыто ≥ 1 из всех', bool(m) and int(m.group(1)) >= 1 and int(m.group(2)) >= 30, prog)
@@ -101,11 +102,15 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.wait(lambda: len(g.names('[data-n="PetsPanel"]')) > 40)
     txt = g.text('[data-n="PetsPanel"]')
     check('инвентарь питомцев: 7 штук', 'Pets 7/30' in txt, txt[:80])
-    g.click('[data-n="PetsPanel"] [data-n="p4"]'); g.p.wait_for_timeout(600)
+    sel0 = g.text('[data-n="PetsPanel"] [data-n="Footer"]')
+    g.click('[data-n="PetsPanel"] [data-n="p4"]')
+    g.wait(lambda: g.text('[data-n="PetsPanel"] [data-n="Footer"]') != sel0, what='pet selected')
     g.click('[data-n="PetsPanel"] [data-n="Equip"]')
     g.wait(lambda: 'Team 1/3' in g.text('[data-n="PetsPanel"]'), what='equip')
     check('экипировка в команду', True)
-    g.click('[data-n="PetsPanel"] [data-n="FilterElement"]'); g.p.wait_for_timeout(500)
+    g.click('[data-n="PetsPanel"] [data-n="FilterElement"]')
+    try: g.wait(lambda: 'Element: All' not in g.text('[data-n="PetsPanel"] [data-n="FilterElement"]'), timeout=10, what='filter')
+    except AssertionError: pass
     check('фильтр по стихии меняет список', 'Element: All' not in g.text('[data-n="PetsPanel"] [data-n="FilterElement"]'))
     g.click('[data-n="PetsPanel"] [data-n="FilterElement"]'); g.click('[data-n="PetsPanel"] [data-n="FilterElement"]')
     g.click('[data-n="PetsPanel"] [data-n="FilterElement"]'); g.click('[data-n="PetsPanel"] [data-n="FilterElement"]')
@@ -121,7 +126,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="PetsPanel"] [data-n="FuseGo"]')
     g.wait(lambda: 'Pets 5/30' in g.text('[data-n="PetsPanel"]'), what='fuse')
     check('слияние 3→1 (7 → 5 питомцев)', True)
-    g.wait(lambda: g.vis('[data-n="HatchOverlay"]'), what='fuse popup'); g.p.wait_for_timeout(1200)
+    g.wait(lambda: g.vis('[data-n="HatchOverlay"] [data-n="Awesome"]'), what='fuse popup'); g.vwait(1.0)
     g.shot('04b_fusion_result')
     g.click('[data-n="HatchOverlay"] [data-n="Awesome"]')
     g.click('[data-n="PetsPanel"] [data-n="Close"]')
@@ -147,12 +152,17 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     check('инвентарь: в каждой ячейке своя иконка', kinds == ncell, kinds)
     wood = g.text('[data-n="InventoryPanel"] [data-n="Cell_Wood"] [data-n="Count"]')
     check('инвентарь: число дерева после seed', wood not in ('', '0'), wood)
-    g.click('[data-n="InventoryPanel"] [data-n="Cell_Crystal"]'); g.vwait(0.3)
-    info = g.text('[data-n="InventoryPanel"] [data-n="Info"]')
+    g.click('[data-n="InventoryPanel"] [data-n="Cell_Crystal"]')
+    INFO = '[data-n="InventoryPanel"] [data-n="Info"]'
+    try: g.wait(lambda: 'Frostpeak Glade' in g.text(INFO) and 'Luck Potion' in g.text(INFO), timeout=90, what='crystal info')
+    except AssertionError: pass
+    info = g.text(INFO)
     check('инвентарь: кристалл — где добыть (миры) и для чего (рецепты)', 'Where to get' in info and 'Frostpeak Glade' in info and 'Used for' in info and 'Luck Potion' in info, info[:300])
     g.shot('15_inventory')
-    g.click('[data-n="InventoryPanel"] [data-n="Cell_luck_potion"]'); g.vwait(0.3)
-    info = g.text('[data-n="InventoryPanel"] [data-n="Info"]')
+    g.click('[data-n="InventoryPanel"] [data-n="Cell_luck_potion"]')
+    try: g.wait(lambda: 'Workbench' in g.text(INFO) and 'chests' in g.text(INFO) and 'Drink' in g.text(INFO), timeout=90, what='potion info')
+    except AssertionError: pass
+    info = g.text(INFO)
     check('инвентарь: зелье — верстак и сундуки, как применить', 'Workbench' in info and 'chests' in info and 'Drink' in info, info[:300])
     g.click('[data-n="InventoryPanel"] [data-n="Close"]')
 
@@ -169,16 +179,23 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog')
     for _ in range(4):
         if 'Accept' in g.text('[data-n="DialogBox"] [data-n="Action"]'): break
-        g.click('[data-n="DialogBox"] [data-n="Action"]'); g.p.wait_for_timeout(400)
+        a0 = g.text('[data-n="DialogBox"]')
+        g.click('[data-n="DialogBox"] [data-n="Action"]')
+        g.wait(lambda: not g.vis('[data-n="DialogBox"]') or g.text('[data-n="DialogBox"]') != a0, what='dialog step')
     g.shot('06_dialog')
     check('диалог NPC дошёл до «Accept quest»', 'Accept' in g.text('[data-n="DialogBox"] [data-n="Action"]'))
-    g.click('[data-n="DialogBox"] [data-n="Action"]'); g.p.wait_for_timeout(1500)
+    a0 = g.text('[data-n="DialogBox"]')
+    g.click('[data-n="DialogBox"] [data-n="Action"]')
+    # квест принят: диалог закрывается или переходит к следующей реплике
+    g.wait(lambda: not g.vis('[data-n="DialogBox"]') or g.text('[data-n="DialogBox"]') != a0, what='quest accepted')
     open_panel('Quests')
     g.click('[data-n="QuestsPanel"] [data-n="Tab_Story"]')
-    g.wait(lambda: 'Wood for the Bench' in g.text('[data-n="QuestsPanel"]'), what='story')
+    g.wait(lambda: 'Wood for the Bench' in g.text('[data-n="QuestsPanel"]'), timeout=90, what='story')
     check('квест принят и виден в журнале', 'Wood for the Bench' in g.text('[data-n="QuestsPanel"]'))
     g.shot('07_quests')
-    g.click('[data-n="QuestsPanel"] [data-n="Tab_Achievements"]'); g.p.wait_for_timeout(500)
+    g.click('[data-n="QuestsPanel"] [data-n="Tab_Achievements"]')
+    try: g.wait(lambda: 'Achievements:' in g.text('[data-n="QuestsPanel"]'), timeout=10, what='achievements')
+    except AssertionError: pass
     check('вкладка достижений', 'Achievements:' in g.text('[data-n="QuestsPanel"]'))
     g.click('[data-n="QuestsPanel"] [data-n="Close"]')
 
@@ -188,20 +205,23 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.wait(lambda: g.vis('[data-n="MarketPanel"]') and g.p.locator('[data-n="MarketPanel"] [data-n="Buy"]').count() > 0)
     g.shot('08_market')
     before = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]') + g.text('[data-n="Currency"] [data-n="Gems"] [data-n="Value"]')
-    g.click('[data-n="MarketPanel"] [data-n="Buy"]'); g.p.wait_for_timeout(2000)
+    g.click('[data-n="MarketPanel"] [data-n="Buy"]')
+    try: g.wait(lambda: g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]') + g.text('[data-n="Currency"] [data-n="Gems"] [data-n="Value"]') != before, timeout=15, what='market buy')
+    except AssertionError: pass
     after = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]') + g.text('[data-n="Currency"] [data-n="Gems"] [data-n="Value"]')
     check('покупка в магазине ротации списывает валюту', before != after, before + ' ' + after)
     g.cmd('bpxp:500')
     g.click('[data-n="MarketPanel"] [data-n="Tab_Battle Pass"]')
     g.wait(lambda: g.p.locator('[data-n="MarketPanel"] [data-n="ClaimFree"]').count() > 0, what='bp')
-    g.p.wait_for_timeout(800)
     g.shot('09_battlepass')
-    g.click('[data-n="MarketPanel"] [data-n="ClaimAll"]'); g.p.wait_for_timeout(1500)
+    g.click('[data-n="MarketPanel"] [data-n="ClaimAll"]'); g.vwait(1.0)
     check('батл-пасс: премиум-трек заблокирован без пасса', g.p.locator('[data-n="MarketPanel"] [data-n="PremiumBanner"]').count() == 1)
     g.click('[data-n="MarketPanel"] [data-n="Close"]')
 
     # --- таланты, топы
-    open_panel('Talents'); g.p.wait_for_timeout(800)
+    open_panel('Talents')
+    try: g.wait(lambda: g.vis('[data-n="TalentsPanel"]') and all(b in g.text('[data-n="TalentsPanel"]') for b in ['Economy', 'Combat', 'Nature']), timeout=10, what='talents')
+    except AssertionError: pass
     check('таланты: 3 ветки', all(b in g.text('[data-n="TalentsPanel"]') for b in ['Economy', 'Combat', 'Nature']))
     g.shot('10_talents')
     g.click('[data-n="TalentsPanel"] [data-n="Close"]')
@@ -213,17 +233,17 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     open_panel('Trade')
     g.click('[data-n="TradePanel"] [data-n="TradeBot"]')
     g.wait(lambda: g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade live')
-    g.click('[data-n="TradePanel"] [data-n="Picker"] [data-n^="Add_"]'); g.p.wait_for_timeout(1000)
+    g.click('[data-n="TradePanel"] [data-n="Picker"] [data-n^="Add_"]'); g.vwait(0.5)
     # предложение Тома случайное: доплачиваем монетами, чтобы обмен был ему выгоден (иначе «Tom isn't happy»)
     for _ in range(2):
-        g.click('[data-n="TradePanel"] [data-n="Coins+10k"]'); g.p.wait_for_timeout(500)
-    g.p.wait_for_timeout(1500)
+        g.click('[data-n="TradePanel"] [data-n="Coins+10k"]'); g.vwait(0.3)
+    g.vwait(1.0)
     g.click('[data-n="TradePanel"] [data-n="Ready"]')
     g.wait(lambda: g.p.locator('[data-n="TradePanel"] [data-n="Confirm"]').first.evaluate('e=>e.style.opacity!="0.5"') , what='x')
     g.shot('11_trade')
     # «Подтвердить» активна после отсчёта TRADE_CONFIRM_SECONDS (виртуальное время эмулятора идёт медленнее) — жмём, пока сделка не закроется
     for _ in range(20):
-        g.p.wait_for_timeout(2000)
+        g.vwait(1.5)
         if not g.vis('[data-n="TradePanel"] [data-n="Live"]'): break
         g.click('[data-n="TradePanel"] [data-n="Confirm"]', timeout=3000)
     g.wait(lambda: not g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade close', timeout=30)
@@ -234,7 +254,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     # --- события
     g.cmd('event:GoldenRain')
     # состояние событий приходит раз в секунду виртуального времени — ждём плашку, а не фиксированные 1.5 с
-    try: g.wait(lambda: g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1, timeout=20, what='event chip')
+    try: g.wait(lambda: g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1 and not g.vis('[data-n="Timer"] [data-n="NextEvent"]'), timeout=30, what='event chip')
     except AssertionError: pass
     check('событие — компактная плашка в таймере справа снизу', g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1)
     check('во время события «через N:NN» скрыто', not g.vis('[data-n="Timer"] [data-n="NextEvent"]'))
@@ -247,7 +267,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="DailyPanel"] [data-n="Close"]')
 
     # --- мир: бой
-    open_panel('Zones'); g.p.wait_for_timeout(800)
+    open_panel('Zones'); g.wait(lambda: g.vis('[data-n="WorldsPanel"]') or g.vis('[data-n="ZonesPanel"]'), what='worlds')
     g.shot('12_worlds')
     g.p.evaluate("document.querySelector('[data-n=ZonesPanel] [data-n=Close], [data-n=WorldsPanel] [data-n=Close]').click()")
     g.cmd('tp:520,40')

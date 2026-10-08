@@ -32,31 +32,21 @@ function Theme.uiScale(lay: any?): number
 	return Theme.UI_SCALE
 end
 
--- v3.1: всплывающие окна (Widgets.panel) в 1.5 раза меньше, чем в v3.0, при том же масштабе текста k:
--- на ПК окно в 1.5 раза меньше по каждой стороне (было до 760×540 «дизайнерских» px × k), на телефоне —
--- в ~1.5 раза меньше по площади (текст не мельче 0.8, кнопки >= MIN_TAP). Возвращает размер окна
--- в «дизайнерских» пикселях (до UIScale k): видимый размер = результат × k.
-Theme.PANEL_SHRINK = 1.5
--- minH — минимальная высота окна в «дизайнерских» px для окон с плотной раскладкой (питомцы, инвентарь,
--- яйцо, обмен): они уменьшаются меньше, чтобы ничего не обрезалось.
-function Theme.panelDesign(lay: any, k: number, minH: number?): (number, number)
-	local w, h
-	if lay.Mode == "portrait" then
-		w, h = math.min(lay.W - 30, 360), math.min(lay.H * 0.36, 310)
-	elseif lay.Mode == "landscape" and lay.Touch then
-		w, h = math.min(lay.W - 170, 500), math.min(lay.H - 60, 300)
-	elseif lay.Mode == "landscape" then
-		w, h = math.min(lay.W * 0.84, 760 * k), math.min(lay.H - 24, 540 * k)
-		w, h = w / Theme.PANEL_SHRINK, math.max(h / Theme.PANEL_SHRINK, math.min(lay.H - 24, 240))
-	else
-		w = math.min(lay.W * 0.62, 760 * k) / Theme.PANEL_SHRINK
-		h = math.min(lay.H * 0.72, 540 * k) / Theme.PANEL_SHRINK
-	end
-	if minH then
-		local maxH = if lay.Mode == "portrait" then lay.H * 0.6 else lay.H - 24
-		h = math.min(math.max(h, minH * k), math.max(h, maxH))
-	end
-	return math.floor(w / k), math.floor(h / k)
+-- v3.2: окна (Widgets.panel) — своя геометрия и масштаб (UiGeometry): содержимое в PANEL_SCALE (0.8) и на ПК,
+-- чтобы основной текст был не мельче 12 px, заголовки — 14 px; окно на ПК компактное, на телефоне — в безопасной
+-- области над хотбаром и не закрывает кнопки HUD. Возвращает размер окна в «дизайнерских» px (видимый = × k).
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UiGeometry = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("UiGeometry"))
+Theme.Geometry = UiGeometry
+Theme.PANEL_SCALE = UiGeometry.PANEL_SCALE
+
+function Theme.panelScale(_lay: any?): number
+	return UiGeometry.PANEL_SCALE
+end
+
+function Theme.panelDesign(lay: any, k: number, minH: number?, area: any?): (number, number)
+	local r = UiGeometry.panelRect(lay, k, minH, area)
+	return math.floor(r.W / k), math.floor(r.H / k)
 end
 
 return Theme

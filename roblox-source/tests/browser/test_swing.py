@@ -33,10 +33,11 @@ POSE = """(()=>{const ch=R2W.ENV.localPlayer.props.Character; const r=ch.findChi
  return {arm:loc(ch.findChild('Right Arm').props.CFrame), handle:h? loc(h.props.CFrame): null, root:[r.x,r.y,r.z]};})()"""
 def dist(a, b): return sum((a[i] - b[i]) ** 2 for i in range(3)) ** 0.5
 def measure(page, trigger, shot=None, g=None):
+    g = g or G_MAIN
     """Пауза → поза покоя (меч уже в руке) → удар → 9 кадров по 0.04 с. Возвращает макс. смещение меча и руки."""
-    page.evaluate('R2W.ENV.paused=true'); page.wait_for_timeout(250)
+    g.pause()  # v3.2: пауза дожидается кадра рендера, дальше — только покадровый шаг (без настенных таймеров)
     page.evaluate('R2W.ENV.frame(0.04); R2W.ENV.frame(0.04)')  # поза покоя устоялась (риг догнал HumanoidRootPart)
-    rest = page.evaluate(POSE); trigger(); page.wait_for_timeout(150)
+    rest = page.evaluate(POSE); trigger()
     dh = da = 0.0; prev = rest['root']; jumps = 0
     for i in range(9):
         page.evaluate('R2W.ENV.frame(0.04); R2W.ENV.gui.flush()')
@@ -45,31 +46,31 @@ def measure(page, trigger, shot=None, g=None):
         if jumped: jumps += 1; continue  # отброс/телепорт: риг догоняет корень через кадр — этот кадр не считаем
         da = max(da, dist(p['arm'], rest['arm']))
         if p['handle'] and rest['handle']: dh = max(dh, dist(p['handle'], rest['handle']))
-        if shot and i == 2: page.evaluate(SIDE.replace('fz*1+fx*0.35','fz*0.6-fx*0.8').replace('-fx*1+fz*0.35','-fx*0.6-fz*0.8')); page.wait_for_timeout(400); g.shot(shot)
+        if shot and i == 2: page.evaluate(SIDE.replace('fz*1+fx*0.35','fz*0.6-fx*0.8').replace('-fx*1+fz*0.35','-fx*0.6-fz*0.8')); g.raf(3); g.shot(shot)
     page.evaluate('R2W.ENV.paused=false')
     return {'sword': round(dh, 2), 'arm': round(da, 2), 'rest_handle': bool(rest['handle']), 'jumps': jumps}
-def catch(g, page, need):
-    for _ in range(60):
-        r = page.evaluate(FXQ)
-        if need(r): page.evaluate('R2W.ENV.paused=true'); return r
-        page.wait_for_timeout(10)
-    return page.evaluate(FXQ)
+def catch(g, page, trigger, need):
+    """v3.2: детерминированно — пауза, действие, затем покадровый шаг (0.02 с) до нужного кадра; остаётся на паузе."""
+    g.pause(); trigger()
+    r = g.step_until(lambda: (lambda x: x if need(x) else None)(page.evaluate(FXQ)), frames=60)
+    return r or page.evaluate(FXQ)
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
-    page.goto(url + 'index.html?persist=0&seed=1&country=US&attr.DailyAutoOpen=false')
-    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); page.wait_for_timeout(2000)
+    G_MAIN = g
+    page.goto(url + 'index.html?persist=0&seed=1&country=US&attr.DailyAutoOpen=false&attr.BotsDisabled=true')  # v3.2: без ИИ-ботов — их удары рядом не попадают в подсчёт эффектов
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); g.vwait(2.0)
     g.cmd('seed'); g.cmd('tp:615,-70'); g.vwait(1.0)   # край луга, рядом никого
     got = None
     for attempt in range(5):
-        page.keyboard.press('q')  # Q — удар мечом из хотбара (сам берёт меч в руку)
-        r = catch(g, page, lambda r: r['arc'] >= 6 and r['sword'] >= 1)
+        # Q — удар мечом из хотбара (сам берёт меч в руку)
+        r = catch(g, page, lambda: page.keyboard.press('q'), lambda r: r['arc'] >= 6 and r['sword'] >= 1)
         if r['arc'] >= 6: got = r; break
-        page.wait_for_timeout(500)
+        page.evaluate('R2W.ENV.paused=false'); g.vwait(0.5)
     check('атака в воздух: дуга удара (SlashArc) видна', bool(got) and got['arc'] >= 6, got)
     check('атака в воздух: меч в руке', bool(got) and got['sword'] >= 1, got)
     arm = page.evaluate(ARM)
     check('рука поднята замахом (Motor6D)', arm[1] > 0.3 or arm[2] < -0.3, arm)
-    page.evaluate(SIDE.replace('fz*1+fx*0.35','fz*0.6-fx*0.8').replace('-fx*1+fz*0.35','-fx*0.6-fz*0.8')); page.wait_for_timeout(400); g.shot('21_swing')
+    page.evaluate(SIDE.replace('fz*1+fx*0.35','fz*0.6-fx*0.8').replace('-fx*1+fz*0.35','-fx*0.6-fz*0.8')); g.raf(3); g.shot('21_swing')
     page.evaluate('R2W.ENV.paused=false'); g.vwait(0.6)
     toast = page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
     check('нет тоста «No enemy»', 'No enemy' not in toast and 'Too far' not in toast, toast)
@@ -87,12 +88,12 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     hit = None
     for _ in range(8):
         g.cmd('tpenemy'); g.vwait(0.3)
-        page.mouse.click(640, 330)  # с мечом в руке — клик по миру
-        r = catch(g, page, lambda r: r['flash'] >= 1 and r['spark'] >= 4 and r['arc'] >= 5)
+        # с мечом в руке — клик по миру
+        r = catch(g, page, lambda: page.mouse.click(640, 330), lambda r: r['flash'] >= 1 and r['spark'] >= 4 and r['arc'] >= 5)
         if r['flash'] >= 1: hit = r; break
-        g.vwait(0.3)
+        page.evaluate('R2W.ENV.paused=false'); g.vwait(0.3)
     check('попадание: вспышка и искры', bool(hit), hit)
-    page.evaluate(SIDE); page.wait_for_timeout(400); g.shot('21b_hit'); page.evaluate('R2W.ENV.paused=false')
+    page.evaluate(SIDE); g.raf(3); g.shot('21b_hit'); page.evaluate('R2W.ENV.paused=false')
     g.vwait(0.6); g.cmd('tpenemy'); g.vwait(0.5)
     m = measure(page, lambda: page.mouse.click(640, 330)); print('    замах:', m)
     check('удар по врагу: меч и рука делают замах', m['sword'] > 1.5 and m['arm'] > 0.9, m)

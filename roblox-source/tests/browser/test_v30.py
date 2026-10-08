@@ -23,7 +23,7 @@ S = lambda n: '[data-n="Hotbar"] [data-n="Slot%d"]' % n
 INV = '[data-n="InventoryPanel"]'
 def cap(g, n): return g.text(S(n) + ' > [data-n="Caption"]').strip()
 def cnt(g, n): return g.text(S(n) + ' > [data-n="Count"]').strip()
-def toasts(page): return page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
+def toasts(page): return page.evaluate("()=>{const L=R2W.ENV.gui; if(L&&L.roots&&L.syncRoot) for(const r of L.roots.keys()) L.syncRoot(r)}") or page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
 def shot(page, name):
     p = os.path.join(SHOTS, name); page.screenshot(path=p); print('shot', p)
 
@@ -47,12 +47,20 @@ def boot(page, g, url, extra=''):
     if g.vis('[data-n="Skip"]'):
         page.locator('[data-n="Skip"]').first.click(force=True); page.wait_for_timeout(600)
 
+def pick_cell(page, g, item):
+    """v3.2: клетка видна в списке (прокрутка), эмулятор успел увидеть прокрутку — потом клик; ждём, что карточка — этого предмета."""
+    sel = INV + ' [data-n="Cell_%s"]' % item
+    page.evaluate("(s)=>{const e=document.querySelector(s); if(e) e.scrollIntoView({block:'center'})}", sel)
+    g.vwait(0.3)
+    g.click(sel)
+    g.vwait(0.3); g.resync()
+
 def assign(page, g, item, slot):
     if not g.vis(INV):
         open_inv = page.locator('[data-n="InventoryBtn"], [data-n="Inventory"]').first
         g.click(S(5)) if cap(g, 5) == 'Пусто' else open_inv.click()
         g.wait(lambda: g.vis(INV), what='inventory')
-    g.click(INV + ' [data-n="Cell_%s"]' % item); page.wait_for_timeout(400)
+    pick_cell(page, g, item)
     # v3.1: из пустого слота N предмет кладётся сразу (одним тапом), кнопки «В слот N» уже не нужны
     if g.vis(INV + ' [data-n="ToSlot%d"]' % slot):
         g.click(INV + ' [data-n="ToSlot%d"]' % slot)
@@ -123,7 +131,9 @@ with serve('/tmp/gw_ui') as url:
         g.cmd('tp:%.1f,%.1f' % (fx, fz))
         g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='forest prompt')
         page.keyboard.press('e')
-        g.wait(lambda: g.vis('[data-n="WorldsPanel"]') or g.vis('[data-n="ZonesPanel"]'), timeout=15, what='worlds panel')
+        g.wait(lambda: g.vis('[data-n="WorldsPanel"]') or g.vis('[data-n="ZonesPanel"]'), timeout=30, what='worlds panel')
+        try: g.wait(lambda: 'закрыт' in toasts(page), timeout=30, what='locked toast')  # v3.2: ждём состояния
+        except AssertionError: pass
         t = toasts(page)
         check('арка закрытого мира: окно «Миры» и подсказка', 'закрыт' in t, t)
         page.keyboard.press('Escape'); page.wait_for_timeout(400)
@@ -142,7 +152,8 @@ with serve('/tmp/gw_ui') as url:
         g.cmd('item:health_potion=2'); g.cmd('item:regen_potion=2'); page.wait_for_timeout(600)
         assign(page, g, 'health_potion', 5)
         check('слот 5: «Лечение» ×2', cap(g, 5) == 'Лечение' and cnt(g, 5) == '×2', (cap(g, 5), cnt(g, 5)))
-        g.click(INV + ' [data-n="Cell_regen_potion"]'); page.wait_for_timeout(400)
+        pick_cell(page, g, 'regen_potion')
+        g.wait(lambda: g.resync() or g.vis(INV + ' [data-n="ToSlot4"]'), timeout=60, what='ToSlot4')
         g.click(INV + ' [data-n="ToSlot4"]')
         g.wait(lambda: cap(g, 4) == 'Реген', what='regen slot')
         check('слот 4: «Реген» ×2', cnt(g, 4) == '×2', cnt(g, 4))
@@ -180,7 +191,8 @@ with serve('/tmp/gw_ui') as url:
             boot(page, g, url, '&attr.BotsDisabled=true')
             g.cmd('item:health_potion=2'); g.cmd('item:regen_potion=1'); g.cmd('item:luck_potion=2'); page.wait_for_timeout(600)
             assign(page, g, 'health_potion', 5)
-            g.click(INV + ' [data-n="Cell_regen_potion"]'); page.wait_for_timeout(400)
+            pick_cell(page, g, 'regen_potion')
+            g.wait(lambda: g.resync() or g.vis(INV + ' [data-n="ToSlot4"]'), timeout=60, what='ToSlot4')
             g.click(INV + ' [data-n="ToSlot4"]'); g.wait(lambda: cap(g, 4) == 'Реген', what='regen slot')
             g.click(INV + ' [data-n="Close"]'); page.wait_for_timeout(500)
             g.click(S(3)); g.cmd('hp:0.4'); page.wait_for_timeout(300); g.click(S(4))

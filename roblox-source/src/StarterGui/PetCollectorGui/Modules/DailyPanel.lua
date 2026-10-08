@@ -489,29 +489,30 @@ function DailyPanel.init(gui: ScreenGui)
 	-- раскладка под экран: в один ряд (ПК и телефон горизонтально) или 4+3 (телефон вертикально)
 	local cur = { W = 1280, H = 720, Mode = "wide", CardW = 110, CardH = 160, K = Theme.UI_SCALE }
 	local function layout(li)
-		-- v3.0: окно в Theme.uiScale раз меньше; раскладка считается в «виртуальных» пикселях W/k × H/k
-		local k = Theme.uiScale(li)
+		-- v3.0: окно в k раз меньше; раскладка считается в «виртуальных» пикселях W/k × H/k
+		-- v3.2: k = Theme.panelScale (как у окон): текст не мельче 12 px (Widgets.textFloor)
+		local k = Theme.panelScale(li)
 		local W, H = li.W / k, li.H / k
 		local portrait = li.Mode == "portrait"
 		local pad, gap = 14, 8
 		local headerH = if li.Mode == "landscape" then 50 else 62
 		local winW, cols, rows
-		-- v3.1: окно меньше (Theme.PANEL_SHRINK): ПК — в 1.5 раза по ширине, телефон — мягче (текст читается)
+		-- v3.1: окно меньше; v3.2: на ПК — в 1.25 раза (текст >= 12 px), телефон — мягче (текст читается)
 		if portrait then
-			winW = math.min(W - 16, 520) * 0.86
+			winW = math.min(W - 16, 520) * 0.95
 			cols, rows = 4, 2
 		elseif li.Mode == "landscape" then
 			winW = math.min(W - 24, 960) / 1.3
 			cols, rows = 7, 1
 		else
-			winW = math.min(W - 80, 940) / Theme.PANEL_SHRINK
+			winW = math.min(W - 80, 940) / 1.25
 			cols, rows = 7, 1
 		end
 		winW = math.floor(winW)
 		local cardW = math.floor((winW - 2 * pad - (cols - 1) * gap) / cols)
 		local cardH = math.floor(cardW * (if portrait then 1.62 else 1.48))
 		local btnH = if li.Mode == "landscape" then 44 else 54
-		local hintH = if portrait then 30 else 18
+		local hintH = 40
 		local fixed = headerH + 10 + hintH + 8 + btnH + 16
 		local maxCardsH = H - 24 - fixed
 		local cardsH = rows * cardH + (rows - 1) * (gap + 6)
@@ -563,10 +564,10 @@ function DailyPanel.init(gui: ScreenGui)
 			c.Rays.Size = UDim2.fromOffset(cardW * 0.94, cardW * 0.94)
 			c.Rays.Position = UDim2.fromScale(0.5, 0.5)
 			c.Halo.Size = UDim2.fromOffset(iconPx * 1.05, iconPx * 1.05)
-			local topH = math.max(14, math.floor(cardH * 0.15))
-			c.Top.Position = UDim2.fromOffset(4, math.floor(cardH * 0.05))
-			c.Top.Size = UDim2.new(1, -8, 0, topH)
-			local amtH = math.max(16, math.floor(cardH * 0.19))
+			local topH = math.max(20, math.floor(cardH * 0.15))
+			c.Top.Position = UDim2.fromOffset(2, math.floor(cardH * 0.05))
+			c.Top.Size = UDim2.new(1, -4, 0, topH)
+			local amtH = math.max(20, math.floor(cardH * 0.19))
 			c.Amount.Position = UDim2.new(0, 4, 1, -amtH - math.floor(cardH * 0.05))
 			c.Amount.Size = UDim2.new(1, -8, 0, amtH)
 			c.VipTag.Size = UDim2.fromOffset(math.max(34, cardW * 0.46), math.max(16, cardH * 0.12))
@@ -581,7 +582,7 @@ function DailyPanel.init(gui: ScreenGui)
 		end
 		hint.Position = UDim2.fromOffset(pad, headerH + 4 + cardsH + 6)
 		hint.Size = UDim2.new(1, -2 * pad, 0, hintH)
-		hintSize.MaxTextSize = if portrait then 12 else 15
+		hintSize.MaxTextSize = 15
 		local bw = math.min(winW - 2 * pad, if portrait then 300 else 340)
 		claimBtn.Size = UDim2.fromOffset(bw, btnH)
 		claimBtn.Position = UDim2.new(0.5, 0, 1, -12)
@@ -611,6 +612,7 @@ function DailyPanel.init(gui: ScreenGui)
 		end
 	end
 	Layout.onChanged(layout)
+	Widgets.textFloor(root)
 
 	local lastClaimed = -1
 	local function refresh()

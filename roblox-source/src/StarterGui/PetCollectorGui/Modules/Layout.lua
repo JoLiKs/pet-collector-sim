@@ -78,6 +78,40 @@ function Layout.onChanged(fn: (Info) -> ())
 	fn(current)
 end
 
+-- v3.2: безопасная область для окон на телефоне (UiGeometry.areaFor) — её считает Hud по реальным кнопкам.
+-- nil — область не задана (ПК: окна по центру).
+local area: any = nil
+local areaListeners: { (any) -> () } = {}
+
+function Layout.panelArea(): any
+	return area
+end
+
+function Layout.setPanelArea(a: any)
+	local same = (a == nil and area == nil)
+		or (
+			a ~= nil
+			and area ~= nil
+			and math.abs(a.X - area.X) < 1
+			and math.abs(a.Y - area.Y) < 1
+			and math.abs(a.W - area.W) < 1
+			and math.abs(a.H - area.H) < 1
+		)
+	if same then
+		return
+	end
+	area = a
+	for _, fn in ipairs(areaListeners) do
+		task.spawn(fn, area)
+	end
+end
+
+-- fn(area) вызывается сразу и при каждом изменении области
+function Layout.onPanelArea(fn: (any) -> ())
+	table.insert(areaListeners, fn)
+	fn(area)
+end
+
 local started = false
 function Layout.init()
 	if started then

@@ -18,6 +18,8 @@ local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
 
 local ShopPanel = {}
+-- v3.2: высота карточки («дизайнерские» px): название в 2 строки, описание до 5 строк, кнопка покупки
+ShopPanel.CARD_H = 196
 
 local localPlayer = Players.LocalPlayer
 
@@ -41,14 +43,16 @@ local function section(parent: Instance, title: any, order: number): (Frame, Tex
 		Parent = parent,
 	})
 	local gl = Widgets.New("UIGridLayout", {
-		CellSize = UDim2.fromOffset(150, 150),
+		CellSize = UDim2.new(0.5, -4, 0, ShopPanel.CARD_H),
 		CellPadding = UDim2.fromOffset(8, 8),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = grid,
 	})
-	-- Портрет телефона: две карточки на всю ширину панели (текст описаний крупнее)
+	-- v3.2: карточки делят ширину окна (2 колонки; телефон горизонтально — 3): текст не мельче 12 px
+	-- и не обрезается (Theme.panelScale)
 	Layout.onChanged(function(li)
-		gl.CellSize = if li.Mode == "portrait" then UDim2.new(0.5, -4, 0, 150) else UDim2.fromOffset(150, 150)
+		local n = if li.Mode == "landscape" then 3 else 2
+		gl.CellSize = UDim2.new(1 / n, -math.ceil(8 * (n - 1) / n), 0, ShopPanel.CARD_H)
 	end)
 	return grid, header
 end
@@ -57,28 +61,30 @@ local function card(parent: Instance, name: any, desc: any, color: Color3): (Fra
 	local c = Widgets.New("Frame", { BackgroundColor3 = Theme.BgCard, ZIndex = 23, Parent = parent })
 	Widgets.corner(c, 12)
 	Widgets.stroke(c, color, 2)
-	Widgets.label({
+	local title = Widgets.label({
+		Name = "Title",
 		Text = name,
-		Size = UDim2.new(1, -10, 0, 26),
-		Position = UDim2.fromOffset(5, 5),
+		Size = UDim2.new(1, -10, 0, 40),
+		Position = UDim2.fromOffset(5, 4),
 		Font = Theme.Font,
 		TextColor3 = color,
 		ZIndex = 24,
 		Parent = c,
 	})
-	local d = Widgets.label({
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 22, Parent = title })
+	Widgets.label({
+		Name = "Desc",
 		Text = desc,
-		Size = UDim2.new(1, -12, 0, 54),
-		Position = UDim2.fromOffset(6, 34),
+		Size = UDim2.new(1, -12, 1, -(48 + 52)),
+		Position = UDim2.fromOffset(6, 48),
 		TextColor3 = Theme.TextDim,
+		-- v3.2.1: фиксированный размер (12 px на экране при масштабе окна 0.8) с переносом — у всех карточек одинаковый
+		TextScaled = false,
+		TextSize = 15,
+		TextYAlignment = Enum.TextYAlignment.Top,
 		ZIndex = 24,
 		Parent = c,
 	})
-	local tsc = Widgets.New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 8, Parent = d })
-	-- v2.4 (М6): на телефоне (портрет и ландшафт) описание не мельче 10 px
-	Layout.onChanged(function(li)
-		tsc.MinTextSize = if li.Mode ~= "wide" then 10 else 8
-	end)
 	local buy = Widgets.button({
 		Text = "...",
 		Color = Theme.Green,
@@ -148,7 +154,11 @@ function ShopPanel.init(gui: ScreenGui)
 	local order = 10
 	local restrictedNote = Widgets.label({
 		Text = L.k("shop.restricted"),
-		Size = UDim2.new(1, -8, 0, 40),
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, -- v3.2.1: фиксированный размер с переносом, высота по тексту
+		TextScaled = false,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 9,
 		Visible = false,
@@ -198,8 +208,13 @@ function ShopPanel.init(gui: ScreenGui)
 	end
 
 	Widgets.label({
+		Name = "Disclaimer",
 		Text = L.k("shop.disclaimer"),
-		Size = UDim2.new(1, -8, 0, 36),
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y, -- v3.2.1: фиксированный размер с переносом, высота по тексту
+		TextScaled = false,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
 		TextColor3 = Theme.TextDim,
 		LayoutOrder = 1000,
 		ZIndex = 22,

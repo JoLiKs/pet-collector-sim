@@ -86,8 +86,31 @@ def scan():
     return bad
 
 
+# v3.2: эмодзи и пиктограммы в строках интерфейса запрещены (рисуются по-разному или не рисуются вовсе:
+# Windows 10, часть шрифтов Roblox). Значки — из примитивов Icons.lua. Проверяются все строковые литералы src/,
+# включая Locale (комментарии — нет).
+EMOJI = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF\u2300-\u23FF\uFE0F\u200D]")
+
+
+def scan_emoji():
+    bad = []
+    for dirpath, _, files in os.walk(SRC):
+        for fn in sorted(files):
+            if not fn.endswith(".lua"):
+                continue
+            path = os.path.join(dirpath, fn)
+            for i, line in enumerate(open(path, encoding="utf-8"), 1):
+                code = line.split("--")[0] if '"' not in line.split("--")[0] else line
+                for m in LIT.finditer(code):
+                    if code[: m.start()].count("--") and not code[: m.start()].count('"') % 2 == 0:
+                        continue
+                    if EMOJI.search(m.group(1)):
+                        bad.append(f"{os.path.relpath(path, ROOT)}:{i}: emoji in \"{m.group(1)}\"")
+    return bad
+
+
 if __name__ == "__main__":
-    found = scan()
+    found = scan() + scan_emoji()
     for b in found:
         print(b)
     print(f"check_strings: {len(found)} hardcoded UI string(s), {len(keys)} locale keys")

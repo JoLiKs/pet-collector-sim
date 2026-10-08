@@ -18,6 +18,7 @@ local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local EnemyData = require(Shared:WaitForChild("EnemyData"))
 local EnemyVisual = require(Shared:WaitForChild("EnemyVisual"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local Locale = require(Shared:WaitForChild("Locale"))
 
 local BUILD_DIST = 170
@@ -141,8 +142,18 @@ local function makeBar(e: Entry, def: any)
 		name.Font = Enum.Font.FredokaOne
 		name.TextScaled = true
 		name.TextColor3 = Color3.fromRGB(255, 215, 90)
-		name.Text = "👑 " .. Locale.n(def.Name)
+		name.Text = Locale.n(def.Name)
+		name.Position = UDim2.fromOffset(24, 0)
+		name.Size = UDim2.new(1, -48, 0, 22)
 		name.Parent = g
+		-- v3.2: корона из примитивов (Icons) вместо эмодзи
+		Icons.make("Crown", {
+			Name = "Crown",
+			Px = 20,
+			Size = UDim2.fromOffset(20, 20),
+			Position = UDim2.fromOffset(2, 1),
+			Parent = g,
+		})
 		stroke(name, 2).ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
 		e.BarText = name
 	end

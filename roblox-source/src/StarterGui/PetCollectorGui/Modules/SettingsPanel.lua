@@ -94,6 +94,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 			setAudio("Music", not audio().Music)
 		end,
 	})
+	Widgets.buttonIcon(musicBtn, "Note", 24) -- v3.2: значок вместо эмодзи
 	local sfxBtn = Widgets.button({
 		Name = "SfxToggle",
 		Text = "",
@@ -107,6 +108,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 			setAudio("Sfx", not audio().Sfx)
 		end,
 	})
+	Widgets.buttonIcon(sfxBtn, "Bell", 24) -- v3.2: значок вместо эмодзи
 	UiKit.text(body, L.k("settings.music_volume"), UDim2.fromOffset(0, 236), UDim2.new(0.45, 0, 0, 40), {
 		MaxSize = 18,
 	})

@@ -63,7 +63,8 @@ function IndexPanel.init(gui: ScreenGui)
 		Size = UDim2.new(1, -20, 1, -50),
 	})
 	UiKit.list(scroll, 8)
-	local cell = 96
+	-- v3.2: ячейка шире и выше — имя в 2 строки, редкость в строку при тексте >= 12 px
+	local cell = 120
 
 	local lastKey = ""
 	local function render(force: boolean?)
@@ -108,7 +109,7 @@ function IndexPanel.init(gui: ScreenGui)
 				Parent = frame,
 			})
 			Widgets.New("UIGridLayout", {
-				CellSize = UDim2.fromOffset(cell, cell + 14),
+				CellSize = UDim2.fromOffset(cell, 138),
 				CellPadding = UDim2.fromOffset(8, 8),
 				SortOrder = Enum.SortOrder.LayoutOrder,
 				Parent = grid,
@@ -146,27 +147,26 @@ function IndexPanel.init(gui: ScreenGui)
 				UiKit.text(
 					c,
 					if known then L.n(def.Name) else "???",
-					UDim2.fromOffset(4, 58),
-					UDim2.new(1, -8, 0, 22),
+					UDim2.fromOffset(3, 57),
+					UDim2.new(1, -6, 0, 46),
 					{
 						Font = Theme.Font,
-						MaxSize = 15,
-						MinSize = 9,
+						MaxSize = 18,
+						TextWrapped = true,
 						TextXAlignment = Enum.TextXAlignment.Center,
 						TextColor3 = if known then Theme.Text else Theme.TextDim,
 					}
 				)
-				UiKit.text(c, L.n(def.Rarity), UDim2.fromOffset(4, 82), UDim2.new(1, -8, 0, 20), {
-					MaxSize = 13,
-					MinSize = 9,
+				UiKit.text(c, L.n(def.Rarity), UDim2.fromOffset(3, 106), UDim2.new(1, -6, 0, 26), {
+					MaxSize = 15,
 					TextXAlignment = Enum.TextXAlignment.Center,
 					TextColor3 = if known then rarity.Color else Theme.TextDim,
 				})
 			end
 		end
 	end
-	Layout.onChanged(function(lay)
-		cell = if lay.Mode == "wide" then 96 else 84
+	Layout.onChanged(function()
+		cell = 120
 		if panel.IsOpen() then
 			render(true)
 		end

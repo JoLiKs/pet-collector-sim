@@ -10,6 +10,7 @@ local Util = require(Shared:WaitForChild("Util"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
 local UpgradesPanel = {}
@@ -26,43 +27,37 @@ function UpgradesPanel.init(gui: ScreenGui)
 
 	local rows = {}
 	for i, def in ipairs(UpgradeData.List) do
-		local row = Widgets.New("Frame", {
-			Size = UDim2.new(1, -8, 0, 74),
-			BackgroundColor3 = Theme.BgCard,
-			LayoutOrder = i,
-			ZIndex = 22,
-			Parent = scroll,
-		})
-		Widgets.corner(row, 12)
-		local name = Widgets.label({
-			Text = L.kn(def.Name),
-			Size = UDim2.new(0.55, 0, 0, 26),
-			Position = UDim2.fromOffset(12, 6),
-			TextXAlignment = Enum.TextXAlignment.Left,
+		-- v3.2.1: карточка растёт по тексту; название и описание — фиксированный размер шрифта с переносом
+		-- (раньше TextScaled: короткое описание было крупным, длинное — мелким)
+		local row, col = UiKit.flowCard(scroll, 84, nil, i, 12, 150)
+		row.Name = def.Id
+		local name = UiKit.flowText(col, L.kn(def.Name), {
+			Name = "Title",
 			Font = Theme.Font,
-			ZIndex = 23,
-			Parent = row,
+			TextSize = 18,
+			LayoutOrder = 1,
 		})
-		Widgets.label({
-			Text = L.kn(def.Description),
-			Size = UDim2.new(0.55, 0, 0, 30),
-			Position = UDim2.fromOffset(12, 34),
-			TextXAlignment = Enum.TextXAlignment.Left,
+		UiKit.flowText(col, L.kn(def.Description), {
+			Name = "Desc",
 			TextColor3 = Theme.TextDim,
-			ZIndex = 23,
-			Parent = row,
+			TextSize = 15,
+			LayoutOrder = 2,
 		})
 		local level = Widgets.label({
-			Size = UDim2.new(0.2, 0, 0, 22),
-			Position = UDim2.new(0.58, 0, 0, 6),
+			Name = "Level",
+			TextScaled = false,
+			TextSize = 15,
+			Size = UDim2.fromOffset(136, 22),
+			Position = UDim2.new(1, -144, 0, 6),
 			ZIndex = 23,
 			Parent = row,
 		})
 		local buy = Widgets.button({
 			Text = "",
-			Size = UDim2.new(0.34, -8, 0, 40),
-			AnchorPoint = Vector2.new(1, 0.5),
-			Position = UDim2.new(1, -10, 0.5, 8),
+			Name = "Buy",
+			Size = UDim2.fromOffset(136, 40),
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, -8, 0, 34),
 			ZIndex = 23,
 			OnClick = function()
 				Actions.call("BuyUpgrade", def.Id)

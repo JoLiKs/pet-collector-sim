@@ -25,7 +25,7 @@ S = lambda n: '[data-n="Hotbar"] [data-n="Slot%d"]' % n
 INV = '[data-n="InventoryPanel"]'
 def cap(g, n): return g.text(S(n) + ' > [data-n="Caption"]').strip()
 def cnt(g, n): return g.text(S(n) + ' > [data-n="Count"]').strip()
-def toasts(page): return page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
+def toasts(page): return page.evaluate("()=>{const L=R2W.ENV.gui; if(L&&L.roots&&L.syncRoot) for(const r of L.roots.keys()) L.syncRoot(r)}") or page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
 def mmss(t):
     m = re.search(r'x(\d) (\d\d):(\d\d)', t)
     return (int(m.group(1)), int(m.group(2)) * 60 + int(m.group(3))) if m else (0, -1)
@@ -40,13 +40,16 @@ with serve('/tmp/gw_ui') as url:
         page.goto(url + 'index.html?seed=1&country=RU&lang=ru&attr.DailyAutoOpen=false')
         g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
         g.wait(lambda: not g.vis('[data-n="Dot2"]'), timeout=40, what='loading')
-        page.wait_for_timeout(1500)
+        g.vwait(1.5)  # v3.2: игровое время, а не настенное — экран загрузки успевает уйти
         check('5 слотов', all(g.vis(S(i)) for i in range(1, 6)))
         check('слот 3 — «Удача» (зелье удачи)', cap(g, 3) == 'Удача' and g.vis(S(3) + ' > [data-n="Icon"]'), cap(g, 3))
         check('слот 4 — «Монеты» (эликсир)', cap(g, 4) == 'Монеты', cap(g, 4))
         check('слот 5 — пустой «+»', cap(g, 5) == 'Пусто' and g.vis(S(5) + ' [data-n="Plus"]'))
         check('зелий нет — слот тусклый, ×0', g.vis(S(3) + ' [data-n="Dim"]') and cnt(g, 3) == '×0', cnt(g, 3))
-        g.click(S(3)); page.wait_for_timeout(600)
+        for _ in range(3):  # v3.2: под нагрузкой первый тап иногда теряется — повторяем, ждём состояния
+            g.click(S(3))
+            try: g.wait(lambda: 'верстак' in toasts(page), timeout=15, what='hint toast'); break
+            except AssertionError: g.vwait(0.5)
         t = toasts(page)
         check('тап без зелий — подсказка, где взять', 'верстак' in t and 'задания' in t, t)
         check('в подсказке нет «слияния»', 'слиян' not in t.lower(), t)
@@ -111,7 +114,9 @@ with serve('/tmp/gw_ui') as url:
         g.wait(lambda: mmss(cap(g, 3))[1] > 0, timeout=20, what='timer after reload')
         check('после перезагрузки таймер корректный (x5 ~9:5x)', mmss(cap(g, 3))[0] == 5 and 480 <= mmss(cap(g, 3))[1] <= 600, cap(g, 3))
         # билет: вдали от яйца — окно яйца и подсказка подойти (или сразу открыть, если рядом)
-        g.click(S(5)); page.wait_for_timeout(1200)
+        g.click(S(5))
+        try: g.wait(lambda: g.vis('[data-n="EggPanel"]') or cnt(g, 5) == '×0', timeout=40, what='ticket')
+        except AssertionError: pass
         t = toasts(page)
         check('билет из слота: окно яйца или открытие', g.vis('[data-n="EggPanel"]') or cnt(g, 5) == '×0', t)
         check('ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0, page.evaluate('R2W.ENV.errorCount'))
@@ -123,11 +128,14 @@ with serve('/tmp/gw_ui') as url:
         page.goto(url + 'index.html?persist=0&seed=1&country=RU&lang=ru&attr.DailyAutoOpen=false&attr.BotsDisabled=true')
         g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
         g.wait(lambda: not g.vis('[data-n="Dot2"]'), timeout=40, what='loading')
-        page.wait_for_timeout(1500)
+        g.vwait(1.5)  # v3.2: игровое время, а не настенное — экран загрузки успевает уйти
         g.cmd('item:ticket_MeadowEgg=1'); g.cmd('farm:on')
         open_inv = page.locator('[data-n="InventoryBtn"]').first
         open_inv.click(); g.wait(lambda: g.vis(INV), what='inventory')
-        g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]'); page.wait_for_timeout(500)
+        cell = INV + ' [data-n="Cell_ticket_MeadowEgg"]'
+        page.evaluate("(s)=>{const e=document.querySelector(s); if(e) e.scrollIntoView({block:'center'})}", cell); g.vwait(0.3)
+        g.click(cell)
+        g.wait(lambda: g.vis(INV + ' [data-n="ToSlot5"]'), timeout=60, what='ToSlot5')
         page.evaluate("()=>{window.__b=document.querySelector('[data-n=InventoryPanel] [data-n=ToSlot5]')}")
         w0 = g.text(INV + ' [data-n="Have"]')
         page.wait_for_timeout(2500)
@@ -150,13 +158,16 @@ with serve('/tmp/gw_ui') as url:
         # пустой «+» во время фарма: тап по слоту -> тап по предмету -> предмет в слоте
         if cap(g, 5) != 'Пусто':
             open_inv.click(); g.wait(lambda: g.vis(INV), what='inv')
-            g.click(INV + ' [data-n="Cell_ticket_MeadowEgg"]'); page.wait_for_timeout(400)
+            cell = INV + ' [data-n="Cell_ticket_MeadowEgg"]'
+            page.evaluate("(s)=>{const e=document.querySelector(s); if(e) e.scrollIntoView({block:'center'})}", cell); g.vwait(0.3)
+            g.click(cell)
+            g.wait(lambda: g.vis(INV + ' [data-n="RemoveSlot"]'), timeout=60, what='RemoveSlot')
             g.click(INV + ' [data-n="RemoveSlot"]'); g.wait(lambda: cap(g, 5) == 'Пусто', what='clear')
             g.click(INV + ' [data-n="Close"]'); page.wait_for_timeout(400)
         g.cmd('farm:on')
         g.click(S(5)); g.wait(lambda: g.vis(INV), what='inv from +')
         b = page.locator(INV + ' [data-n="Cell_ticket_MeadowEgg"]').first
-        b.scroll_into_view_if_needed(); bb = b.bounding_box()
+        b.scroll_into_view_if_needed(); g.vwait(0.5); bb = b.bounding_box()  # v3.2: эмулятор видит прокрутку
         page.mouse.move(bb['x'] + bb['width'] / 2, bb['y'] + bb['height'] / 2)
         page.mouse.down(); page.wait_for_timeout(300); page.mouse.up()
         try:

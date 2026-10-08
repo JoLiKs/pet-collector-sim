@@ -25,4 +25,20 @@ class G:
     def vis(s,sel): return s.p.locator(sel).first.is_visible() if s.p.locator(sel).count() else False
     def text(s,sel): return s.p.locator(sel).first.inner_text()
     def names(s,sel): return s.p.evaluate("(q)=>[...document.querySelector(q).querySelectorAll('[data-n]')].map(e=>e.dataset.n)",sel)
+    # v3.2: детерминированные ожидания — два кадра рендера браузера (кадр на паузе дорисован) и
+    # покадровый шаг симуляции на паузе (R2W.ENV.paused + ENV.frame) до выполнения условия
+    def raf(s,n=2):
+        for _ in range(n): s.p.evaluate("new Promise(r=>requestAnimationFrame(()=>r()))")
+    def resync(s):
+        # Эмулятор: чтение AbsoluteSize из Lua (layout.ensure) снимает «грязный» флаг корня до flush, и новые
+        # дочерние элементы могут не попасть в DOM до следующего изменения. Тесту нужен DOM — синхронизируем корни.
+        s.p.evaluate("()=>{const L=R2W.ENV.gui; if(L&&L.roots&&L.syncRoot) for(const r of L.roots.keys()) L.syncRoot(r)}")
+    def pause(s):
+        s.p.evaluate('R2W.ENV.paused=true'); s.raf()
+    def step_until(s,fn,frames=60,dt=0.02):
+        for _ in range(frames):
+            r=fn()
+            if r: return r
+            s.p.evaluate('(dt)=>{R2W.ENV.frame(dt); R2W.ENV.gui&&R2W.ENV.gui.flush&&R2W.ENV.gui.flush()}',dt)
+        return fn()
     def shot(s,name): s.p.screenshot(path=os.path.join(getattr(s,'shots','/tmp/shots'),name+'.png'))

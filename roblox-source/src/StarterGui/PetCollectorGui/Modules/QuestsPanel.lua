@@ -10,7 +10,6 @@ local Util = require(Shared:WaitForChild("Util"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
-local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
@@ -45,47 +44,32 @@ function QuestsPanel.init(gui: ScreenGui)
 				if def then
 					order += 1
 					local done = entry.P >= def.Obj.Count
-					local narrow = Layout.compact()
-					local card = UiKit.card(
+					-- v3.2: карточка растёт по тексту (перенос, текст >= 12 px), полоса прогресса — с подписью
+					local card, col = UiKit.flowCard(
 						scroll,
-						if narrow then 84 else 64,
+						64,
 						if done and not entry.C then Theme.Green else nil,
-						order
+						order,
+						10,
+						120
 					)
 					card.Name = id
-					UiKit.text(
-						card,
-						L.n(def.Name),
-						UDim2.fromOffset(10, 4),
-						UDim2.new(0.5, 0, 0, 22),
-						{ Font = Theme.Font, MaxSize = 18 }
-					)
-					UiKit.text(
-						card,
+					UiKit.flowText(col, L.n(def.Name), { Font = Theme.Font, TextSize = 18, LayoutOrder = 1 })
+					UiKit.flowText(
+						col,
 						L.t("quests.obj_reward", { obj = objText(def.Obj), reward = rewardText(def.Reward) }),
-						UDim2.fromOffset(10, 26),
-						UDim2.new(0.7, 0, 0, if narrow then 34 else 16),
-						{
-							TextColor3 = Theme.TextDim,
-							MaxSize = 13,
-							TextWrapped = narrow,
-							TextYAlignment = Enum.TextYAlignment.Top,
-						}
+						{ TextColor3 = Theme.TextDim, LayoutOrder = 2 }
 					)
-					local bar = UiKit.bar(
-						card,
-						UDim2.fromOffset(10, if narrow then 64 else 45),
-						UDim2.new(0.65, 0, 0, 14),
-						Theme.Green
-					)
+					local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Green)
+					bar.Back.LayoutOrder = 3
 					bar.Set(entry.P / def.Obj.Count, ("%d / %d"):format(entry.P, def.Obj.Count))
 					local b = Widgets.button({
 						Name = "Claim",
 						Text = if entry.C then L.t("quests.claimed") else L.t("quests.claim"),
 						Color = Theme.Green,
-						Size = UDim2.new(0.2, 0, 0, 36),
-						AnchorPoint = Vector2.new(1, 0.5),
-						Position = UDim2.new(1, -8, 0.5, 0),
+						Size = UDim2.fromOffset(104, 36),
+						AnchorPoint = Vector2.new(1, 0),
+						Position = UDim2.new(1, -8, 0, 12),
 						ZIndex = 23,
 						MaxTextSize = 18,
 						OnClick = function()
@@ -96,36 +80,28 @@ function QuestsPanel.init(gui: ScreenGui)
 					Widgets.setEnabled(b, done and not entry.C, Theme.Green)
 				end
 			end
-			UiKit.text(
-				scroll,
-				L.t("quests.refresh_utc"),
-				UDim2.fromOffset(4, 0),
-				UDim2.new(1, -8, 0, 20),
-				{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-			)
+			UiKit.flowText(scroll, L.t("quests.refresh_utc"), { TextColor3 = Theme.TextDim, LayoutOrder = 0 })
 		elseif view == "Story" then
 			for i, npcId in ipairs(QuestData.NpcOrder) do
 				local npc = QuestData.Npcs[npcId]
 				local chain = QuestData.Chains[npcId]
 				local st = core.Quests.Chains[npcId] or { Step = 1, Accepted = false, Progress = 0 }
 				local step = chain.Steps[st.Step]
-				local card = UiKit.card(scroll, 78, npc.Color, i)
+				local card, col = UiKit.flowCard(scroll, 60, npc.Color, i, 10, 10)
 				card.Name = npcId
-				UiKit.text(
-					card,
+				UiKit.flowText(
+					col,
 					("%s - %s (%d/%d)"):format(
 						L.n(npc.Name),
 						L.n(chain.Name),
 						math.min(st.Step - 1, #chain.Steps),
 						#chain.Steps
 					),
-					UDim2.fromOffset(10, 4),
-					UDim2.new(1, -20, 0, 22),
-					{ Font = Theme.Font, TextColor3 = npc.Color, MaxSize = 17 }
+					{ Font = Theme.Font, TextColor3 = npc.Color, TextSize = 18, LayoutOrder = 1 }
 				)
 				if step then
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						L.n(step.Title)
 							.. ": "
 							.. (
@@ -133,33 +109,23 @@ function QuestsPanel.init(gui: ScreenGui)
 									then objText(step.Obj)
 									else L.t("quests.talk_to", { npc = npc.Name })
 							),
-						UDim2.fromOffset(10, 28),
-						UDim2.new(1, -20, 0, 18),
-						{ MaxSize = 14 }
+						{ LayoutOrder = 2 }
 					)
-					local bar =
-						UiKit.bar(card, UDim2.fromOffset(10, 52), UDim2.new(0.6, 0, 0, 16), Theme.Blue)
+					local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Blue)
+					bar.Back.LayoutOrder = 3
 					bar.Set(
 						if st.Accepted then st.Progress / step.Obj.Count else 0,
 						if st.Accepted
 							then ("%d / %d"):format(st.Progress, step.Obj.Count)
 							else L.t("quests.not_started")
 					)
-					UiKit.text(
-						card,
+					UiKit.flowText(
+						col,
 						L.t("quests.reward", { reward = rewardText(step.Reward) }),
-						UDim2.new(0.64, 0, 0, 50),
-						UDim2.new(0.34, 0, 0, 22),
-						{ TextColor3 = Theme.Gold, MaxSize = 12 }
+						{ TextColor3 = Theme.Gold, LayoutOrder = 4 }
 					)
 				else
-					UiKit.text(
-						card,
-						L.t("quests.all_done"),
-						UDim2.fromOffset(10, 32),
-						UDim2.new(1, -20, 0, 22),
-						{ TextColor3 = Theme.Green, MaxSize = 15 }
-					)
+					UiKit.flowText(col, L.t("quests.all_done"), { TextColor3 = Theme.Green, LayoutOrder = 2 })
 				end
 			end
 		else
@@ -170,45 +136,33 @@ function QuestsPanel.init(gui: ScreenGui)
 				if done then
 					got += 1
 				end
-				local card = UiKit.card(scroll, 54, if done then Theme.Gold else nil, i)
+				local card, col = UiKit.flowCard(scroll, 54, if done then Theme.Gold else nil, i, 10, 96)
 				card.Name = a.Id
-				UiKit.text(
-					card,
-					L.n(a.Name) .. (if done then L.t("quests.done_suffix") else ""),
-					UDim2.fromOffset(10, 3),
-					UDim2.new(0.6, 0, 0, 20),
-					{ Font = Theme.Font, TextColor3 = if done then Theme.Gold else Theme.Text, MaxSize = 16 }
-				)
-				UiKit.text(
-					card,
-					L.n(a.Desc),
-					UDim2.fromOffset(10, 22),
-					UDim2.new(0.6, 0, 0, 16),
-					{ TextColor3 = Theme.TextDim, MaxSize = 13 }
-				)
-				local bar = UiKit.bar(card, UDim2.fromOffset(10, 39), UDim2.new(0.55, 0, 0, 11), Theme.Gold)
-				bar.Set(math.min(1, value / a.Goal), "")
-				UiKit.text(
-					card,
-					("%s / %s"):format(Util.formatNumber(math.min(value, a.Goal)), Util.formatNumber(a.Goal)),
-					UDim2.new(0.58, 0, 0, 36),
-					UDim2.new(0.2, 0, 0, 14),
-					{ MaxSize = 12 }
+				UiKit.flowText(col, L.n(a.Name) .. (if done then L.t("quests.done_suffix") else ""), {
+					Font = Theme.Font,
+					TextColor3 = if done then Theme.Gold else Theme.Text,
+					TextSize = 18,
+					LayoutOrder = 1,
+				})
+				UiKit.flowText(col, L.n(a.Desc), { TextColor3 = Theme.TextDim, LayoutOrder = 2 })
+				local bar = UiKit.bar(col, UDim2.new(), UDim2.new(1, 0, 0, 20), Theme.Gold)
+				bar.Back.LayoutOrder = 3
+				bar.Set(
+					math.min(1, value / a.Goal),
+					("%s / %s"):format(Util.formatNumber(math.min(value, a.Goal)), Util.formatNumber(a.Goal))
 				)
 				UiKit.text(
 					card,
 					"+" .. L.t("reward.gems", { n = a.Gems }),
-					UDim2.new(0.8, 0, 0, 16),
-					UDim2.new(0.18, 0, 0, 22),
-					{ TextColor3 = Theme.Gem, MaxSize = 15, TextXAlignment = Enum.TextXAlignment.Right }
+					UDim2.new(1, -92, 0, 8),
+					UDim2.fromOffset(84, 24),
+					{ TextColor3 = Theme.Gem, MaxSize = 16, TextXAlignment = Enum.TextXAlignment.Right }
 				)
 			end
-			UiKit.text(
+			UiKit.flowText(
 				scroll,
 				L.t("quests.ach_count", { n = got, total = total }),
-				UDim2.fromOffset(4, 0),
-				UDim2.new(1, -8, 0, 20),
-				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
+				{ TextColor3 = Theme.TextDim, LayoutOrder = 0 }
 			)
 		end
 	end

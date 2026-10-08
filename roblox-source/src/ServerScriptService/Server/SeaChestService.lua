@@ -2,7 +2,8 @@
 --[[
 	SeaChestService (v3.1) — морской сундук в хабе.
 	  * раз в Config.SEA_CHEST.INTERVAL секунд появляется в случайном свободном месте хаба (SeaChestLogic.pickSpot:
-	    вне спавна, порталов, станций, NPC и яиц + проверка мира GetPartBoundsInBox — не внутри построек и декора);
+	    вне спавна, порталов, станций, NPC и яиц + v3.2 проверка мира SeaChestLogic.validate: твёрдый ровный пол
+	    (луч вниз), свободный цилиндр без деталей, ничего сверху, не в замкнутом месте);
 	    неоткрытый старый сундук при этом исчезает;
 	  * о появлении сообщает только тихий звук в точке сундука (Remotes "SeaChest" -> клиент, Config.SOUNDS.CHEST_SPAWN);
 	  * открыть: ProximityPrompt или касание. Всё решает сервер: живой персонаж настоящего игрока с загруженными
@@ -160,35 +161,132 @@ local function groundY(pos: Vector3): number
 	return if ok and type(y) == "number" and y < 10 then y else 0
 end
 
--- проверка мира: в объёме сундука нет видимых/твёрдых деталей (здания, деревья, фонари, NPC, порталы)
-local function isFree(pos: Vector3): boolean
-	local ok, free = pcall(function()
-		local params = OverlapParams.new()
+-- v3.2: пробы мира для SeaChestLogic.validate. Игроки, боты, питомцы и прошлый сундук не учитываются
+-- (они двигаются); невидимые некасаемые детали (якоря табличек) — тоже.
+local function skipList(): { Instance }
+	local skip: { Instance } = { getFolder() }
+	for _, p in ipairs(Players:GetPlayers()) do
+		if p.Character then
+			table.insert(skip, p.Character)
+		end
+	end
+	for _, name in ipairs({ "AiBots", "Pets", "GoldenRain", "Bots" }) do
+		local f = Workspace:FindFirstChild(name)
+		if f then
+			table.insert(skip, f)
+		end
+	end
+	return skip
+end
+
+local function solidPart(p: Instance): boolean
+	return p:IsA("BasePart") and (p.CanCollide or p.Transparency < 0.95)
+end
+
+-- луч, пропускающий «пустые» детали (некасаемые и невидимые; тонкий некасаемый узор пола — тоже)
+local function castSolid(
+	origin: Vector3,
+	dir: Vector3,
+	skip: { Instance },
+	floorMode: boolean?
+): RaycastResult?
+	local ignore = table.clone(skip)
+	for _ = 1, 8 do
+		local params = RaycastParams.new()
 		params.FilterType = Enum.RaycastFilterType.Exclude
-		local skip: { Instance } = { getFolder() }
-		for _, p in ipairs(Players:GetPlayers()) do
-			if p.Character then
-				table.insert(skip, p.Character)
-			end
+		params.FilterDescendantsInstances = ignore
+		local hit = Workspace:Raycast(origin, dir, params)
+		if not hit then
+			return nil
 		end
-		for _, name in ipairs({ "AiBots", "Pets", "GoldenRain" }) do
-			local f = Workspace:FindFirstChild(name)
-			if f then
-				table.insert(skip, f)
-			end
+		local inst = hit.Instance
+		local empty = not solidPart(inst)
+		local sz = inst.Size
+		if floorMode and not inst.CanCollide and math.min(sz.X, sz.Y, sz.Z) < 1 then
+			empty = true -- узор/плитка площади поверх пола: стоять можно, это не препятствие
 		end
-		params.FilterDescendantsInstances = skip
-		local c = Config.SEA_CHEST.CLEARANCE
-		local parts =
-			Workspace:GetPartBoundsInBox(CFrame.new(pos + Vector3.new(0, 4, 0)), Vector3.new(c, 6, c), params)
-		for _, p in ipairs(parts) do
-			if p:IsA("BasePart") and (p.CanCollide or p.Transparency < 0.95) then
-				return false
-			end
+		if not empty then
+			return hit
 		end
-		return true
+		table.insert(ignore, inst)
+	end
+	return nil
+end
+
+local function makeProbe(): SeaChestLogic.Probe
+	local skip = skipList()
+	return {
+		ground = function(pos: Vector3): (number?, number?, boolean?)
+			local hit = castSolid(Vector3.new(pos.X, 40, pos.Z), Vector3.new(0, -80, 0), skip, true)
+			if not hit then
+				return nil, nil, nil
+			end
+			local inst = hit.Instance
+			local solid = inst.CanCollide and hit.Material ~= Enum.Material.Water
+			return hit.Position.Y, hit.Normal.Y, solid
+		end,
+		blocked = function(base: Vector3, r: number, h: number): boolean
+			local params = OverlapParams.new()
+			params.FilterType = Enum.RaycastFilterType.Exclude
+			params.FilterDescendantsInstances = skip
+			local box = CFrame.new(base + Vector3.new(0, 0.5 + h / 2, 0))
+			for _, p in ipairs(Workspace:GetPartBoundsInBox(box, Vector3.new(r * 2, h, r * 2), params)) do
+				if solidPart(p) then
+					local d = Vector3.new(p.Position.X - base.X, 0, p.Position.Z - base.Z)
+					-- цилиндр: деталь целиком за радиусом (угол коробки) не мешает
+					local half = math.max(p.Size.X, p.Size.Z) / 2
+					if d.Magnitude - half <= r then
+						return true
+					end
+				end
+			end
+			return false
+		end,
+		overhead = function(base: Vector3): boolean
+			return castSolid(base + Vector3.new(0, 1, 0), Vector3.new(0, 60, 0), skip) ~= nil
+		end,
+		exits = function(base: Vector3, len: number): number
+			local n = 0
+			for i = 0, 7 do
+				local a = i * math.pi / 4
+				local dir = Vector3.new(math.cos(a), 0, math.sin(a)) * len
+				if castSolid(base + Vector3.new(0, 2.5, 0), dir, skip) then
+					n += 1
+				end
+			end
+			return n
+		end,
+	}
+end
+
+-- проверка мира: сервер (Raycast, GetPartBoundsInBox). Нет API (эмулятор тестов) — только круги getHubBlockers
+SeaChestService.lastReject = nil :: string?
+local function isFree(pos: Vector3): boolean
+	local ok, good, why = pcall(function()
+		return SeaChestLogic.validate(pos, makeProbe())
 	end)
-	return not ok or free == true
+	if not ok then
+		return true
+	end
+	SeaChestService.lastReject = why
+	return good == true
+end
+SeaChestService.isFree = isFree
+
+-- v3.2: полная проверка места (как при выборе): точка появления и круги хаба (isClear), затем мир (isFree).
+-- Возвращает ok и причину отказа ("spawn", "blockers" или причина SeaChestLogic.validate).
+function SeaChestService.check(pos: Vector3): (boolean, string?)
+	local cfg = Config.SEA_CHEST
+	if not SeaChestLogic.isClear(pos, WorldBuilder.getHubBlockers(), cfg.CLEARANCE) then
+		local sp = cfg.SPAWN_POS
+		local near = sp
+			and (Vector3.new(pos.X, 0, pos.Z) - Vector3.new(sp.X, 0, sp.Z)).Magnitude < cfg.SPAWN_DISTANCE
+		SeaChestService.lastReject = if near then "spawn" else "blockers"
+		return false, SeaChestService.lastReject
+	end
+	SeaChestService.lastReject = nil
+	local ok = isFree(pos)
+	return ok, if ok then nil else SeaChestService.lastReject
 end
 
 function SeaChestService.current(): Chest?
@@ -205,7 +303,7 @@ end
 
 -- поставить сундук в точку pos (y игнорируется — по земле); без pos — случайное свободное место хаба
 function SeaChestService.spawn(pos: Vector3?): Chest?
-	local spot = pos or SeaChestLogic.pickSpot(rng, WorldBuilder.getHubBlockers(), isFree)
+	local spot = pos or SeaChestLogic.pickSpot(rng, WorldBuilder.getHubBlockers(), isFree, 120)
 	if not spot then
 		return nil
 	end

@@ -201,10 +201,12 @@ local function addTag(head: BasePart, name: string): TextLabel
 	end
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(170, 40)
+	-- v3.2: подпись бота мельче подписи игрока и видна ближе; при наложении уступает (WorldLabels)
+	g.Size = UDim2.fromOffset(118, 28)
 	g.StudsOffset = Vector3.new(0, 2.6, 0)
-	g.MaxDistance = 70
+	g.MaxDistance = 40
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Bot")
 	g.AlwaysOnTop = false
 	local n = Instance.new("TextLabel")
 	n.Name = "NameLabel"
@@ -461,10 +463,25 @@ end
 local HUB_STATIONS = { "craft", "market", "altar", "upgrades", "daily", "board", "rebirth" }
 
 local function setTask(a: Agent, task_: string, now: number, seconds: number)
+	if a.EnemyId then
+		CombatService.botRelease(a.Key) -- v3.2: враг снова свободен для других
+	end
 	a.Task = task_
 	a.TaskUntil = now + seconds
 	a.Arrived = nil
 	a.EnemyId = nil
+end
+
+-- v3.2: сколько ботов в каждом мире (лимит B.MAX_IN_ZONE для миров кроме хаба)
+local function zoneCounts(except: Agent?): { [string]: number }
+	local counts: { [string]: number } = {}
+	for _, o in ipairs(agents) do
+		if o ~= except and o.Model.Parent then
+			local z = o.TravelTo or o.Zone
+			counts[z] = (counts[z] or 0) + 1
+		end
+	end
+	return counts
 end
 
 local function chooseTask(a: Agent, now: number)
@@ -539,7 +556,13 @@ local function chooseTask(a: Agent, now: number)
 		moveTo(a, ep + Vector3.new(rnd() * 6 - 3, 0, 7))
 	elseif choice == "travel" then
 		if inHub then
-			local zones = openZones(a)
+			-- v3.2: только в миры, где ботов меньше MAX_IN_ZONE (живым игрокам хватает врагов)
+			local zones = BotLogic.roomyZones(openZones(a), zoneCounts(a), B.MAX_IN_ZONE or 4, ZoneData.HUB)
+			if #zones == 0 then
+				setTask(a, "wander", now, 6 + rnd() * 6)
+				moveTo(a, randomPoint(a.Zone))
+				return
+			end
 			local to = pick(zones)
 			a.TravelTo = to
 			setTask(a, "travel", now, 40)
@@ -637,7 +660,20 @@ local function think(a: Agent, now: number)
 			gainXp(a, 1)
 		end
 	elseif t == "fight" then
-		local id, pos = CombatService.botTarget(a.Root.Position, 80)
+		-- v3.2: к врагу подошёл живой игрок — уступить: отпустить врага и отойти от него
+		if a.EnemyId and CombatService.botShouldYield(a.EnemyId) then
+			local ep = CombatService.enemyPos(a.EnemyId)
+			setTask(a, "wander", now, 5 + rnd() * 4)
+			if ep then
+				local away = flat(a.Root.Position - ep)
+				local dir = if away.Magnitude > 0.1 then away.Unit else Vector3.new(1, 0, 0)
+				moveTo(a, a.Root.Position + dir * 18)
+			else
+				moveTo(a, randomPoint(a.Zone))
+			end
+			return
+		end
+		local id, pos = CombatService.botTarget(a.Root.Position, 80, a.Key)
 		a.EnemyId = id
 		if not id or not pos then
 			-- врагов нет или их бьют живые игроки — заняться другим
@@ -772,7 +808,9 @@ local function spawnBot(initial: boolean): Agent?
 	refreshTag(a)
 	-- при старте сервера боты «уже играют» в разных местах; новые приходят на точку появления хаба
 	if initial and rnd() < 0.6 then
-		a.Zone = pick(zones)
+		-- v3.2: и при старте — не больше MAX_IN_ZONE ботов в одном мире
+		local roomy = BotLogic.roomyZones(zones, zoneCounts(nil), B.MAX_IN_ZONE or 4, ZoneData.HUB)
+		a.Zone = if #roomy > 0 then pick(roomy) else ZoneData.HUB
 	end
 	local cf = if a.Zone == ZoneData.HUB and not initial
 		then WorldBuilder.getZoneSpawn(ZoneData.HUB)
@@ -794,6 +832,7 @@ local function removeBot(a: Agent)
 		table.remove(agents, i)
 	end
 	used[a.Name] = nil
+	CombatService.botRelease(a.Key)
 	SuperpowerService.removeUnit(a.Key)
 	a.Model.Parent = nil
 	a.Model:Destroy()

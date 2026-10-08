@@ -36,16 +36,16 @@ function TradePanel.init(gui: ScreenGui)
 	UiKit.text(
 		idle,
 		L.k("trade.ui.intro"),
-		UDim2.fromOffset(12, 6),
-		UDim2.new(1, -24, 0, 22),
-		{ TextColor3 = Theme.TextDim, MaxSize = 15 }
+		UDim2.fromOffset(12, 4),
+		UDim2.new(1, -24, 0, 40), -- v3.2: 2 строки при тексте >= 12 px
+		{ TextColor3 = Theme.TextDim, MaxSize = 15, TextWrapped = true }
 	)
 	Widgets.button({
 		Name = "TradeBot",
 		Text = L.k("trade.ui.with_bot", { name = Config.DEMO_BOT_NAME }),
 		Color = Theme.Purple,
-		Size = UDim2.new(1, -24, 0, 48),
-		Position = UDim2.fromOffset(12, 34),
+		Size = UDim2.new(1, -24, 0, 44),
+		Position = UDim2.fromOffset(12, 48),
 		ZIndex = 23,
 		MaxTextSize = 20,
 		Visible = Config.DEMO_BOT_ENABLED, -- v2.4 (аудит В1): NPC-партнёр только в веб-демо
@@ -57,12 +57,12 @@ function TradePanel.init(gui: ScreenGui)
 	UiKit.text(
 		idle,
 		L.k("trade.ui.nearby"),
-		UDim2.fromOffset(12, 92),
-		UDim2.new(1, -24, 0, 20),
+		UDim2.fromOffset(12, 98),
+		UDim2.new(1, -24, 0, 22),
 		{ MaxSize = 15 }
 	)
 	local plist =
-		Widgets.scroller(idle, { Position = UDim2.fromOffset(12, 116), Size = UDim2.new(1, -24, 1, -190) })
+		Widgets.scroller(idle, { Position = UDim2.fromOffset(12, 124), Size = UDim2.new(1, -24, 1, -198) })
 	UiKit.list(plist, 4)
 	local inviteBox = Widgets.New("Frame", {
 		Name = "Invite",
@@ -140,13 +140,7 @@ function TradePanel.init(gui: ScreenGui)
 			end
 		end
 		if not any then
-			UiKit.text(
-				plist,
-				L.t("trade.ui.nobody"),
-				UDim2.fromOffset(4, 4),
-				UDim2.new(1, -8, 0, 22),
-				{ TextColor3 = Theme.TextDim, MaxSize = 14 }
-			)
+			UiKit.flowText(plist, L.t("trade.ui.nobody"), { TextColor3 = Theme.TextDim })
 		end
 	end
 

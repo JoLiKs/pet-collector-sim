@@ -3872,6 +3872,78 @@ test(
 )
 
 test(
+	"v3.2 аудит ProcessReceipt: сбой уведомления после выдачи не даёт повторной выдачи",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A32N")
+		local data, _, p = S.join(3201, "Noisy")
+		local fn = S.U.Game:GetService("MarketplaceService").ProcessReceipt
+		local Notify = S.U.require("ServerScriptService/Server/Notify")
+		local id = S.Config.PRODUCT_IDS.GEMS_SMALL
+		local orig = Notify.send
+		Notify.send = function()
+			error("simulated notify failure")
+		end
+		local gems0 = data.Gems
+		local d1 = fn(receipt(p, 32101, id))
+		Notify.send = orig
+		check(
+			d1 == "Enum.ProductPurchaseDecision.PurchaseGranted",
+			"награда выдана и сохранена -> Granted: " .. tostring(d1)
+		)
+		check(data.Receipts["32101"] ~= nil, "чек записан")
+		local d2 = fn(receipt(p, 32101, id))
+		check(d2 == "Enum.ProductPurchaseDecision.PurchaseGranted", "повтор -> Granted")
+		check(
+			data.Gems - gems0 == S.Config.PRODUCTS.GEMS_SMALL.Amount,
+			"гемы выданы ровно один раз"
+		)
+		-- неизвестный вид продукта (ошибка конфигурации) — NotProcessedYet, чек не записан
+		local M = S.U.require("ServerScriptService/Server/Monetization")
+		check(
+			not pcall(M._grantProduct, p, data, { Kind = "Nope" }),
+			"неизвестный вид продукта — ошибка выдачи"
+		)
+		local def = S.Config.PRODUCTS.GEMS_SMALL
+		local kind = def.Kind
+		def.Kind = "Nope"
+		local dx = fn(receipt(p, 32103, id))
+		def.Kind = kind
+		check(
+			dx == "Enum.ProductPurchaseDecision.NotProcessedYet" and data.Receipts["32103"] == nil,
+			"неизвестный вид -> NotProcessedYet"
+		)
+		-- пропуск уровней боевого пропуска сверх максимума: опыт до максимума + гемы за остаток, один раз
+		local skip
+		for key, def in pairs(S.Config.PRODUCTS) do
+			if def.Kind == "BpLevels" then
+				skip = key
+			end
+		end
+		if skip then
+			data.BattlePass.Xp = 10 ^ 9
+			local g0 = data.Gems
+			local d3 = fn(receipt(p, 32102, S.Config.PRODUCT_IDS[skip]))
+			check(
+				d3 == "Enum.ProductPurchaseDecision.PurchaseGranted",
+				"пропуск уровней на максимуме -> Granted"
+			)
+			local want = S.Config.PRODUCTS[skip].Levels * S.Config.BP_SKIP_FALLBACK_GEMS
+			check(
+				data.Gems - g0 == want,
+				"на максимуме — компенсация гемами: "
+					.. tostring(data.Gems - g0)
+			)
+			fn(receipt(p, 32102, S.Config.PRODUCT_IDS[skip]))
+			check(
+				data.Gems - g0 == want,
+				"повтор не выдаёт компенсацию второй раз"
+			)
+		end
+	end
+)
+
+test(
 	"v2.7 Геймпассы: каждый из 5 действует сразу после покупки, без перезахода",
 	function()
 		BACKEND.Stores = {}
@@ -5311,6 +5383,443 @@ test(
 			scripts == 0 and loose == 0,
 			"в модели нет скриптов, детали закреплены"
 		)
+	end
+)
+
+-- v3.2: недоступный звуковой ассет — одна запись в лог, без повторов Play
+test(
+	"v3.2 Звук: сломанный ассет логируется один раз и пропускается",
+	function()
+		local S = boot("A32a")
+		local A = S.U.require("ReplicatedStorage/Shared/AudioData")
+		local h = A.newHealth()
+		check(A.tryPlay(h, "MUSIC_CALM", 10) == true, "первая попытка Play")
+		check(
+			A.tryPlay(h, "MUSIC_CALM", 10.5) == false,
+			"повтор не чаще RETRY секунд (нет спама Play каждый кадр)"
+		)
+		check(A.tryPlay(h, "MUSIC_CALM", 10 + A.RETRY) == true, "после RETRY — снова можно")
+		check(A.reportFailure(h, "MUSIC_CALM", "Failure") == true, "первая ошибка — в лог")
+		check(A.reportFailure(h, "MUSIC_CALM", "Failure") == false, "повторная — без лога")
+		check(
+			A.isFailed(h, "MUSIC_CALM") and not A.isFailed(h, "MUSIC_EPIC"),
+			"сломан только этот ключ"
+		)
+		check(
+			A.tryPlay(h, "MUSIC_CALM", 100) == false,
+			"сломанный звук больше не запускается"
+		)
+		check(A.tryPlay(h, "MUSIC_EPIC", 100) == true, "остальные звуки работают")
+		A.reportFailure(h, "CHEST_OPEN")
+		check(A.failedList(h) == "CHEST_OPEN,MUSIC_CALM", "список сломанных ключей")
+		check(
+			A.musicTarget(false, false, true) == "Epic",
+			"без спокойной темы играет эпичная"
+		)
+		for _, key in ipairs({ "MUSIC_CALM", "MUSIC_EPIC", "CHEST_SPAWN", "CHEST_OPEN" }) do
+			check(A.soundId(S.Config.SOUNDS[key]) ~= nil, "ID задан: " .. key)
+		end
+	end
+)
+
+-- v3.2: место морского сундука — проверка мира (пол, свободный радиус, ничего сверху, не в коробке, не у спавна)
+test(
+	"v3.2 Морской сундук: место — твёрдый ровный пол, свободный радиус от деталей, не под крышей, не у спавна",
+	function()
+		local S = boot("A32b")
+		local SL = S.U.require("ServerScriptService/Server/SeaChestLogic")
+		local cfg = S.Config.SEA_CHEST
+		-- мир-заглушка: пол на y=0, «дерево» в (40,0,0) радиусом 1.5, «здание» с крышей x∈[-70,-50], z∈[-10,10],
+		-- «колодец» (замкнутый двор) у (0,0,-70), «постамент» y=3 у (50,0,50), «вода» у (-50,0,50)
+		local function inRect(p, x0, x1, z0, z1)
+			return p.X >= x0 and p.X <= x1 and p.Z >= z0 and p.Z <= z1
+		end
+		local probe = {
+			ground = function(p)
+				if inRect(p, 45, 55, 45, 55) then
+					return 3, 1, true
+				end
+				if inRect(p, -55, -45, 45, 55) then
+					return 0, 1, false
+				end
+				if inRect(p, 80, 90, -5, 5) then
+					return 0, 0.5, true
+				end
+				if math.abs(p.X) > 200 then
+					return nil
+				end
+				return 0, 1, true
+			end,
+			blocked = function(b, r, _h)
+				return (Vector3.new(b.X, 0, b.Z) - Vector3.new(40, 0, 0)).Magnitude - 1.5 <= r
+			end,
+			overhead = function(b)
+				return inRect(b, -70, -50, -10, 10)
+			end,
+			exits = function(b, _len)
+				return if (Vector3.new(b.X, 0, b.Z) - Vector3.new(0, 0, -70)).Magnitude < 8 then 8 else 1
+			end,
+		}
+		local function why(x, z)
+			local ok, r = SL.validate(Vector3.new(x, 0, z), probe)
+			return if ok then "ok" else r
+		end
+		check(why(30, -40) == "ok", "открытое место на полу — можно")
+		check(
+			why(40 + cfg.PART_CLEARANCE, 0) == "parts",
+			"рядом с деревом (в радиусе PART_CLEARANCE) — нельзя"
+		)
+		check(
+			why(40 + cfg.PART_CLEARANCE + 2, 0) == "ok",
+			"дальше радиуса от дерева — можно"
+		)
+		check(why(-60, 0) == "roof", "под крышей/внутри здания — нельзя")
+		check(
+			why(0, -70) == "enclosed",
+			"замкнутый двор (почти все лучи упираются) — нельзя"
+		)
+		check(
+			why(50, 50) == "level",
+			"на постаменте/крыше (не уровень пола) — нельзя"
+		)
+		check(
+			why(-50, 50) == "soft",
+			"не твёрдый пол (вода, некасаемая деталь) — нельзя"
+		)
+		check(why(85, 0) == "steep", "склон — нельзя")
+		check(why(300, 0) == "nofloor", "нет пола — нельзя")
+		-- не у спавна
+		check(
+			not SL.isClear(Vector3.new(0, 0, 26 + cfg.SPAWN_DISTANCE - 1), {}, cfg.CLEARANCE),
+			"ближе SPAWN_DISTANCE к спавну — нельзя"
+		)
+		check(
+			SL.isClear(Vector3.new(0, 0, 26 + cfg.SPAWN_DISTANCE + 1), {}, cfg.CLEARANCE),
+			"дальше — можно"
+		)
+		-- выбор места с пробами: все точки проходят проверку
+		local rng = Random.new(9)
+		local bad, got = 0, 0
+		for _ = 1, 100 do
+			local pos = SL.pickSpot(rng, {}, function(p)
+				return (SL.validate(p, probe))
+			end, 120)
+			if pos then
+				got += 1
+				local ok = SL.validate(pos, probe)
+				local d = (Vector3.new(pos.X, 0, pos.Z) - cfg.SPAWN_POS).Magnitude
+				if not ok or d < cfg.SPAWN_DISTANCE then
+					bad += 1
+				end
+			end
+		end
+		check(
+			got == 100 and bad == 0,
+			"100 мест — все проверены (" .. got .. "/" .. bad .. ")"
+		)
+	end
+)
+
+-- v3.2: боты оставляют врагов живым игрокам
+test(
+	"v3.2 Боты: лимит на врага и на мир, резерв свободных врагов, лимит ботов в мире",
+	function()
+		local S = boot("A32c")
+		local BL = S.U.require("ReplicatedStorage/Shared/BotLogic")
+		local B = S.Config.BOTS
+		check(
+			B.MAX_PER_MOB == 1 and B.MAX_FIGHTERS_PER_ZONE >= 1 and B.RESERVE_FREE >= 1,
+			"лимиты заданы"
+		)
+		check(
+			BL.canClaim({ MobClaims = 0, ZoneClaimed = 0, ZoneFree = 10 }, B),
+			"много свободных — можно"
+		)
+		check(
+			not BL.canClaim({ MobClaims = 1, ZoneClaimed = 0, ZoneFree = 10 }, B),
+			"враг уже занят другим ботом — нельзя"
+		)
+		check(
+			not BL.canClaim({ MobClaims = 0, ZoneClaimed = B.MAX_FIGHTERS_PER_ZONE, ZoneFree = 50 }, B),
+			"в мире уже дерутся MAX_FIGHTERS_PER_ZONE ботов — нельзя"
+		)
+		check(
+			not BL.canClaim({ MobClaims = 0, ZoneClaimed = 0, ZoneFree = B.RESERVE_FREE }, B),
+			"после захвата осталось бы меньше RESERVE_FREE свободных — нельзя"
+		)
+		check(
+			BL.canClaim({ MobClaims = 0, ZoneClaimed = 0, ZoneFree = B.RESERVE_FREE + 1 }, B),
+			"ровно резерв остаётся — можно"
+		)
+		-- симуляция: 20 ботов на мир с 8 врагами — занято не больше min(лимит, 8 - резерв)
+		local free, claimed = 8, 0
+		for _ = 1, 20 do
+			if BL.canClaim({ MobClaims = 0, ZoneClaimed = claimed, ZoneFree = free }, B) then
+				claimed += 1
+			end
+		end
+		check(
+			claimed == math.min(B.MAX_FIGHTERS_PER_ZONE, 8 - B.RESERVE_FREE)
+				and free - claimed >= B.RESERVE_FREE,
+			"20 ботов, 8 врагов: занято "
+				.. claimed
+				.. ", свободно "
+				.. (free - claimed)
+		)
+		local z = BL.roomyZones(
+			{ "Hub", "Meadow", "Forest" },
+			{ Hub = 9, Meadow = B.MAX_IN_ZONE, Forest = 1 },
+			B.MAX_IN_ZONE,
+			"Hub"
+		)
+		check(
+			#z == 2 and z[1] == "Hub" and z[2] == "Forest",
+			"полный мир пропускается, хаб без лимита"
+		)
+	end
+)
+
+-- v3.2: подписи мира — дальность, затухание, наложения, HUD
+test(
+	"v3.2 Подписи мира (LabelLayout): дальность, затухание, стопка, приоритеты, HUD",
+	function()
+		local S = boot("A32d")
+		local LL = S.U.require("ReplicatedStorage/Shared/LabelLayout")
+		local view = { W = 1280, H = 720 }
+		local function item(kind, x, y, dist, w, h)
+			return { Kind = kind, X = x, Y = y, W = w or 170, H = h or 42, Dist = dist or 10, OnScreen = true }
+		end
+		-- дальность и затухание
+		local r = LL.solve(
+			{ item("Bot", 300, 300, LL.KINDS.Bot.Max + 1), item("Player", 600, 300, 20) },
+			{},
+			view
+		)
+		check(
+			not r[1].Show and r[2].Show,
+			"бот дальше своей дальности скрыт, игрок рядом виден"
+		)
+		check(
+			LL.alpha(10, 60) == 0 and LL.alpha(60, 60) == 1 and LL.alpha(51, 60) > 0,
+			"затухание у предела дальности"
+		)
+		check(
+			LL.distScale(5, 60) == 1 and math.abs(LL.distScale(60, 60) - LL.FAR_SCALE) < 1e-6,
+			"вдали подпись меньше"
+		)
+		-- размер не зависит от близости: вблизи — не больше базового (нет «пол-экрана»)
+		local near = LL.solve({ item("Egg", 640, 360, 1, 158, 50) }, {}, view)[1]
+		check(
+			near.Show and near.Scale <= 1,
+			"вблизи табличка яйца не растёт (масштаб <= 1)"
+		)
+		check(
+			LL.viewScale(390, 844) < LL.viewScale(1280, 720),
+			"на телефоне подписи мельче"
+		)
+		-- наложение: игрок и бот в одной точке — бот скрыт (у него ниже приоритет), игрок виден
+		r = LL.solve({ item("Bot", 640, 300, 12, 118, 28), item("Player", 640, 300, 12) }, {}, view)
+		check(
+			r[2].Show and r[2].Shift == 0 and (not r[1].Show or r[1].Shift > 0),
+			"«MiraCat · ИИ» не поверх «Player1»"
+		)
+		-- два игрока рядом — второй поднимается стопкой, оба видны и не пересекаются
+		r = LL.solve({ item("Player", 640, 300, 10), item("Player", 650, 310, 14) }, {}, view)
+		check(
+			r[1].Show and r[2].Show and r[2].Shift >= 42 * LL.distScale(14, 60) - 12,
+			"второй игрок поднят над первым"
+		)
+		-- своя подпись всегда первая
+		r = LL.solve({ item("Player", 640, 300, 9), item("Own", 640, 300, 12) }, {}, view)
+		check(r[2].Show and r[2].Shift == 0, "своя подпись на месте, читается")
+		-- таблички не стопкой: «Портал в Хаб» поверх «Шепчущий лес» — дальняя скрыта
+		r = LL.solve({ item("Sign", 640, 200, 30, 180, 58), item("Zone", 650, 205, 40, 230, 65) }, {}, view)
+		check(
+			r[1].Show ~= r[2].Show,
+			"из двух наложенных табличек видна одна"
+		)
+		-- HUD: подпись над хотбаром скрыта
+		local hotbar = { X = 400, Y = 640, W = 480, H = 70 }
+		r = LL.solve(
+			{ item("Egg", 640, 650, 20, 158, 50), item("Egg", 640, 300, 20, 158, 50) },
+			{ hotbar },
+			view
+		)
+		check(
+			not r[1].Show and r[2].Show,
+			"табличка яйца на хотбаре скрыта, выше — видна"
+		)
+		-- за экраном и позади камеры
+		r = LL.solve(
+			{ { Kind = "Sign", X = 640, Y = 360, W = 100, H = 30, Dist = 5, OnScreen = false } },
+			{},
+			view
+		)
+		check(not r[1].Show, "позади камеры — скрыта")
+		-- 30 подписей в одной точке — видимые не пересекаются заметно
+		local many = {}
+		for i = 1, 30 do
+			table.insert(
+				many,
+				item(if i % 3 == 0 then "Player" else "Bot", 600 + i, 300 + i, 10 + i, 118, 28)
+			)
+		end
+		r = LL.solve(many, {}, view)
+		local rects = {}
+		local bad = 0
+		for i, x in ipairs(r) do
+			if x.Show then
+				local it = many[i]
+				local w, h = it.W * x.Scale, it.H * x.Scale
+				local rc = { X = it.X - w / 2, Y = it.Y - h / 2 - x.Shift, W = w, H = h }
+				for _, o in ipairs(rects) do
+					if LL.overlap(rc, o) > LL.MIN_OVERLAP * math.min(rc.W * rc.H, o.W * o.H) then
+						bad += 1
+					end
+				end
+				table.insert(rects, rc)
+			end
+		end
+		check(
+			#rects >= 2 and bad == 0,
+			"толпа: видимые подписи не налезают друг на друга ("
+				.. #rects
+				.. ")"
+		)
+	end
+)
+
+-- v3.2: значки интерфейса из примитивов вместо эмодзи
+test(
+	"v3.2 Значки: все значки HUD, листа «Ещё», событий, звука, замка и короны есть в Icons",
+	function()
+		local S = boot("A32e")
+		local Icons = S.U.require("ReplicatedStorage/Shared/Icons")
+		local kinds = {
+			"Cart",
+			"Book",
+			"Egg",
+			"Paw",
+			"Scroll",
+			"Menu",
+			"Bag",
+			"Up",
+			"Rebirth",
+			"Sparkle",
+			"Gift",
+			"Globe",
+			"Hammer",
+			"Store",
+			"Trade",
+			"Trophy",
+			"Gear",
+			"Note",
+			"Bell",
+			"Moon",
+			"Clock",
+			"Crown",
+			"Lock",
+		}
+		local missing = {}
+		for _, k in ipairs(kinds) do
+			if not Icons.has(k) then
+				table.insert(missing, k)
+			end
+		end
+		check(#missing == 0, "нет значков: " .. table.concat(missing, ", "))
+		local ok = pcall(function()
+			for _, k in ipairs(kinds) do
+				Icons.make(k, { Px = 32 })
+			end
+		end)
+		check(ok, "все значки строятся без ошибок")
+		for _, lang in ipairs({ "LocaleRu", "LocaleEn" }) do
+			local t = S.U.require("ReplicatedStorage/Shared/" .. lang)
+			local strings = t.Strings or t
+			local bad = 0
+			for _, v in pairs(strings) do
+				if
+					type(v) == "string"
+					and (string.find(v, "\240\159", 1, true) or string.find(v, "\226\143\177", 1, true))
+				then
+					bad += 1
+				end
+			end
+			check(bad == 0, lang .. ": нет эмодзи в строках (" .. bad .. ")")
+		end
+	end
+)
+
+-- v3.2: геометрия окон — текст >= 12/14 px, окно на телефоне в безопасной области, не закрывает кнопки HUD
+test(
+	"v3.2 Окна (UiGeometry): минимум текста, ПК компактно, телефон — над хотбаром и мимо кнопок",
+	function()
+		local S = boot("A32g")
+		local G = S.U.require("ReplicatedStorage/Shared/UiGeometry")
+		local k = G.PANEL_SCALE
+		check(
+			G.minText(k) * k >= 12 and G.minText(k, true) * k >= 14,
+			"минимум текста: 12 px основной, 14 px заголовки"
+		)
+		check(
+			G.minText(k) == 15 and G.minText(k, true) == 18,
+			"при k=0.8: 15/18 «дизайнерских» px"
+		)
+		-- ПК 1280×720: компактно (меньше v3.0 507×360), но не меньше 400×300
+		local r = G.panelRect({ Mode = "wide", W = 1280, H = 720 }, k)
+		check(
+			r.W >= 400 and r.W <= 460 and r.H >= 300 and r.H <= 330,
+			"ПК: окно ≈435×317 (" .. r.W .. "×" .. r.H .. ")"
+		)
+		check(
+			math.abs(r.X + r.W / 2 - 640) < 1 and math.abs(r.Y + r.H / 2 - 360) < 1,
+			"ПК: окно по центру"
+		)
+		local tall = G.panelRect({ Mode = "wide", W = 1280, H = 720 }, k, 580)
+		check(
+			tall.H == 464 and tall.H <= 720 - 24,
+			"ПК: плотное окно (MinH) выше, но в экране"
+		)
+		-- телефон горизонтально 844×390: колонки слева/справа, внизу хотбар и кошелёк
+		local left = { X = 16, Y = 100, W = 100, H = 120 }
+		local right = { X = 768, Y = 16, W = 57, H = 251 }
+		local hotbar = { X = 247, Y = 288, W = 245, H = 44 }
+		local wallet = { X = 44, Y = 277, W = 106, H = 54 }
+		local a = G.areaFor("landscape", 844, 354, left, right, { hotbar, wallet }, 0)
+		check(
+			a ~= nil and a.X >= 116 + 8 and a.X + a.W <= 768 - 8,
+			"ландшафт: область между колонками кнопок"
+		)
+		check(
+			a.Y + a.H <= 277 - 8,
+			"ландшафт: область над кошельком и хотбаром"
+		)
+		r = G.panelRect({ Mode = "landscape", W = 844, H = 354, Touch = true }, k, 480, a)
+		check(
+			r.X >= a.X and r.X + r.W <= a.X + a.W + 1 and r.Y + r.H <= a.Y + a.H + 1,
+			"ландшафт: окно в области (MinH не вылезает)"
+		)
+		-- телефон вертикально 390×808: колонки внизу — окно над ними на всю ширину
+		local pl = { X = 16, Y = 551, W = 100, H = 118 }
+		local pr = { X = 238, Y = 534, W = 122, H = 122 }
+		a = G.areaFor("portrait", 390, 808, pl, pr, { { X = 26, Y = 740, W = 260, H = 48 } }, 0)
+		r = G.panelRect({ Mode = "portrait", W = 390, H = 808, Touch = true }, k, 580, a)
+		check(
+			r.Y + r.H <= 534 - 8 and r.W >= 360,
+			"портрет: окно над кнопками, во всю ширину"
+		)
+		check(
+			G.areaFor("wide", 1280, 720, nil, nil, {}) == nil,
+			"ПК: без области (по центру)"
+		)
+		-- крошечный экран: окно не меньше минимума
+		r = G.panelRect(
+			{ Mode = "landscape", W = 500, H = 260, Touch = true },
+			k,
+			nil,
+			{ X = 100, Y = 6, W = 50, H = 40 }
+		)
+		check(r.W >= 240 and r.H >= 180, "тесная область: окно не меньше 240×180")
 	end
 )
 

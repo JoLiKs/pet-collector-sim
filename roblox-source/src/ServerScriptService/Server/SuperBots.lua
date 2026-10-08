@@ -97,10 +97,11 @@ local function buildRig(name: string, shirt: Color3): (Model, BasePart, Humanoid
 	-- табличка над головой: «Бот Max» (переводит WorldLocalizer)
 	local g = Instance.new("BillboardGui")
 	g.Name = "OverheadTag"
-	g.Size = UDim2.fromOffset(160, 26)
+	g.Size = UDim2.fromOffset(118, 22) -- v3.2: как у ИИ-ботов
 	g.StudsOffset = Vector3.new(0, 2.4, 0)
-	g.MaxDistance = 60
+	g.MaxDistance = 40
 	g.LightInfluence = 0
+	g:SetAttribute("LabelKind", "Bot")
 	g.AlwaysOnTop = false
 	local l = Instance.new("TextLabel")
 	l.Name = "NameLabel"

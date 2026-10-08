@@ -3,6 +3,8 @@
 	SeaChestLogic (v3.1) — чистые правила морского сундука (покрыты тестами):
 	  * pickSpot — случайная точка в кольце хаба вне «занятых» кругов (спавн, порталы, станции, яйца…)
 	    и, если передана проверка isFree, без пересечения с постройками и декором;
+	  * v3.2 validate — проверка места по миру через «пробы» (сервер даёт Raycast/GetPartBoundsInBox, тест — заглушки):
+	    твёрдый ровный пол, свободный цилиндр без деталей, ничего сверху, не замкнутое пространство;
 	  * loot — состав награды по прогрессу игрока (монеты от силы сбора, ресурсы и билет по открытым мирам).
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -15,8 +17,52 @@ local SeaChestLogic = {}
 
 export type Blocker = { Pos: Vector3, R: number }
 
+-- Пробы мира (v3.2). ground(pos) -> y?, normalY?, solid? — первая твёрдая/видимая поверхность под точкой;
+-- blocked(base, r, h) -> есть ли деталь в цилиндре r × h над base; overhead(base) -> есть ли что-то над точкой;
+-- exits(base, len) -> сколько из 8 горизонтальных направлений упирается в деталь ближе len.
+export type Probe = {
+	ground: (Vector3) -> (number?, number?, boolean?),
+	blocked: (Vector3, number, number) -> boolean,
+	overhead: (Vector3) -> boolean,
+	exits: (Vector3, number) -> number,
+}
+
+-- true или false + причина: nofloor | soft | steep | level | parts | roof | enclosed
+function SeaChestLogic.validate(pos: Vector3, probe: Probe): (boolean, string?)
+	local cfg = Config.SEA_CHEST
+	local y, ny, solid = probe.ground(pos)
+	if y == nil then
+		return false, "nofloor"
+	end
+	if not solid then
+		return false, "soft"
+	end
+	if (ny or 0) < cfg.MIN_NORMAL_Y then
+		return false, "steep"
+	end
+	if math.abs(y - cfg.FLOOR_Y) > cfg.FLOOR_TOL then
+		return false, "level" -- на крыше, на постаменте, под кроной (луч сверху упёрся в листву)
+	end
+	local base = Vector3.new(pos.X, y, pos.Z)
+	if probe.blocked(base, cfg.PART_CLEARANCE, cfg.CLEAR_HEIGHT) then
+		return false, "parts"
+	end
+	if probe.overhead(base) then
+		return false, "roof"
+	end
+	if probe.exits(base, cfg.EXIT_RAY) > cfg.MAX_BLOCKED_DIRS then
+		return false, "enclosed"
+	end
+	return true, nil
+end
+
 function SeaChestLogic.isClear(pos: Vector3, blockers: { Blocker }, clearance: number): boolean
 	local flat = Vector3.new(pos.X, 0, pos.Z)
+	local cfg = Config.SEA_CHEST
+	local sp = cfg.SPAWN_POS
+	if sp and (flat - Vector3.new(sp.X, 0, sp.Z)).Magnitude < (cfg.SPAWN_DISTANCE or 0) then
+		return false -- не у точки появления: новички не должны спотыкаться о сундук
+	end
 	for _, b in ipairs(blockers) do
 		local bp = Vector3.new(b.Pos.X, 0, b.Pos.Z)
 		if (flat - bp).Magnitude < b.R + clearance then

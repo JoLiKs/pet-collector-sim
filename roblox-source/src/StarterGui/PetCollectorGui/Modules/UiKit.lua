@@ -74,6 +74,55 @@ function UiKit.text(
 	return l
 end
 
+-- v3.2: текст «по содержимому» для списков (UIListLayout): ширина — по родителю, высота растёт с переносом
+-- строк (AutomaticSize.Y), размер шрифта фиксированный (TextSize, «дизайнерские» px) — не мельчит и не обрезается.
+function UiKit.flowText(parent: Instance, text: any, opts: { [string]: any }?): TextLabel
+	local p = {
+		Text = text,
+		Size = UDim2.new(1, -8, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		TextScaled = false,
+		TextWrapped = true,
+		TextSize = 15,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		ZIndex = 23,
+		Parent = parent,
+	}
+	if opts then
+		for k, v in pairs(opts) do
+			p[k] = v
+		end
+	end
+	return Widgets.label(p)
+end
+
+-- v3.2: карточка, растущая по содержимому: слева место под значок (left), справа — под кнопку (right),
+-- в середине колонка строк UiKit.flowText (UIListLayout). Возвращает карточку и колонку.
+function UiKit.flowCard(
+	parent: Instance,
+	minH: number,
+	accent: Color3?,
+	order: number?,
+	left: number,
+	right: number
+): (Frame, Frame)
+	local card = UiKit.card(parent, minH, accent, order)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	local col = New("Frame", {
+		Name = "Text",
+		Position = UDim2.fromOffset(left, 5),
+		Size = UDim2.new(1, -(left + right), 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		ZIndex = 23,
+		Parent = card,
+	})
+	New("UIListLayout", { Padding = UDim.new(0, 2), SortOrder = Enum.SortOrder.LayoutOrder, Parent = col })
+	New("UIPadding", { PaddingBottom = UDim.new(0, 6), Parent = col })
+	return card, col
+end
+
 function UiKit.bar(parent: Instance, pos: UDim2, size: UDim2, color: Color3)
 	local back = New(
 		"Frame",
@@ -133,12 +182,13 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 	paint()
 	-- На узком экране вкладки делят ширину родителя поровну, а не по фиксированной ширине.
 	local n = #names
-	Layout.onChanged(function(li)
+	local function relayoutTabs()
+		local li = Layout.get()
 		local c = (20 + 6 * (n - 1)) / n
 		for i, name in ipairs(names) do
 			local b = buttons[name]
 			-- v3.1: окна стали меньше — делим ширину и на ПК, если вкладки не влезают в окно
-			local pw = Theme.panelDesign(li, Theme.uiScale(li))
+			local pw = Theme.panelDesign(li, Theme.panelScale(li), nil, Layout.panelArea())
 			if (10 + n * (w + 6)) > math.min(pw, li.W - 40) then
 				b.Size = UDim2.new(1 / n, -c, 0, 30)
 				b.Position = UDim2.new((i - 1) / n, 10 + (i - 1) * (6 - c), 0, y or 4)
@@ -147,7 +197,9 @@ function UiKit.tabs(parent: Instance, names: { string }, onSelect: (string) -> (
 				b.Position = UDim2.fromOffset(10 + (i - 1) * (w + 6), y or 4)
 			end
 		end
-	end)
+	end
+	Layout.onChanged(relayoutTabs)
+	Layout.onPanelArea(relayoutTabs)
 	return {
 		Select = function(name: string)
 			current = name
@@ -199,14 +251,14 @@ function UiKit.badge(parent: Instance, text: any, color: Color3, pos: UDim2, w: 
 		BackgroundTransparency = 0,
 		BackgroundColor3 = color,
 		TextColor3 = Color3.new(1, 1, 1),
-		Size = UDim2.fromOffset(w or 22, 16),
+		Size = UDim2.fromOffset(w or 22, 21), -- v3.2: буква значка не мельче 12 px
 		Position = pos,
 		Font = Theme.Font,
 		ZIndex = 26,
 		Parent = parent,
 	})
 	Widgets.corner(b, 5)
-	New("UITextSizeConstraint", { MaxTextSize = 12, MinTextSize = 6, Parent = b })
+	New("UITextSizeConstraint", { MaxTextSize = 15, MinTextSize = 6, Parent = b })
 	return b
 end
 

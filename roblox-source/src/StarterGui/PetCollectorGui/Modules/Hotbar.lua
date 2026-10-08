@@ -439,7 +439,13 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [strin
 			task.defer(paint)
 		end)
 	end
+	local watches: { [Instance]: boolean } = setmetatable({}, { __mode = "k" }) :: any
 	local function watch(container: Instance)
+		-- аудит v3.2: onCharacter может прийти дважды для одного персонажа/рюкзака — подписки ставятся один раз
+		if watches[container] then
+			return
+		end
+		watches[container] = true
 		for _, c in ipairs(container:GetChildren()) do
 			bind(c)
 		end

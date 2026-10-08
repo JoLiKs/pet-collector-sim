@@ -98,8 +98,14 @@ with serve('/tmp/gw_ui') as url, sync_playwright() as pw:
     # диалог NPC (реплики из данных переводятся через Names)
     g.cmd('tp:-30,30')
     g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='npc prompt')
-    page.keyboard.press('e')
-    g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog'); page.wait_for_timeout(600)
+    for _ in range(3):  # v3.2: как в test_game_ui — под нагрузкой первый E может прийтись на смену подсказки
+        page.keyboard.press('e')
+        try:
+            g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog', timeout=10)
+            break
+        except AssertionError:
+            pass
+    g.wait(lambda: g.vis('[data-n="DialogBox"]'), what='dialog'); g.vwait(0.5)
     d_txt = g.text('[data-n="DialogBox"]')
     check('RU: диалог NPC на русском', CYR.search(d_txt) is not None and 'Accept' not in d_txt, d_txt[:160])
     g.shot('22f_ru_dialog')

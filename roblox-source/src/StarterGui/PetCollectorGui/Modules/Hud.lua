@@ -1,7 +1,8 @@
 --!nonstrict
 --[[
 	Hud (v2.5) — минимум кнопок на экране, крупно и ярко (жирный шрифт, толстая чёрная обводка):
-	  * слева по центру — «Магазин» и «Индекс» + переключатель автосбора (если есть пропуск) + маленькая «Ещё»;
+	  * слева по центру — «Магазин», «Индекс» и маленькая «Ещё» (v3.2: переключатель автосбора — в листе «Ещё»,
+	    только у владельцев пропуска «Автосбор»);
 	  * справа по центру — три квадратные иконки: Яйца, Питомцы, Задания (с точкой «!»);
 	  * слева снизу — монеты и самоцветы (большие числа с обводкой, без плашек);
 	  * снизу по центру — хотбар инструментов (Hotbar), справа снизу — таймеры событий (Fx «Timer»).
@@ -37,11 +38,17 @@ Hud.state = nil :: any -- флаги «есть что забрать» для �
 Hud.buttons = nil :: any
 
 Hud.LEFT = {
-	{ Id = "Shop", Name = "ShopBtn", Icon = "🛒", Text = "hud.shop", Color = Color3.fromRGB(70, 200, 80) },
+	{
+		Id = "Shop",
+		Name = "ShopBtn",
+		IconKind = "Cart",
+		Text = "hud.shop",
+		Color = Color3.fromRGB(70, 200, 80),
+	},
 	{
 		Id = "Index",
 		Name = "IndexBtn",
-		Icon = "📖",
+		IconKind = "Book",
 		Text = "hud.index",
 		Color = Color3.fromRGB(60, 150, 255),
 	},
@@ -61,12 +68,24 @@ function Hud.leftLayout(lay: any, side: number): (number, number, number)
 	return math.max(k, Theme.MIN_TAP / Hud.LEFT_H), Hud.LEFT_W.touch, Hud.LEFT_W.touchMore
 end
 Hud.RIGHT = {
-	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
-	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
+	{
+		Id = "Eggs",
+		Name = "EggsBtn",
+		IconKind = "Egg",
+		Text = "hud.eggs",
+		Color = Color3.fromRGB(240, 70, 70),
+	},
+	{
+		Id = "Pets",
+		Name = "PetsBtn",
+		IconKind = "Paw",
+		Text = "hud.pets",
+		Color = Color3.fromRGB(255, 150, 40),
+	},
 	{
 		Id = "Quests",
 		Name = "QuestsBtn",
-		Icon = "📜",
+		IconKind = "Scroll",
 		Text = "hud.quests",
 		Color = Color3.fromRGB(80, 200, 100),
 	},
@@ -139,12 +158,12 @@ local function currencyRow(
 end
 
 function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
-	-- ---------- слева: Магазин / Индекс / авто / Ещё ----------
+	-- ---------- слева: Магазин / Индекс / Ещё ----------
 	local left = Widgets.New("Frame", {
 		Name = "LeftButtons",
 		AnchorPoint = Vector2.new(0, 0.5),
 		Position = UDim2.new(0, 12, 0.45, 0),
-		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 4 * Hud.LEFT_H + 3 * 6),
+		Size = UDim2.fromOffset(Hud.LEFT_W.wide, 3 * Hud.LEFT_H + 2 * 6),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -169,7 +188,7 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
-			Icon = item.Icon,
+			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
 			MaxTextSize = 30,
@@ -181,32 +200,14 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		})
 		compact(buttons[item.Id])
 	end
-	local autoBtn = Widgets.hudButton({
-		Name = "AutoToggle",
-		Color = Theme.Green,
-		Text = L.k("hud.auto_on"),
-		Size = UDim2.fromOffset(Hud.LEFT_W.wide, Hud.LEFT_H),
-		MaxTextSize = 30,
-		Radius = 17,
-		LayoutOrder = 3,
-		OnClick = function()
-			local core = ClientState.Core
-			if core then
-				Actions.call("SetAutoCollect", not core.AutoCollect)
-			end
-		end,
-		Parent = left,
-	})
-	autoBtn.Visible = false
-	compact(autoBtn)
 	local moreBtn = Widgets.hudButton({
 		Name = "MoreBtn",
 		Color = Color3.fromRGB(150, 90, 240),
-		Icon = "☰",
+		IconKind = "Menu",
 		Text = L.k("hud.more"),
 		Size = UDim2.fromOffset(Hud.LEFT_W.wideMore, Hud.LEFT_H),
 		MaxTextSize = 30,
-		LayoutOrder = 4,
+		LayoutOrder = 3,
 		OnClick = function()
 			openPanel("More")
 		end,
@@ -226,16 +227,21 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		Parent = gui,
 	})
 	local rightScale = Widgets.New("UIScale", { Parent = right })
-	Widgets.New("UIListLayout", {
+	local rightList = Widgets.New("UIListLayout", {
 		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = right,
+	})
+	-- v3.2: телефон вертикально — кнопки справа сеткой 2×2 внизу: верх экрана свободен под окна
+	local rightGrid = Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(76, 76),
+		CellPadding = UDim2.fromOffset(10, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
 	})
 	for i, item in ipairs(Hud.RIGHT) do
 		buttons[item.Id] = Widgets.hudButton({
 			Name = item.Name,
 			Color = item.Color,
-			Icon = item.Icon,
 			IconKind = item.IconKind,
 			Text = L.k(item.Text),
 			Layout = "column",
@@ -351,15 +357,24 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		for _, item in ipairs(Hud.LEFT) do
 			buttons[item.Id].Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		end
-		autoBtn.Size = UDim2.fromOffset(w, Hud.LEFT_H)
 		moreBtn.Size = UDim2.fromOffset(wm, Hud.LEFT_H)
-		left.Size = UDim2.fromOffset(w, 4 * Hud.LEFT_H + 3 * 6)
+		left.Size = UDim2.fromOffset(w, 3 * Hud.LEFT_H + 2 * 6)
 		leftScale.Scale, rightScale.Scale, walletScale.Scale = leftSide, rightSide, s
+		left.AnchorPoint, right.AnchorPoint = Vector2.new(0, 0.5), Vector2.new(1, 0.5)
+		rightGrid.Parent, rightList.Parent = nil, right
+		right.Size = UDim2.fromOffset(76, #Hud.RIGHT * 76 + (#Hud.RIGHT - 1) * 10)
 		if lay.Mode == "portrait" then
-			left.Position = UDim2.new(0, 10, 0.45, 0)
-			right.Position = UDim2.new(1, -10, 0.42, 0)
 			-- над хотбаром: снизу по центру тесно (хотбар + кнопка прыжка)
-			wallet.Position = UDim2.new(0, 12, 1, -math.floor(90 * s + 4))
+			local walletOff = math.floor(90 * s + 4)
+			wallet.Position = UDim2.new(0, 12, 1, -walletOff)
+			-- v3.2: обе колонки кнопок — внизу, прямо над кошельком: верх экрана целиком под окна (UiGeometry),
+			-- открытое окно не закрывает кнопки
+			local colBottom = walletOff + math.ceil(88 * s) + 10
+			left.AnchorPoint, right.AnchorPoint = Vector2.new(0, 1), Vector2.new(1, 1)
+			left.Position = UDim2.new(0, 10, 1, -colBottom)
+			right.Position = UDim2.new(1, -10, 1, -colBottom)
+			rightList.Parent, rightGrid.Parent = nil, right
+			right.Size = UDim2.fromOffset(2 * 76 + 10, 2 * 76 + 10)
 		elseif lay.Mode == "landscape" then
 			left.Position = UDim2.new(0, 10, 0.45, 0)
 			right.Position = UDim2.new(1, -10, 0.4, 0)
@@ -371,16 +386,74 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 		end
 	end)
 
+	-- v3.2: безопасная область окон на телефоне — по реальным прямоугольникам кнопок и нижних плашек
+	-- (UiGeometry.areaFor). Пересчёт после смены раскладки и раз в секунду (плашки событий появляются и исчезают).
+	-- Видимый прямоугольник элемента с UIScale. В Roblox AbsoluteSize уже учитывает UIScale; веб-эмулятор
+	-- (roblox2web) отдаёт размер без масштаба и масштабирует вокруг центра — это распознаётся по размеру.
+	local function rectOf(o: GuiObject?): any
+		if not o or not o.Visible or o.AbsoluteSize.X < 1 then
+			return nil
+		end
+		-- координаты — относительно ScreenGui (в эмуляторе AbsolutePosition включает полосу GuiInset)
+		local ap, as = o.AbsolutePosition - gui.AbsolutePosition, o.AbsoluteSize
+		local sc = o:FindFirstChildOfClass("UIScale")
+		local k = if sc then sc.Scale else 1
+		local parent = o.Parent :: any
+		local pw = if parent and parent:IsA("GuiBase2d") then parent.AbsoluteSize.X else 0
+		local unscaledW = o.Size.X.Scale * pw + o.Size.X.Offset
+		if math.abs(k - 1) > 0.01 and math.abs(as.X - unscaledW) < 1 then
+			local cx, cy = ap.X + as.X / 2, ap.Y + as.Y / 2
+			return { X = cx - as.X * k / 2, Y = cy - as.Y * k / 2, W = as.X * k, H = as.Y * k }
+		end
+		return { X = ap.X, Y = ap.Y, W = as.X, H = as.Y }
+	end
+	local function updateArea()
+		local lay = Layout.get()
+		if lay.Mode == "wide" then
+			Layout.setPanelArea(nil)
+			gui:SetAttribute("PanelArea", "")
+			return
+		end
+		local bottoms = {}
+		for _, name in ipairs({ "Hotbar", "Currency" }) do
+			local r = rectOf(gui:FindFirstChild(name) :: GuiObject?)
+			if r then
+				table.insert(bottoms, r)
+			end
+		end
+		local timer = gui:FindFirstChild("Timer")
+		if timer then
+			for _, c in ipairs(timer:GetChildren()) do
+				local r = if c:IsA("GuiObject") then rectOf(c) else nil
+				if r then
+					table.insert(bottoms, r)
+				end
+			end
+		end
+		local gs = gui.AbsoluteSize
+		local area = Theme.Geometry.areaFor(lay.Mode, gs.X, gs.Y, rectOf(left), rectOf(right), bottoms, 0)
+		Layout.setPanelArea(area)
+		-- для тестов и отладки: область окон в координатах ScreenGui
+		gui:SetAttribute(
+			"PanelArea",
+			if area then string.format("%d,%d,%d,%d", area.X, area.Y, area.W, area.H) else ""
+		)
+	end
+	Hud.updateArea = updateArea
+	Layout.onChanged(function()
+		task.delay(0.1, updateArea)
+	end)
+	task.spawn(function()
+		while gui.Parent do
+			updateArea()
+			task.wait(1)
+		end
+	end)
+
 	-- ---------- данные ----------
 	ClientState.onCore(function(core)
 		coinsLabel.Text = Util.formatNumber(core.Coins)
 		gemsLabel.Text = Util.formatNumber(core.Gems)
-		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
-		local cap = autoBtn:FindFirstChild("Caption")
-		if cap then
-			L.bind(cap, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
-		end
-		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
 		local readyQuest = false
 		for id, e in pairs(core.Quests.Daily) do
 			local def = QuestData.DailyById[id]
