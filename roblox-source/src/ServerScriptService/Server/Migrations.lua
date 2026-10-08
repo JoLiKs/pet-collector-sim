@@ -41,6 +41,18 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Tutorial = { Step = if veteran then 99 else 1, P = 0 }
 		changed = true
 	end
+	-- v2.5: «Индекс» питомцев — старые профили получают открытыми всех питомцев, что сейчас в инвентаре
+	if type(data.Index) ~= "table" then
+		data.Index = {}
+		if type(data.Pets) == "table" then
+			for _, p in pairs(data.Pets) do
+				if type(p) == "table" and type(p.Id) == "string" then
+					data.Index[p.Id] = true
+				end
+			end
+		end
+		changed = true
+	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
 	local function bad(v: any): boolean
 		return type(v) ~= "number" or v ~= v or v < 0 or v == math.huge

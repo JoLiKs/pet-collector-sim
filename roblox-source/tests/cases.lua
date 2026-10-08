@@ -2993,6 +2993,235 @@ test(
 	end
 )
 
+-- ============================================================================
+-- v2.5: рисовка врагов, хитбокс/замах, Индекс, станции хаба, инструменты
+test(
+	"v2.5 Р1: EnemyVisual — у каждого врага многосоставная модель без коллизий",
+	function()
+		local S = boot("A25R1")
+		local EV = S.U.require("ReplicatedStorage/Shared/EnemyVisual")
+		local ED = S.EnemyData
+		local defs = table.clone(ED.List)
+		table.insert(defs, ED.MOONLING)
+		table.insert(defs, ED.RAID_BOSS)
+		local seen = {}
+		for _, def in ipairs(defs) do
+			check(EV.ARCH[def.Id] ~= nil, "архетип задан: " .. def.Id)
+			local rig = EV.build(def, if def.Id == "moonling" then "moonling" else nil)
+			local n, neon, eyesW, crown, aura = #rig.Parts, 0, 0, 0, 0
+			local loose = 0
+			for _, rp in ipairs(rig.Parts) do
+				local p = rp.Part
+				if
+					not (p.Anchored and p.CanCollide == false and p.CanQuery == false and p.CanTouch == false)
+				then
+					loose += 1
+				end
+				if p.Material == Enum.Material.Neon then
+					neon += 1
+				end
+				if p.Material == Enum.Material.Metal then
+					crown += 1
+				end
+				if rp.Group == "aura" then
+					aura += 1
+				end
+				if p.Color and p.Color.R == 1 and p.Color.G == 1 and p.Color.B == 1 then
+					eyesW += 1
+				end
+				check(
+					rp.Group == "body" or rig.Pivots[rp.Group] ~= nil,
+					def.Id .. ": у группы есть опора " .. rp.Group
+				)
+			end
+			check(
+				loose == 0,
+				def.Id
+					.. ": все части Anchored/без коллизий/запросов/касаний"
+			)
+			check(n >= 10, def.Id .. ": не меньше 10 частей (" .. n .. ")")
+			check(
+				n <= (if def.Boss then 60 else 40),
+				def.Id .. ": разумное число частей (" .. n .. ")"
+			)
+			check(neon >= 1, def.Id .. ": есть неоновые глаза/акценты")
+			check(eyesW >= 2, def.Id .. ": белки/блики глаз")
+			check(rig.Height > 0 and rig.Anchor ~= nil, def.Id .. ": точка для полоски HP")
+			if def.Boss then
+				check(crown >= 6 and aura >= 1, def.Id .. ": у босса корона и аура")
+			else
+				check(
+					crown == 0 and aura == 0,
+					def.Id .. ": у обычного врага нет короны"
+				)
+			end
+			local cfs =
+				EV.pose(rig, CFrame.new(10, 0, 5), CFrame.new(0, 1, 0), { head = CFrame.Angles(0.2, 0, 0) })
+			check(#cfs == n, def.Id .. ": pose() считает все части")
+			seen[def.Zone .. "/" .. EV.ARCH[def.Id] .. "/" .. def.Id] = true
+		end
+		-- в каждом мире обычные враги — разные силуэты (архетип или особые детали)
+		for _, zone in ipairs(S.ZoneData.List) do
+			local arch = {}
+			for _, id in ipairs(zone.Enemies) do
+				arch[EV.ARCH[id]] = (arch[EV.ARCH[id]] or 0) + 1
+			end
+			local kinds = 0
+			for _ in pairs(arch) do
+				kinds += 1
+			end
+			check(kinds >= 2, zone.Id .. ": минимум два разных архетипа врагов")
+		end
+	end
+)
+
+test(
+	"v2.5 Р2: сервер — враг это невидимый хитбокс, удар после замаха (атрибут Atk)",
+	function()
+		local S = boot("A25R2")
+		local CS = initWith(S, "ServerScriptService/Server/CombatService")
+		local data, _, p = S.join(9501, "Target")
+		local folder = S.U.Workspace:FindFirstChild("Enemies")
+		local enemy
+		for _, m in ipairs(folder:GetChildren()) do
+			if m:GetAttribute("Zone") == "Meadow" and not m:GetAttribute("IsBoss") then
+				enemy = m
+				break
+			end
+		end
+		check(enemy ~= nil, "враг луга есть")
+		local body = enemy:FindFirstChild("Body")
+		check(body ~= nil and body.Transparency == 1, "Body — невидимый хитбокс")
+		check(
+			body.CanCollide == false and body.CanTouch == false,
+			"хитбокс не сталкивается"
+		)
+		check(enemy.PrimaryPart == body, "PrimaryPart = Body (позиция врага)")
+		local extra = 0
+		for _, c in ipairs(enemy:GetChildren()) do
+			if c ~= body then
+				extra += 1
+			end
+		end
+		check(
+			extra == 0,
+			"на сервере нет видимых частей/билборда (рисует клиент)"
+		)
+		check(enemy:GetAttribute("Atk") == 0, "счётчик замахов Atk = 0")
+		local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+		local hum = p.Character:FindFirstChildOfClass("Humanoid")
+		hrp.Position = Vector3.new(body.Position.X + 3, 3, body.Position.Z)
+		local hb = S.U.Game:GetService("RunService").Heartbeat
+		ADVANCE(5)
+		hb:Fire(0.15)
+		check(enemy:GetAttribute("Atk") == 1, "враг рядом — начался замах (Atk = 1)")
+		check(hum.Health == 100, "урон не мгновенный — сначала телеграф")
+		ADVANCE(0.4)
+		hb:Fire(0.15)
+		check(
+			hum.Health < 100,
+			"после замаха урон прошёл (" .. tostring(hum.Health) .. ")"
+		)
+		local hp1 = hum.Health
+		ADVANCE(S.EnemyData.ATTACK_INTERVAL + 0.1)
+		hb:Fire(0.15)
+		check(enemy:GetAttribute("Atk") == 2, "второй замах")
+		hrp.Position = Vector3.new(body.Position.X + 60, 3, body.Position.Z)
+		ADVANCE(0.4)
+		hb:Fire(0.15)
+		check(hum.Health == hp1, "увернулся во время замаха — урона нет")
+		check(data ~= nil and CS.enemyCount() > 0, "враги живы")
+	end
+)
+
+test("v2.5 И1: Индекс питомцев — миграция и пополнение", function()
+	local S = boot("A25I1")
+	local d, _, p = S.join(9511, "Idx")
+	check(type(d.Index) == "table", "новый сейв: поле Index из шаблона")
+	d.Index = nil
+	d.Pets = { a = { Id = "bunbun", Variant = "Normal", Level = 1, Xp = 0, Evo = 0 } }
+	S.Migrations.run(d)
+	check(
+		type(d.Index) == "table" and d.Index.bunbun == true,
+		"старый сейв: Индекс заполнен текущими питомцами"
+	)
+	d.Pets.b = { Id = "chirpy", Variant = "Golden", Level = 1, Xp = 0, Evo = 0 }
+	local idx = S.State.syncIndex(d)
+	check(
+		idx.chirpy == true and idx.bunbun == true,
+		"новый питомец попадает в Индекс"
+	)
+	d.Pets.a = nil
+	d.Pets.b = nil
+	idx = S.State.syncIndex(d)
+	check(
+		idx.bunbun == true and idx.chirpy == true,
+		"проданный/обменянный питомец остаётся открытым"
+	)
+	local ev = S.Remotes.getEvent("State")
+	S.State.push(p, false)
+	local f = FIRED(ev)
+	local core = f[#f] and f[#f].Args[1].Core
+	check(
+		core ~= nil and type(core.Index) == "table" and core.Index.chirpy == true,
+		"Индекс уходит клиенту в core"
+	)
+end)
+
+test(
+	"v2.5 С1: станции хаба открывают разделы из бывшего меню",
+	function()
+		local S = boot("A25S1")
+		local St = S.U.require("ServerScriptService/Server/StationService")
+		local _, _, p = S.join(9521, "Hub")
+		local ev = S.Remotes.getEvent("OpenUi")
+		for id, panel in pairs({
+			daily = "Daily",
+			upgrades = "Upgrades",
+			rebirth = "Rebirth",
+			board = "Boards",
+			craft = "Craft",
+		}) do
+			local before = #FIRED(ev)
+			St._onPrompt(p, id)
+			local f = FIRED(ev)
+			check(#f == before + 1 and f[#f].Args[1] == panel, "станция " .. id .. " → " .. panel)
+		end
+	end
+)
+
+test("v2.5 T1: настоящие инструменты в StarterPack (меч и магнит)", function()
+	local S = boot("A25T1")
+	local TS = initWith(S, "ServerScriptService/Server/ToolService")
+	local pack = S.U.Game:GetService("StarterPack")
+	local sword = pack:FindFirstChild("Sword")
+	local mag = pack:FindFirstChild("Collector")
+	check(sword ~= nil and mag ~= nil, "Sword и Collector лежат в StarterPack")
+	for _, tool in ipairs({ sword, mag }) do
+		local handle = tool:FindFirstChild("Handle")
+		check(handle ~= nil, tool.Name .. ": есть Handle")
+		local parts, loose = 0, 0
+		for _, d in ipairs(tool:GetDescendants()) do
+			if d:IsA("BasePart") then
+				parts += 1
+				if d.CanCollide ~= false or d.Anchored == true then
+					loose += 1
+				end
+			end
+		end
+		check(parts >= 4, tool.Name .. ": модель из нескольких частей")
+		check(loose == 0, tool.Name .. ": части не якорные и без коллизий")
+	end
+	TS.init()
+	local n = 0
+	for _, c in ipairs(pack:GetChildren()) do
+		if c.Name == "Sword" and c.Parent == pack then
+			n += 1
+		end
+	end
+	check(n >= 1, "повторный init не ломает StarterPack")
+end)
+
 -- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
 if failed > 0 or (TEST_ERRORS or 0) > 0 then

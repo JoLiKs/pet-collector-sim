@@ -2,10 +2,12 @@
 --[[
 	TutorialHud — плашка обучения первой сессии (v2.4, аудит Г3). Только отображение:
 	шаги и прогресс приходят в снимке ядра (core.Tutorial), всё засчитывает сервер (TutorialService).
-	Расположение зависит от раскладки (Layout): под плашкой мира на широком экране, слева над кнопкой
-	удара в портрете, под меню в ландшафте. Кнопка «Пропустить» — действие TutorialSkip.
+	v2.5: плашка над хотбаром (в портрете — между кнопками и валютами), а нужный элемент HUD подсвечивается
+	пульсирующей рамкой: «сбор» — слот 2 (магнит), «яйцо» — кнопка «Яйца», «в команду» — «Питомцы»,
+	«враг» — слот 1 (меч). Кнопка «Пропустить» — действие TutorialSkip.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 local TutorialData = require(Shared:WaitForChild("TutorialData"))
@@ -17,6 +19,9 @@ local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
 local TutorialHud = {}
+
+-- шаг обучения → имя подсвечиваемого элемента HUD
+TutorialHud.TARGETS = { collect = "Slot2", hatch = "EggsBtn", equip = "PetsBtn", kill = "Slot1" }
 
 function TutorialHud.init(gui: ScreenGui)
 	local box = Widgets.New("Frame", {
@@ -60,29 +65,59 @@ function TutorialHud.init(gui: ScreenGui)
 
 	Layout.onChanged(function(li)
 		if li.Mode == "portrait" then
-			box.AnchorPoint = Vector2.new(0, 1)
-			-- над кнопками «УДАР»/«СОБРАТЬ», на всю ширину: текст не мельче 11 px
-			box.Position = UDim2.new(0, 12, 1, -188)
-			box.Size = UDim2.fromOffset(math.max(200, li.W - 24), 50)
+			box.AnchorPoint = Vector2.new(0.5, 0)
+			box.Position = UDim2.new(0.5, 0, 0.45, 132)
+			box.Size = UDim2.fromOffset(math.max(200, li.W - 24), 48)
 			tsc.MinTextSize = 11
 		elseif li.Mode == "landscape" then
-			box.AnchorPoint = Vector2.new(0, 0)
-			box.Position = UDim2.fromOffset(172, 118)
-			box.Size = UDim2.fromOffset(336, 44)
-			tsc.MinTextSize = 9
+			box.AnchorPoint = Vector2.new(0.5, 1)
+			box.Position = UDim2.new(0.5, 0, 1, -74)
+			box.Size = UDim2.fromOffset(math.min(330, li.W - 420), 42)
+			tsc.MinTextSize = 10
 		else
-			box.AnchorPoint = Vector2.new(0.5, 0)
-			box.Position = UDim2.new(0.5, 0, 0, 102)
-			box.Size = UDim2.fromOffset(420, 36)
-			tsc.MinTextSize = 9
+			box.AnchorPoint = Vector2.new(0.5, 1)
+			box.Position = UDim2.new(0.5, 0, 1, -100)
+			box.Size = UDim2.fromOffset(470, 40)
+			tsc.MinTextSize = 10
 		end
 	end)
+
+	-- подсветка нужного элемента HUD
+	local ring = Widgets.New("Frame", {
+		Name = "TutorialRing",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, 12, 1, 12),
+		BackgroundTransparency = 1,
+		ZIndex = 12,
+		Visible = false,
+	})
+	Widgets.corner(ring, 16)
+	local ringStroke = Widgets.stroke(ring, Theme.Gold, 4)
+	local pulse = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if ring.Visible then
+			pulse += dt * 5
+			ringStroke.Transparency = 0.15 + 0.35 * (0.5 + 0.5 * math.sin(pulse))
+		end
+	end)
+	local function highlight(name: string?)
+		local target = name and gui:FindFirstChild(name, true)
+		if target and target:IsA("GuiObject") then
+			ring.Parent = target
+			ring.Visible = true
+		else
+			ring.Visible = false
+			ring.Parent = nil
+		end
+	end
 
 	local function refresh()
 		local core = ClientState.Core
 		local t = core and core.Tutorial
 		local step = t and TutorialData.Steps[t.Step]
 		box.Visible = step ~= nil
+		highlight(step and TutorialHud.TARGETS[step.Id])
 		if not step then
 			return
 		end

@@ -1,4 +1,4 @@
-# Pet Collector Simulator v2.4 — 3D-симулятор питомцев для Roblox (Luau)
+# Pet Collector Simulator v2.5 — 3D-симулятор питомцев для Roblox (Luau)
 
 Игра в жанре **pet simulator + мини-RPG**: хаб с NPC и станциями, пять биомов-миров, добыча ресурсов, враги и боссы, автоатака питомцев, события по расписанию,
 питомцы с **редкостями, стихиями, ролями, уровнями, эволюцией, слиянием 3→1 (Golden/Rainbow/Shiny)**, команда, крафт, квесты с диалогами, достижения, ребёрт с **деревом талантов**,
@@ -9,11 +9,18 @@
 ▶ **Веб-демо (реальный Luau-код → JS через [roblox2web](https://github.com/JoLiKs/roblox2web)):** <https://joliks.github.io/pet-collector-sim/>
 Сам конвертор: <https://joliks.github.io/roblox2web/>
 
-> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (1652 проверки), интеграционным сценарием (132 проверки) и браузерными UI-проверками (Playwright, ПК и телефон) **в эмуляторе Roblox**,
+> ⚠️ **Прочитайте сразу.** Проект проверен линтерами, типовым анализом, тестами логики (2392 проверки), интеграционным сценарием (136 проверок) и браузерными UI-проверками (Playwright, ПК и телефон) **в эмуляторе Roblox**,
 > но **не запускался в настоящей Roblox Studio** (в среде сборки её нет). Список проверенного и непроверенного — [`docs/TESTING.md`](docs/TESTING.md);
 > честная оценка рисков и урезанного — [`docs/HONEST_ASSESSMENT.md`](docs/HONEST_ASSESSMENT.md); готовность к публикации и что сделать руками — [`docs/RELEASE_CHECKLIST_v2.4.md`](docs/RELEASE_CHECKLIST_v2.4.md). **Никакого дохода проект не гарантирует.**
 
-**Что нового в v2.4** (исправления по аудиту [`docs/AUDIT_v2.3.md`](docs/AUDIT_v2.3.md)): закрыты экономические эксплойты (AFK-фарм «Суперсилы», награда босса за 1 урон, NaN в аргументах, пустая покупка «пропуска уровня»), демо-бот и демо-флаги выключены в боевом конфиге, интерфейс для телефонов (портрет и ландшафт), обучение первой сессии, почта питомцев при полной сумке, честные шансы слияния с катализатором, пересмотр ребёртов (без «стены» на 1e15), надёжнее сохранения после обмена и при сбоях DataStore.
+**Что нового в v2.5** — интерфейс и враги «как в Roblox-симуляторах»:
+* **HUD без лишних кнопок.** Сетка из 12 кнопок меню и кнопки «УДАР»/«СОБРАТЬ» убраны. Слева — «Магазин» и «Индекс» (+ переключатель автосбора с геймпассом и маленькая кнопка «Ещё»), справа — квадратные «Яйца», «Питомцы», «Задания», слева снизу — монеты и самоцветы крупными цифрами с обводкой, внизу по центру — **хотбар на 3 слота** (Меч, Магнит, Зелье), справа снизу — компактный таймер (охота, события, удача, босс; между событиями — «🌙 Золотой дождь через 2:51», как в образце). Верх экрана свободен: уведомления компактные.
+* **Удар — настоящим инструментом.** Меч и магнит — `Tool` в рюкзаке (`ToolService` → StarterPack): выберите слот (1–3 или тап) и кликните/тапните по миру; `Q` — удар, `F` — сбор. Удар в воздух и удары по суперигроку работают как раньше.
+* **Куда переехали разделы:** Улучшения, Ребёрт, Таланты, Награды дня, Миры, Крафт, Рынок, Обмен, Топ, Настройки — в окне **«Ещё»**; кроме того, в хабе станции с подсказкой ProximityPrompt: «Сундук наград» (награды дня), «Мастерская» (улучшения), «Алтарь перерождения» (ребёрт), доска лидеров (топ), а также прежние верстак, рынок, алтарь талантов, NPC.
+* **Индекс питомцев**: все питомцы по яйцам, открытые — цветные, закрытые — «???» (сервер хранит `data.Index`, старые сейвы мигрируют).
+* **Новая рисовка врагов**: 6 силуэтов (слизень, четвероногий, летун, огонёк/призрак, жук, бес, голем) с деталями под каждого врага, глаза со зрачками, клыки/рога/шипы/крылья/хвосты, палитра биома, неон для глаз и акцентов; анимации — дыхание, шаг/прыжок/взмахи крыльев, **замах перед ударом** (телеграф), вспышка и отдача при попадании, смерть со сжатием и осколками; компактная полоска HP; у боссов — корона, аура и полоса с именем. Сервер держит только невидимый хитбокс, рисует клиент.
+
+**Что было в v2.4** (исправления по аудиту [`docs/AUDIT_v2.3.md`](docs/AUDIT_v2.3.md)): закрыты экономические эксплойты (AFK-фарм «Суперсилы», награда босса за 1 урон, NaN в аргументах, пустая покупка «пропуска уровня»), демо-бот и демо-флаги выключены в боевом конфиге, интерфейс для телефонов (портрет и ландшафт), обучение первой сессии, почта питомцев при полной сумке, честные шансы слияния с катализатором, пересмотр ребёртов (без «стены» на 1e15), надёжнее сохранения после обмена и при сбоях DataStore.
 
 ---
 
@@ -21,7 +28,10 @@
 
 | | |
 |---|---|
-| ![Хаб](docs/screens/01_hub.png) Хаб, HUD и меню | ![Яйцо](docs/screens/02_egg.png) Яйцо хаба |
+| ![HUD v2.5](docs/screens/40_hud_1280x720.png) HUD v2.5 (ПК, RU): бой с боссом | ![Телефон](docs/screens/40_hud_390x844.png) Телефон 390×844 |
+| ![Ландшафт](docs/screens/40_hud_844x390.png) Телефон 844×390 | ![Ещё](docs/screens/40_more_390x844.png) Окно «Ещё» (телефон) |
+| ![Мобы](docs/screens/40_mobs_closeup.png) Враги крупным планом (все архетипы) | ![Боссы](docs/screens/40_bosses_closeup.png) Боссы: корона, аура, полоса HP |
+| ![Индекс](docs/screens/40_index_1280x720.png) Индекс питомцев | ![Яйца](docs/screens/40_eggs_390x844.png) Окно яиц (телефон) |
 | ![Питомцы](docs/screens/03_pets.png) Инвентарь питомцев | ![Слияние](docs/screens/04_fusion.png) Слияние 3→1 |
 | ![Крафт](docs/screens/05_craft.png) Крафт | ![Диалог](docs/screens/06_dialog.png) NPC и квесты |
 | ![Рынок](docs/screens/08_market.png) Магазин с ротацией | ![Пасс](docs/screens/09_battlepass.png) Батл-пасс |
@@ -94,16 +104,16 @@ roblox-game/
 │   ├── ReplicatedStorage/           ← общие данные и чистая логика: Config, PetData, PetMeta, Abilities, ZoneData, EnemyData, ResourceData,
 │   │                                   RecipeData, QuestData, AchievementData, TalentData, BattlePassData, ShopData, EventData,
 │   │                                   TradeLogic, Formulas, UpgradeData, PetModel, AttackFx, SuperFx, SuperpowerLogic, Remotes, Util,
-│   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных)
+│   │                                   Locale + LocaleEn + LocaleRu (строки интерфейса и перевод данных), EnemyVisual (модели врагов)
 │   ├── ServerScriptService/Server/  ← сервисы: Data, Economy, State, Router, AntiExploit, Pet, Click, Upgrade, Zone, Rebirth, Daily, Monetization,
-│   │                                   Leaderboard, Player, WorldBuilder, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
+│   │                                   Leaderboard, Player, WorldBuilder, Tool, Resource, Combat, Event, Craft, Quest, Station, Shop, BattlePass, Trade,
 │   │                                   Offline, Progress, Dailies, Migrations, LanguageService, Superpower, SuperBots …
-│   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), CombatFx (эффекты удара и «Суперсилы»), WorldLocalizer (перевод текстов мира)
-│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Fx, HuntHud, Toasts, панели Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
+│   ├── StarterPlayer/StarterPlayerScripts/  ← PetFollower (питомцы за игроками), EnemyVisuals (рисовка и анимация врагов), CombatFx (эффекты удара и «Суперсилы»), WorldLocalizer (перевод текстов мира)
+│   └── StarterGui/PetCollectorGui/  ← ScreenGui + UIController + Modules/ (HUD, Hotbar, Fx, HuntHud, Toasts, панели Index/More/ Pets/Quests/Craft/Market/Talents/Trade/Boards/…)
 ├── tools/                           ← build_rbxlx.py, validate_rbxlx.py, check_all.sh, check_strings.py (линтер строк), publish_web.sh
 ├── tests/                           ← cases.lua (логика), game/ (интеграция в эмуляторе), browser/ (Chromium: UI, удар, локализация, Суперсила)
 ├── docs/                            ← документация и screens/ (скриншоты)
-├── dist/PetCollectorSimulator_v2.4.zip, PetCollectorSimulator_v2.4.zip
+├── dist/PetCollectorSimulator_v2.5.zip, PetCollectorSimulator_v2.5.zip
 └── stylua.toml, selene.toml, rokit.toml
 ```
 
@@ -184,7 +194,7 @@ bash tools/check_all.sh            # формат + линт + типы + тес
 ## Языки
 
 * **Автоматически:** страна игрока из `LocalizationService:GetCountryRegionForPlayerAsync` — RU, BY, KZ, KG, AM, AZ, MD, TJ, UZ, TM → русский; **Украина — русский, только если язык клиента русский** (сознательное решение: не навязывать язык по стране); остальные страны — английский. Если сервис недоступен — по `Player.LocaleId` (`ru*` → русский).
-* **Вручную:** кнопка **НАСТРОЙКИ / SETTINGS** под валютами → Авто / English / Русский. Выбор главнее автоопределения, хранится в данных игрока и переключает интерфейс сразу, без перезахода.
+* **Вручную:** **Ещё → Настройки / More → Settings** → Авто / English / Русский. Выбор главнее автоопределения, хранится в данных игрока и переключает интерфейс сразу, без перезахода.
 * **Как устроено и как добавить язык** — [`docs/MECHANICS.md` §13](docs/MECHANICS.md#13-языки-русский-и-английский-locale-languageservice-worldlocalizer).
 * **В веб-демо** страна определяется по IP (бесплатные CORS-сервисы, см. [roblox2web](https://github.com/JoLiKs/roblox2web)); принудительно: `?country=RU`, `?country=US`, `?lang=en`.
 

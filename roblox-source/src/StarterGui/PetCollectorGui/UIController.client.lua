@@ -27,6 +27,7 @@ panels.Quests = require(Modules:WaitForChild("QuestsPanel")).init(gui)
 panels.Craft = require(Modules:WaitForChild("CraftPanel")).init(gui)
 panels.Boards = require(Modules:WaitForChild("BoardsPanel")).init(gui)
 panels.Trade = require(Modules:WaitForChild("TradePanel")).init(gui)
+panels.Index = require(Modules:WaitForChild("IndexPanel")).init(gui) -- v2.5: индекс питомцев
 local Dialog = require(Modules:WaitForChild("DialogPanel")).init(gui)
 require(Modules:WaitForChild("HatchPopup")).init(gui)
 
@@ -59,6 +60,11 @@ require(Modules:WaitForChild("Fx")).init(gui, function(name: string)
 	openPanel(name, true)
 end)
 
+-- v2.5: лист «Ещё» — все разделы, убранные с экрана (они же — станции хаба)
+panels.More = require(Modules:WaitForChild("MorePanel")).init(gui, openPanel, function()
+	return Hud.state or {}
+end)
+Hud.eggPanel = panels.Egg
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)

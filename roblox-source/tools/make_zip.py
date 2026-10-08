@@ -12,7 +12,8 @@ os.makedirs(os.path.dirname(out), exist_ok=True)
 n = 0
 with zipfile.ZipFile(out, 'w', zipfile.ZIP_DEFLATED) as z:
     for d, dirs, files in os.walk(root):
-        dirs[:] = sorted(x for x in dirs if x not in EXCL_DIRS)
+        # docs/reference — локальные образцы (не публикуются)
+        dirs[:] = sorted(x for x in dirs if x not in EXCL_DIRS and os.path.join(d, x) != os.path.join(root, 'docs', 'reference'))
         for f in sorted(files):
             if f in EXCL_FILES or f.endswith('.zip'):
                 continue

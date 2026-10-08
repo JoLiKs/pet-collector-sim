@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Chromium: удар выглядит ударом. Атака без врага рисует меч и дугу (инстансы ClientFx), рука поднята через Motor6D,
 тоста и эмодзи ⚔ нет; удар по врагу даёт вспышку/искры и урон. Кадр в середине замаха ловится паузой эмулятора
-(R2W.ENV.paused). Скриншоты: 21_swing.png, 21b_hit.png.
+(R2W.ENV.paused). v2.5: меч — настоящий Tool из хотбара (Q / клик по миру). Скриншоты: 21_swing.png, 21b_hit.png.
 Запуск: bash tests/browser/build_ui_site.sh && python3 tests/browser/test_swing.py [--shots DIR]"""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -16,6 +16,7 @@ def check(name, cond, info=''):
     if cond: oks += 1; print('OK  ', name)
     else: fails.append(name); print('FAIL', name, info)
 FXQ = """(()=>{const f=R2W.ENV.workspace.findChild('ClientFx'); const r={arc:0,glow:0,sword:0,flash:0,spark:0};
+ const ch=R2W.ENV.localPlayer.props.Character; if(ch && ch.children.some(x=>x.className==='Tool'&&x.props.Name==='Sword')) r.sword++;
  if(!f) return r; for(const c of f.children){const n=c.props.Name, vis=c.props.Transparency<1;
  if(n==='SlashArc'&&vis) r.arc++; if(n==='SlashGlow'&&vis) r.glow++; if(n==='SwordBlade') r.sword++; if(n==='HitFlash') r.flash++; if(n==='HitSpark') r.spark++;} return r;})()"""
 ARM = """(()=>{const ch=R2W.ENV.localPlayer.props.Character; const a=ch.findChild('Right Arm').props.CFrame, r=ch.findChild('HumanoidRootPart').props.CFrame;
@@ -32,11 +33,11 @@ def catch(g, page, need):
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
     page.goto(url + 'index.html?persist=0&seed=1&country=US')
-    g.wait(lambda: g.vis('[data-n="Collect"]')); page.wait_for_timeout(2000)
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); page.wait_for_timeout(2000)
     g.cmd('seed'); g.cmd('tp:615,-70'); g.vwait(1.0)   # край луга, рядом никого
     got = None
     for attempt in range(5):
-        g.click('[data-n="Attack"]')
+        page.keyboard.press('q')  # Q — удар мечом из хотбара (сам берёт меч в руку)
         r = catch(g, page, lambda r: r['arc'] >= 6 and r['sword'] >= 1)
         if r['arc'] >= 6: got = r; break
         page.wait_for_timeout(500)
@@ -48,15 +49,15 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     page.evaluate('R2W.ENV.paused=false'); g.vwait(0.6)
     toast = page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
     check('нет тоста «No enemy»', 'No enemy' not in toast and 'Too far' not in toast, toast)
-    check('нет эмодзи ⚔', not page.evaluate("document.body.innerText.includes('⚔')") and page.locator('[data-n="Fx_Swing"]').count() == 0)
+    check('нет эмодзи ⚔ в эффектах/тостах', '⚔' not in toast and page.locator('[data-n="Fx_Swing"]').count() == 0)
     left = page.evaluate(FXQ)
-    check('эффекты убираются после удара', left['arc'] == 0 and left['sword'] == 0, left)
+    check('эффекты убираются после удара (меч остаётся в руке как Tool)', left['arc'] == 0, left)
     # попадание по врагу
     g.cmd('tpenemy'); g.vwait(0.4)
     hit = None
     for _ in range(8):
         g.cmd('tpenemy'); g.vwait(0.3)
-        g.click('[data-n="Attack"]')
+        page.mouse.click(640, 330)  # с мечом в руке — клик по миру
         r = catch(g, page, lambda r: r['flash'] >= 1 and r['spark'] >= 4 and r['arc'] >= 5)
         if r['flash'] >= 1: hit = r; break
         g.vwait(0.3)

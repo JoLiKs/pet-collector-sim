@@ -274,7 +274,13 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
 	local shoulderBase = shoulder and shoulder.C0
 	local rootBase = rootJoint and rootJoint.C0
-	local sword = buildSword()
+	-- v2.5: меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, двигается только рука
+	local held = character:FindFirstChildOfClass("Tool")
+	local sword = if held
+			and held.Name == "Sword"
+			and held:FindFirstChild("Handle")
+		then { Parts = {} }
+		else buildSword()
 	local t0 = os.clock()
 	local arcDone, lunged = false, 0
 	local conn: RBXScriptConnection? = nil

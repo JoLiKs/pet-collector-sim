@@ -266,6 +266,29 @@ local boar = nearestEnemy("Meadow")
 moveTo(boar.PrimaryPart.Position + Vector3.new(3, 0, 0))
 task.wait(6)
 check("enemies hurt the player", playerHum.Health < hp0 or boar.Parent == nil, playerHum.Health)
+-- v2.5: на сервере враг — невидимый хитбокс, рисовку строит клиент (в эмуляторе DataModel общий)
+check("enemy body is an invisible hitbox", boar.Parent == nil or boar.PrimaryPart.Transparency == 1)
+check(
+	"enemy windup counter (Atk) grows",
+	boar.Parent == nil or (boar:GetAttribute("Atk") or 0) >= 1,
+	boar:GetAttribute("Atk")
+)
+local visuals = Workspace:FindFirstChild("EnemyVisuals")
+check(
+	"client draws enemy models",
+	visuals ~= nil and #visuals:GetChildren() >= 3,
+	visuals and #visuals:GetChildren()
+)
+local vparts, loose = 0, 0
+for _, d in ipairs(visuals and visuals:GetDescendants() or {}) do
+	if d:IsA("BasePart") then
+		vparts += 1
+		if d.CanCollide or d.CanQuery or not d.Anchored then
+			loose += 1
+		end
+	end
+end
+check("enemy visuals: anchored, no collide/query", vparts > 0 and loose == 0, loose)
 task.wait(6)
 
 -- ===== 5. Крафт и питомцы =================================================
@@ -598,7 +621,13 @@ check(
 )
 local b1 = bots[1]
 local bp0 = b1.Root.Position
-task.wait(4)
+-- первая прогулка бота — через случайные 2–6 с: ждём до 9 с, а не фиксированные 4 (тест был нестабильным)
+for _ = 1, 18 do
+	task.wait(0.5)
+	if (b1.Root.Position - bp0).Magnitude > 2 then
+		break
+	end
+end
 check(
 	"super: bots wander (Humanoid:MoveTo)",
 	(b1.Root.Position - bp0).Magnitude > 2,

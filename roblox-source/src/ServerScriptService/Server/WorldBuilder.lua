@@ -84,7 +84,8 @@ end
 
 local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(width, height)
+	-- размер в студах: подпись уменьшается с расстоянием и не закрывает HUD на телефоне
+	gui.Size = UDim2.fromScale(width / 16, height / 16)
 	gui.StudsOffset = offset
 	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
 	gui.LightInfluence = 0
@@ -317,7 +318,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Табло лидеров
 -- ---------------------------------------------------------------------------
-local function buildBoard(parent: Instance, center: Vector3)
+local function buildBoard(parent: Instance, center: Vector3): Model
 	local m = Instance.new("Model")
 	m.Name = "Leaderboard"
 	local face = Color3.fromRGB(30, 34, 48)
@@ -376,6 +377,7 @@ local function buildBoard(parent: Instance, center: Vector3)
 		boardRows[i] = row
 	end
 	m.Parent = parent
+	return m
 end
 
 -- ---------------------------------------------------------------------------
@@ -816,6 +818,126 @@ local function buildHub(world: Folder)
 	addPrompt(portalPad, "portal", "prompt.travel", "world.portal", 0)
 	stationPositions.portal = portalPos
 
+	-- v2.5: станции разделов, убранных с экрана (лист «Ещё» дублирует их кнопками)
+	-- Сундук ежедневной награды — слева от фонтана
+	local chestPos = Vector3.new(-26, 0, 8)
+	block(
+		hub,
+		"ChestBase",
+		Vector3.new(5, 2.6, 3.4),
+		chestPos + Vector3.new(0, 1.3, 0),
+		Color3.fromRGB(150, 90, 45),
+		Enum.Material.Wood
+	)
+	local lid = block(
+		hub,
+		"ChestLid",
+		Vector3.new(5.2, 1.2, 3.6),
+		chestPos + Vector3.new(0, 3.2, 0),
+		Color3.fromRGB(175, 105, 55),
+		Enum.Material.Wood
+	)
+	for _, dx in ipairs({ -2.2, 0, 2.2 }) do
+		block(
+			hub,
+			"ChestBand",
+			Vector3.new(0.4, 3.9, 3.7),
+			chestPos + Vector3.new(dx, 1.95, 0),
+			Color3.fromRGB(255, 200, 60),
+			Enum.Material.Metal
+		)
+	end
+	mk(
+		hub,
+		"ChestGlow",
+		Enum.PartType.Ball,
+		Vector3.new(1.2, 1.2, 1.2),
+		CFrame.new(chestPos + Vector3.new(0, 2.4, -1.9)),
+		Color3.fromRGB(255, 230, 120),
+		Enum.Material.Neon,
+		false
+	)
+	sign(lid, "world.daily_chest", "world.daily_chest_sub", Color3.fromRGB(255, 210, 90), 4.5)
+	addPrompt(lid, "daily", "prompt.claim", "world.daily_chest", 0)
+	stationPositions.daily = chestPos
+
+	-- Мастерская улучшений — справа от фонтана: станок с шестернёй
+	local shopPos = Vector3.new(26, 0, 8)
+	local bench = block(
+		hub,
+		"WorkshopBase",
+		Vector3.new(6, 3, 4),
+		shopPos + Vector3.new(0, 1.5, 0),
+		Color3.fromRGB(60, 110, 200),
+		Enum.Material.Metal
+	)
+	mk(
+		hub,
+		"WorkshopGear",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.8, 4.6, 4.6),
+		CFrame.new(shopPos + Vector3.new(0, 5.6, 0)) * CFrame.Angles(0, math.rad(90), 0),
+		Color3.fromRGB(255, 200, 60),
+		Enum.Material.Metal,
+		false
+	)
+	mk(
+		hub,
+		"WorkshopCore",
+		Enum.PartType.Ball,
+		Vector3.new(1.6, 1.6, 1.6),
+		CFrame.new(shopPos + Vector3.new(0, 5.6, -0.5)),
+		Color3.fromRGB(120, 220, 255),
+		Enum.Material.Neon,
+		false
+	)
+	block(
+		hub,
+		"WorkshopArrow",
+		Vector3.new(0.8, 2.2, 0.6),
+		shopPos + Vector3.new(0, 3.3, -2),
+		Color3.fromRGB(120, 255, 140),
+		Enum.Material.Neon
+	)
+	sign(bench, "world.upgrades", "world.upgrades_sub", Color3.fromRGB(140, 200, 255), 8)
+	addPrompt(bench, "upgrades", "prompt.upgrade", "world.upgrades", 0)
+	stationPositions.upgrades = shopPos
+
+	-- Святилище перерождения — напротив алтаря талантов
+	local shrinePos = Vector3.new(70, 0, -50)
+	mk(
+		hub,
+		"ShrineStep",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.2, 14, 14),
+		CFrame.new(shrinePos + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(90, 80, 130),
+		Enum.Material.Marble,
+		true
+	)
+	local obelisk = block(
+		hub,
+		"ShrineObelisk",
+		Vector3.new(3, 10, 3),
+		shrinePos + Vector3.new(0, 6.2, 0),
+		Color3.fromRGB(60, 50, 90),
+		Enum.Material.Marble
+	)
+	local halo = mk(
+		hub,
+		"ShrineRing",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.5, 8, 8),
+		CFrame.new(shrinePos + Vector3.new(0, 12.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(200, 120, 255),
+		Enum.Material.Neon,
+		false
+	)
+	halo.Transparency = 0.3
+	sign(obelisk, "world.rebirth", "world.rebirth_sub", Color3.fromRGB(210, 160, 255), 9)
+	addPrompt(obelisk, "rebirth", "prompt.rebirth", "world.rebirth", 0)
+	stationPositions.rebirth = shrinePos
+
 	-- Яйца хаба и табло
 	local hubEggs = {}
 	for _, egg in ipairs(PetData.Eggs) do
@@ -826,7 +948,11 @@ local function buildHub(world: Folder)
 	for k, egg in ipairs(hubEggs) do
 		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
 	end
-	buildBoard(hub, Vector3.new(0, 0, -98))
+	local boardModel = buildBoard(hub, Vector3.new(0, 0, -98))
+	local boardPart = boardModel and boardModel:FindFirstChild("Board")
+	if boardPart and boardPart:IsA("BasePart") then
+		addPrompt(boardPart, "board", "prompt.view", "world.boards", 0) -- v2.5: окно рейтингов
+	end
 	stationPositions.board = Vector3.new(0, 0, -98)
 end
 
@@ -995,7 +1121,7 @@ function WorldBuilder.getEggPosition(eggId: string): Vector3?
 	return eggPositions[eggId]
 end
 
--- Колбэк на ProximityPrompt NPC и станций: (player, id). id: mira|bruno|pip|tom|craft|market|altar|portal|hubReturn
+-- Колбэк на ProximityPrompt NPC и станций: (player, id). id: mira|bruno|pip|tom|craft|market|altar|portal|hubReturn|daily|upgrades|rebirth|board
 function WorldBuilder.onNpcPrompt(cb: (Player, string) -> ())
 	table.insert(npcCallbacks, cb)
 end

@@ -58,17 +58,18 @@ function UiKit.text(
 	}
 	if opts then
 		for k, v in pairs(opts) do
-			if k ~= "MaxSize" and k ~= "NoLimit" then
+			if k ~= "MaxSize" and k ~= "MinSize" and k ~= "NoLimit" then
 				p[k] = v
 			end
 		end
 	end
 	local l = Widgets.label(p)
 	if not (opts and opts.NoLimit) then
-		New(
-			"UITextSizeConstraint",
-			{ MaxTextSize = (opts and opts.MaxSize) or 18, MinTextSize = 8, Parent = l }
-		)
+		New("UITextSizeConstraint", {
+			MaxTextSize = (opts and opts.MaxSize) or 18,
+			MinTextSize = (opts and opts.MinSize) or 8,
+			Parent = l,
+		})
 	end
 	return l
 end

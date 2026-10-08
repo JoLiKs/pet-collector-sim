@@ -1,7 +1,7 @@
 --!strict
 --[[
 	CombatService — враги, боссы и бой. Все расчёты урона/наград — на сервере.
-	  * Враги живут в Workspace.Enemies (Model + BillboardGui с полосой здоровья, атрибуты Hp/MaxHp для клиентской шкалы босса).
+	  * Враги живут в Workspace.Enemies: Model с невидимым хитбоксом Body и атрибутами Hp/MaxHp/EnemyId/Atk; рисовку, анимацию и полоску HP строит клиент (EnemyVisuals.client.lua).
 	  * Питомцы бьют автоматически раз в COMBAT_TICK: цель — ближайший враг; урон = сила × роль × стихия × бонусы.
 	  * Активные способности питомцев срабатывают по кулдауну (огненный шар, лечение, щит, френзи, «копание» и т.д.).
 	  * Игрок помогает ударом (Action "Attack"), урон растёт с силой команды, талантами и клинком.
@@ -50,6 +50,8 @@ export type Enemy = {
 	Half: number, -- половина высоты тела (для стояния на земле)
 	Damage: { [Player]: number },
 	LastAtk: number,
+	WindAt: number?, -- момент удара после замаха (телеграф для клиента)
+	WindTarget: Player?,
 	Dead: boolean,
 }
 
@@ -72,6 +74,8 @@ local KNOCKBACK = 2.6 -- отбрасывание рядового врага у
 local ATTACK_SLAM_DAMAGE = 28
 local ATTACK_SLAM_RANGE = 22
 local ATTACK_SLAM_INTERVAL = 3.2
+local ATTACK_SLAM_TELEGRAPH = 0.6 -- за сколько до удара по земле клиент видит замах
+local WINDUP = 0.35 -- замах обычного врага перед ударом (урон, если цель ещё рядом)
 
 -- ---------------------------------------------------------------------------
 -- Вспомогательное
@@ -119,7 +123,7 @@ local function buildModel(
 	pos: Vector3,
 	maxHp: number,
 	special: string?
-): (Model, BasePart, Frame, number)
+): (Model, BasePart, Frame?, number)
 	local m = Instance.new("Model")
 	m.Name = "Enemy_" .. id
 	local s = def.Size
@@ -127,61 +131,21 @@ local function buildModel(
 		then Vector3.new(s * 0.7, s * 1.5, s * 0.7)
 		elseif def.Shape == "Block" then Vector3.new(s, s * 0.8, s)
 		else Vector3.new(s, s, s)
+	-- Body — невидимый хитбокс (позиция/попадания); рисовку строит клиент (EnemyVisuals + EnemyVisual)
 	local body = Instance.new("Part")
 	body.Name = "Body"
 	body.Shape = if def.Shape == "Ball" then Enum.PartType.Ball else Enum.PartType.Block
 	body.Size = size
 	body.Color = def.Color
-	body.Material = if special == "moonling" then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	body.Material = Enum.Material.SmoothPlastic
+	body.Transparency = 1
 	body.Anchored = true
 	body.CanCollide = false
+	body.CanTouch = false
+	body.CastShadow = false
 	body.Position = pos
 	body.Parent = m
-	for i = -1, 1, 2 do
-		local eye = Instance.new("Part")
-		eye.Name = "Eye"
-		eye.Shape = Enum.PartType.Ball
-		eye.Size = Vector3.new(s * 0.18, s * 0.18, s * 0.18)
-		eye.Color = def.Eye
-		eye.Material = Enum.Material.Neon
-		eye.Anchored = true
-		eye.CanCollide = false
-		eye.Position = pos + Vector3.new(i * s * 0.2, size.Y * 0.2, -size.Z * 0.5)
-		eye.Parent = m
-	end
 	m.PrimaryPart = body
-
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Info"
-	gui.Size = UDim2.fromOffset(150, 40)
-	gui.StudsOffset = Vector3.new(0, size.Y * 0.5 + 2.2, 0)
-	gui.MaxDistance = if def.Boss then 160 else 80
-	gui.LightInfluence = 0
-	gui.AlwaysOnTop = false -- ScreenGui поверх; не перекрываем HUD
-	gui.Parent = body
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "NameLabel"
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Size = UDim2.fromScale(1, 0.55)
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextScaled = true
-	nameLabel.TextColor3 = if def.Boss then Color3.fromRGB(255, 190, 90) else Color3.new(1, 1, 1)
-	nameLabel.TextStrokeTransparency = 0.4
-	Locale.setWorld(nameLabel, def.Name)
-	nameLabel.Parent = gui
-	local back = Instance.new("Frame")
-	back.Name = "Back"
-	back.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	back.BorderSizePixel = 0
-	back.Position = UDim2.fromScale(0.05, 0.62)
-	back.Size = UDim2.fromScale(0.9, 0.3)
-	back.Parent = gui
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.BackgroundColor3 = if def.Boss then Color3.fromRGB(240, 80, 70) else Color3.fromRGB(110, 220, 110)
-	fill.BorderSizePixel = 0
-	fill.Size = UDim2.fromScale(1, 1)
-	fill.Parent = back
 
 	m:SetAttribute("EnemyName", def.Name)
 	m:SetAttribute("EnemyId", def.Id)
@@ -190,7 +154,8 @@ local function buildModel(
 	m:SetAttribute("Zone", def.Zone)
 	m:SetAttribute("Hp", maxHp)
 	m:SetAttribute("MaxHp", maxHp)
-	return m, body, fill, size.Y / 2
+	m:SetAttribute("Atk", 0)
+	return m, body, nil, size.Y / 2
 end
 
 local function spawnEnemy(
@@ -611,8 +576,13 @@ local function enemyTick(e: Enemy, dt: number, now: number)
 	end
 
 	if isRaid then
+		if target and not e.WindAt and now - e.LastAtk >= ATTACK_SLAM_INTERVAL - ATTACK_SLAM_TELEGRAPH then
+			e.WindAt = e.LastAtk + ATTACK_SLAM_INTERVAL
+			e.Model:SetAttribute("Atk", (tonumber(e.Model:GetAttribute("Atk")) or 0) + 1)
+		end
 		if target and now - e.LastAtk >= ATTACK_SLAM_INTERVAL then
 			e.LastAtk = now
+			e.WindAt = nil
 			for _, player in ipairs(Players:GetPlayers()) do
 				local root = rootOf(player)
 				local hum = humanoidOf(player)
@@ -658,23 +628,35 @@ local function enemyTick(e: Enemy, dt: number, now: number)
 		e.Pos = e.Pos + dir * step
 		e.Model:PivotTo(CFrame.lookAt(e.Pos, e.Pos + dir))
 	end
-	if target and dist <= EnemyData.ATTACK_RANGE and now - e.LastAtk >= EnemyData.ATTACK_INTERVAL then
+	-- удар: сначала замах (атрибут Atk → анимация на клиенте), урон через WINDUP, если цель не ушла
+	if
+		not e.WindAt
+		and target
+		and dist <= EnemyData.ATTACK_RANGE
+		and now - e.LastAtk >= EnemyData.ATTACK_INTERVAL
+	then
 		e.LastAtk = now
-		local hum = humanoidOf(target)
-		local data = DataService.get(target)
-		if hum and data then
+		e.WindAt = now + WINDUP
+		e.WindTarget = target
+		e.Model:SetAttribute("Atk", (tonumber(e.Model:GetAttribute("Atk")) or 0) + 1)
+	end
+	local victim = e.WindTarget
+	if e.WindAt and now >= e.WindAt then
+		e.WindAt = nil
+		e.WindTarget = nil
+		local root = victim and rootOf(victim)
+		local hum = victim and humanoidOf(victim)
+		local data = victim and DataService.get(victim)
+		local near = root
+			and Vector3.new(root.Position.X - e.Pos.X, 0, root.Position.Z - e.Pos.Z).Magnitude
+				<= EnemyData.ATTACK_RANGE * 1.25
+		if victim and root and near and hum and hum.Health > 0 and data then
 			local dmg = EnemyData.damageToPlayer(e.Def, e.Zone) * Economy.getDefense(data)
-			if (shieldUntil[target] or 0) > now then
+			if (shieldUntil[victim] or 0) > now then
 				dmg *= 0.5
 			end
 			hum:TakeDamage(dmg)
-			fx(
-				target,
-				"Hurt",
-				targetPos :: Vector3 + Vector3.new(0, 3, 0),
-				"-" .. tostring(math.ceil(dmg)),
-				"enemy"
-			)
+			fx(victim, "Hurt", root.Position + Vector3.new(0, 3, 0), "-" .. tostring(math.ceil(dmg)), "enemy")
 		end
 	end
 end

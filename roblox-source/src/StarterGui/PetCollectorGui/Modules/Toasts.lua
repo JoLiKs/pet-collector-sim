@@ -1,5 +1,5 @@
 --!nonstrict
--- Всплывающие уведомления сверху экрана и баннеры событий (общий стек: совпавшие события не перекрывают друг друга).
+-- Всплывающие уведомления и баннеры событий (общий стек сверху по центру, v2.5 — компактные: тост 30 px, баннер 46 px).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -33,7 +33,7 @@ function Toasts.show(msg: any, kind: string?)
 	local text = L.renderLocal(msg) or ""
 	local color = COLORS[kind or "info"] or Theme.Blue
 	local toast = Widgets.New("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 40),
+		Size = UDim2.new(1, 0, 0, 30),
 		BackgroundColor3 = color,
 		Text = text,
 		TextColor3 = Theme.Text,
@@ -49,11 +49,11 @@ function Toasts.show(msg: any, kind: string?)
 	Widgets.New("UIPadding", {
 		PaddingLeft = UDim.new(0, 10),
 		PaddingRight = UDim.new(0, 10),
-		PaddingTop = UDim.new(0, 5),
-		PaddingBottom = UDim.new(0, 5),
+		PaddingTop = UDim.new(0, 4),
+		PaddingBottom = UDim.new(0, 4),
 		Parent = toast,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 22, MinTextSize = 10, Parent = toast })
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 10, Parent = toast })
 	task.delay(3.2, function()
 		if toast.Parent then
 			local tw = Widgets.tween(toast, 0.4, { BackgroundTransparency = 1, TextTransparency = 1 })
@@ -72,7 +72,7 @@ function Toasts.banner(title: any, sub: any?, color: Color3?, seconds: number?):
 	local accent = color or Theme.Gold
 	local b = Widgets.New("Frame", {
 		Name = "Banner",
-		Size = UDim2.new(1, 0, 0, if sub then 56 else 40),
+		Size = UDim2.new(1, 0, 0, if sub then 46 else 32),
 		BackgroundColor3 = Theme.Bg,
 		BackgroundTransparency = 0.05,
 		ZIndex = 60,
@@ -84,26 +84,26 @@ function Toasts.banner(title: any, sub: any?, color: Color3?, seconds: number?):
 	local t = Widgets.label({
 		Name = "Title",
 		Text = L.renderLocal(title) or "",
-		Size = UDim2.new(1, -20, 0, 27),
+		Size = UDim2.new(1, -20, 0, 22),
 		Position = UDim2.fromOffset(10, 3),
 		Font = Theme.Font,
 		TextColor3 = accent,
 		ZIndex = 61,
 		Parent = b,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, MinTextSize = 10, Parent = t })
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 10, Parent = t })
 	local s: TextLabel? = nil
 	if sub then
 		s = Widgets.label({
 			Name = "Sub",
 			Text = L.renderLocal(sub) or "",
-			Size = UDim2.new(1, -20, 0, 22),
-			Position = UDim2.fromOffset(10, 31),
+			Size = UDim2.new(1, -20, 0, 17),
+			Position = UDim2.fromOffset(10, 26),
 			TextColor3 = Theme.Text,
 			ZIndex = 61,
 			Parent = b,
 		})
-		Widgets.New("UITextSizeConstraint", { MaxTextSize = 16, MinTextSize = 9, Parent = s })
+		Widgets.New("UITextSizeConstraint", { MaxTextSize = 14, MinTextSize = 10, Parent = s })
 	end
 	task.delay(seconds or 4, function()
 		if b.Parent then
@@ -125,32 +125,24 @@ function Toasts.init(gui: ScreenGui)
 	container = Widgets.New("Frame", {
 		Name = "Toasts",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 140), -- ниже панели мира и полосы босса
-		Size = UDim2.new(0.5, 0, 0, 260),
+		Position = UDim2.new(0.5, 0, 0, 6), -- под панелью Roblox (GuiInset), временно: тосты сами исчезают
+		Size = UDim2.new(1, -24, 0, 200),
 		BackgroundTransparency = 1,
 		ZIndex = 60,
 		Parent = gui,
 	})
-	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(460, 300), Parent = container })
-	local list = Widgets.New("UIListLayout", {
-		Padding = UDim.new(0, 6),
+	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(420, 200), Parent = container })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 4),
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = container,
 	})
-	-- телефон вертикально (v2.4): тосты снизу над кнопкой сбора, чтобы не закрывать шапку открытой панели
 	Layout.onChanged(function(lay)
-		if lay.Mode == "portrait" then
-			container.AnchorPoint = Vector2.new(0.5, 1)
-			container.Position = UDim2.new(0.5, 0, 1, -100)
-			container.Size = UDim2.new(1, -24, 0, 160)
-			list.VerticalAlignment = Enum.VerticalAlignment.Bottom
-		else
-			container.AnchorPoint = Vector2.new(0.5, 0)
-			container.Position = UDim2.new(0.5, 0, 0, if lay.Mode == "landscape" then 120 else 140)
-			container.Size = UDim2.new(0.5, 0, 0, 260)
-			list.VerticalAlignment = Enum.VerticalAlignment.Top
-		end
+		-- телефон горизонтально: уже, чтобы не задевать кнопки по краям
+		container.Size = if lay.Mode == "landscape"
+			then UDim2.new(0.5, 0, 0, 160)
+			else UDim2.new(1, -24, 0, 200)
 	end)
 	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
 		if type(text) == "string" or type(text) == "table" then

@@ -163,7 +163,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.4.0"
+Config.VERSION = "2.5.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3

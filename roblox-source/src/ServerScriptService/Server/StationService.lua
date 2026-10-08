@@ -1,5 +1,5 @@
 --!strict
--- Станции хаба (верстак, лавка, алтарь, портал, торговец): ProximityPrompt просит клиента открыть нужную панель.
+-- Станции хаба (верстак, лавка, алтарь, портал, торговец; v2.5: сундук наград, мастерская, святилище, табло): ProximityPrompt просит клиента открыть нужную панель.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
@@ -19,6 +19,11 @@ local PANEL_OF = {
 	altar = "Talents",
 	tom = "Trade",
 	portal = "Worlds",
+	-- v2.5: разделы, убранные с экрана
+	daily = "Daily",
+	upgrades = "Upgrades",
+	rebirth = "Rebirth",
+	board = "Boards",
 }
 
 local function onPrompt(player: Player, id: string)

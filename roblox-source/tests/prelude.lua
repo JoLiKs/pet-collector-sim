@@ -133,12 +133,21 @@ Vector2 = {
 		return { X = x, Y = y }
 	end,
 }
+local C3 = {}
+C3.__index = {
+	Lerp = function(a, b, t)
+		return setmetatable(
+			{ R = a.R + (b.R - a.R) * t, G = a.G + (b.G - a.G) * t, B = a.B + (b.B - a.B) * t },
+			C3
+		)
+	end,
+}
 Color3 = {
 	fromRGB = function(r, g, b)
-		return { R = r / 255, G = g / 255, B = b / 255 }
+		return setmetatable({ R = r / 255, G = g / 255, B = b / 255 }, C3)
 	end,
 	new = function(r, g, b)
-		return { R = r, G = g, B = b }
+		return setmetatable({ R = r, G = g, B = b }, C3)
 	end,
 }
 local CF = {}
@@ -171,6 +180,7 @@ CFrame = {
 		return setmetatable({ p = a }, CF)
 	end,
 }
+CFrame.identity = CFrame.new(0, 0, 0)
 UDim2 = setmetatable({}, {
 	__index = function()
 		return function()
@@ -373,6 +383,9 @@ function Methods.GetAttributeChangedSignal(self, k)
 	return sigs[k]
 end
 function Methods.LoadCharacterAsync() end
+function Methods.TakeDamage(self, n)
+	self.Health = math.max(0, (self.Health or 0) - n)
+end
 function Methods.Kick(self, msg)
 	rawget(self, "_props").Kicked = msg
 	setParent(self, nil)
@@ -493,7 +506,10 @@ function MAKE_UNIVERSE(label)
 	local gameObj = {
 		JobId = label,
 		GetService = function(_, name)
-			return services[name] or newNode(name, name)
+			if not services[name] then
+				services[name] = newNode(name, name) -- один экземпляр сервиса на «вселенную», как в Roblox
+			end
+			return services[name]
 		end,
 		BindToClose = function(_, fn)
 			U.CloseFn = fn

@@ -434,7 +434,13 @@ function AttackFx.swing(who: Player | Model, isLocal: boolean)
 	local arm = character:FindFirstChild("Right Arm") or character:FindFirstChild("RightHand")
 	local shoulderBase = shoulder and shoulder.C0
 	local rootBase = rootJoint and rootJoint.C0
-	local sword = buildSword()
+	-- v2.5: меч-инструмент уже в руке (Tool "Sword") — рисованный меч не нужен, двигается только рука
+	local held = character:FindFirstChildOfClass("Tool")
+	local sword = if held
+			and held.Name == "Sword"
+			and held:FindFirstChild("Handle")
+		then { Parts = {} }
+		else buildSword()
 	local t0 = os.clock()
 	local arcDone, lunged = false, 0
 	local conn: RBXScriptConnection? = nil
@@ -773,7 +779,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.4.0"
+Config.VERSION = "2.5.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -1565,6 +1571,950 @@ return EnemyData
 			</Item>
 			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000C">
 				<Properties>
+					<string name="Name">EnemyVisual</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	EnemyVisual: клиентская «рисовка» врагов из примитивов (без внешних ассетов).
+	Сервер держит у врага только невидимый хитбокс Body (Workspace.Enemies), а клиент строит
+	по EnemyId многосоставную модель и анимирует её (EnemyVisuals.client.lua).
+
+	Координаты рецептов — в долях def.Size (s): начало — центр у земли, перед — -Z.
+	Каждая часть принадлежит группе (body, head, leg1..6, armL/R, wingL/R, tail, orbit, flame, aura);
+	группа вращается вокруг своей опоры (pivot). Все части Anchored, без коллизий/запросов/касаний.
+
+	build(def, special) -> Rig:
+	  Model, Parts = { {Part, Group, Rel, Color, Size, Trans} }, Pivots, Arch,
+	  Legs = { {G, Ph} }, Arms, Wings, Height, Anchor (точка для полоски HP).
+]]
+local EnemyVisual = {}
+
+export type RigPart = {
+	Part: BasePart,
+	Group: string,
+	Rel: CFrame,
+	Color: Color3,
+	Size: Vector3,
+	Trans: number,
+}
+
+export type Rig = {
+	Model: Model,
+	Parts: { RigPart },
+	Pivots: { [string]: Vector3 },
+	Arch: string,
+	Legs: { { G: string, Ph: number } },
+	Arms: { string },
+	Wings: { string },
+	Height: number,
+	Scale: number,
+	Boss: boolean,
+	Accent: Color3,
+	Anchor: BasePart,
+}
+
+local WHITE = Color3.fromRGB(255, 255, 255)
+local BLACK = Color3.fromRGB(22, 22, 28)
+local GOLD = Color3.fromRGB(255, 205, 60)
+
+-- Акцент биома (неон/детали)
+EnemyVisual.ACCENT = {
+	Meadow = Color3.fromRGB(255, 120, 170),
+	Forest = Color3.fromRGB(130, 230, 90),
+	Desert = Color3.fromRGB(255, 170, 50),
+	Frost = Color3.fromRGB(140, 230, 255),
+	Volcano = Color3.fromRGB(255, 110, 30),
+	Hub = Color3.fromRGB(255, 80, 60),
+	Any = Color3.fromRGB(160, 130, 255),
+}
+
+-- Архетип каждого врага (силуэт)
+EnemyVisual.ARCH = {
+	slimeling = "slime",
+	moonling = "slime",
+	meadow_king = "slime",
+	boarlet = "quad",
+	icewolf = "quad",
+	thornback = "quad",
+	buzzfly = "flyer",
+	ashbat = "flyer",
+	wisp = "wisp",
+	sandwraith = "wraith",
+	scorpling = "bug",
+	dunebeetle = "bug",
+	snowmite = "bug",
+	magmacrab = "bug",
+	frostimp = "imp",
+	cinderling = "imp",
+	mossgolem = "golem",
+	elder_treant = "golem",
+	sand_titan = "golem",
+	glacier_lord = "golem",
+	inferno_tyrant = "golem",
+	stone_colossus = "golem",
+}
+
+local function lum(c: Color3): number
+	return 0.299 * c.R + 0.587 * c.G + 0.114 * c.B
+end
+
+type Builder = {
+	s: number,
+	model: Model,
+	parts: { RigPart },
+	pivots: { [string]: Vector3 },
+	add: (
+		self: Builder,
+		group: string,
+		shape: string,
+		size: Vector3,
+		pos: Vector3,
+		color: Color3,
+		mat: Enum.Material?,
+		rot: CFrame?,
+		trans: number?
+	) -> BasePart,
+}
+
+local function newBuilder(model: Model, s: number): Builder
+	local b = { s = s, model = model, parts = {}, pivots = {} } :: any
+	function b.add(
+		self: Builder,
+		group: string,
+		shape: string,
+		size: Vector3,
+		pos: Vector3,
+		color: Color3,
+		mat: Enum.Material?,
+		rot: CFrame?,
+		trans: number?
+	): BasePart
+		local p: BasePart
+		if shape == "Wedge" then
+			p = Instance.new("WedgePart")
+		else
+			local part = Instance.new("Part")
+			part.Shape = if shape == "Ball"
+				then Enum.PartType.Ball
+				elseif shape == "Cyl" then Enum.PartType.Cylinder
+				else Enum.PartType.Block
+			p = part
+		end
+		local sz = size * self.s
+		p.Name = group
+		p.Size = sz
+		local cf = CFrame.new(pos * self.s)
+		if rot then
+			cf = cf * rot
+		end
+		p.CFrame = cf
+		p.Color = color
+		p.Material = mat or Enum.Material.SmoothPlastic
+		p.Transparency = trans or 0
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.Massless = true
+		p.Parent = self.model
+		table.insert(self.parts, {
+			Part = p,
+			Group = group,
+			Rel = cf,
+			Color = color,
+			Size = sz,
+			Trans = trans or 0,
+		})
+		return p
+	end
+	return b :: Builder
+end
+
+local function v(x: number, y: number, z: number): Vector3
+	return Vector3.new(x, y, z)
+end
+
+local rad = math.rad
+local ang = CFrame.Angles
+local VERT = ang(0, 0, rad(90)) -- цилиндр осью вверх
+local ALONG_Z = ang(0, rad(90), 0) -- цилиндр осью вперёд
+
+-- Глаза: белок + радужка + зрачок/блик (3 части на глаз)
+local function eyes(b: Builder, group: string, y: number, z: number, spread: number, d: number, iris: Color3)
+	local bright = lum(iris) >= 0.3
+	for i = -1, 1, 2 do
+		local x = i * spread
+		b:add(group, "Ball", v(d, d, d), v(x, y, z), WHITE)
+		if bright then
+			b:add(
+				group,
+				"Ball",
+				v(d * 0.62, d * 0.62, d * 0.62),
+				v(x, y, z - d * 0.26),
+				iris,
+				Enum.Material.Neon
+			)
+			b:add(group, "Ball", v(d * 0.32, d * 0.32, d * 0.32), v(x, y, z - d * 0.42), BLACK)
+		else
+			b:add(
+				group,
+				"Ball",
+				v(d * 0.64, d * 0.64, d * 0.64),
+				v(x, y - d * 0.04, z - d * 0.26),
+				iris:Lerp(BLACK, 0.4)
+			)
+			b:add(
+				group,
+				"Ball",
+				v(d * 0.2, d * 0.2, d * 0.2),
+				v(x + d * 0.12, y + d * 0.12, z - d * 0.5),
+				WHITE,
+				Enum.Material.Neon
+			)
+		end
+	end
+end
+
+local function fangs(
+	b: Builder,
+	group: string,
+	y: number,
+	z: number,
+	spread: number,
+	h: number,
+	color: Color3?
+)
+	for i = -1, 1, 2 do
+		b:add(
+			group,
+			"Wedge",
+			v(h * 0.4, h, h * 0.4),
+			v(i * spread, y - h / 2, z),
+			color or WHITE,
+			nil,
+			ang(rad(180), 0, 0)
+		)
+	end
+end
+
+local function crown(b: Builder, group: string, top: number, z: number, w: number)
+	b:add(group, "Cyl", v(w * 0.28, w, w), v(0, top + w * 0.12, z), GOLD, Enum.Material.Metal, VERT)
+	for k = 0, 4 do
+		local a = k / 5 * math.pi * 2
+		b:add(
+			group,
+			"Wedge",
+			v(w * 0.16, w * 0.34, w * 0.16),
+			v(math.cos(a) * w * 0.42, top + w * 0.42, z + math.sin(a) * w * 0.42),
+			GOLD,
+			Enum.Material.Metal,
+			ang(0, -a + rad(90), 0)
+		)
+	end
+	b:add(
+		group,
+		"Ball",
+		v(w * 0.22, w * 0.22, w * 0.22),
+		v(0, top + w * 0.16, z - w * 0.48),
+		Color3.fromRGB(255, 60, 90),
+		Enum.Material.Neon
+	)
+end
+
+-- ---------------------------------------------------------------------------
+-- Архетипы
+-- ---------------------------------------------------------------------------
+type Ctx = {
+	id: string,
+	color: Color3,
+	belly: Color3,
+	dark: Color3,
+	eye: Color3,
+	accent: Color3,
+	boss: boolean,
+}
+
+local R = {}
+
+function R.slime(b: Builder, c: Ctx, rig: any)
+	local moon = c.id == "moonling"
+	local king = c.id == "meadow_king"
+	if moon then
+		b:add("body", "Ball", v(1, 1, 1), v(0, 0.5, 0), c.color, Enum.Material.Glass, nil, 0.25)
+		b:add("body", "Ball", v(0.5, 0.5, 0.5), v(0, 0.5, 0.05), c.accent, Enum.Material.Neon)
+	else
+		b:add("body", "Ball", v(1, 1, 1), v(0, 0.5, 0), c.color)
+		b:add("body", "Ball", v(0.68, 0.68, 0.68), v(0, 0.4, -0.2), c.belly)
+	end
+	b:add("body", "Ball", v(0.32, 0.32, 0.32), v(0.42, 0.14, 0.12), c.color)
+	b:add("body", "Ball", v(0.26, 0.26, 0.26), v(-0.4, 0.12, 0.2), c.color)
+	b:add(
+		"body",
+		"Ball",
+		v(0.22, 0.22, 0.22),
+		v(0.18, 0.86, -0.18),
+		c.color:Lerp(WHITE, 0.6),
+		Enum.Material.Neon,
+		nil,
+		0.35
+	)
+	eyes(b, "body", 0.62, -0.38, 0.19, 0.25, c.eye)
+	b:add("body", "Block", v(0.3, 0.07, 0.05), v(0, 0.38, -0.49), c.dark)
+	if king then
+		fangs(b, "body", 0.36, -0.5, 0.1, 0.1)
+	end
+	rig.Top = 1.0
+	rig.CrownZ = 0
+end
+
+function R.quad(b: Builder, c: Ctx, rig: any)
+	local wolf = c.id == "icewolf"
+	local boar = c.id == "boarlet"
+	local thorn = c.id == "thornback"
+	b:add("body", "Block", v(0.72, 0.5, 1.0), v(0, 0.58, 0), c.color)
+	b:add("body", "Block", v(0.62, 0.14, 0.82), v(0, 0.33, 0), c.belly)
+	-- голова
+	b.pivots.head = v(0, 0.7, -0.45) * b.s
+	b:add("head", "Block", v(0.56, 0.5, 0.48), v(0, 0.74, -0.66), c.color)
+	b:add(
+		"head",
+		"Block",
+		v(0.34, 0.24, if wolf then 0.34 else 0.22),
+		v(0, 0.62, if wolf then -1.0 else -0.94),
+		c.belly
+	)
+	b:add("head", "Block", v(0.2, 0.08, 0.04), v(0, 0.66, if wolf then -1.18 else -1.06), BLACK)
+	eyes(b, "head", 0.84, -0.9, 0.15, 0.16, c.eye)
+	for i = -1, 1, 2 do
+		b:add(
+			"head",
+			"Wedge",
+			v(0.07, if wolf then 0.3 else 0.2, 0.16),
+			v(i * 0.19, if wolf then 1.12 else 1.06, -0.6),
+			if wolf then c.accent else c.dark
+		)
+	end
+	if boar then
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Block",
+				v(0.06, 0.2, 0.06),
+				v(i * 0.14, 0.58, -1.04),
+				WHITE,
+				nil,
+				ang(rad(-20), 0, rad(i * 15))
+			)
+		end
+		b:add("body", "Block", v(0.14, 0.14, 0.86), v(0, 0.86, 0.02), c.dark)
+	elseif wolf then
+		fangs(b, "head", 0.52, -1.1, 0.08, 0.1)
+		b:add("body", "Block", v(0.66, 0.44, 0.24), v(0, 0.66, -0.3), c.belly)
+	elseif thorn then
+		for k = 0, 3 do
+			b:add(
+				"body",
+				"Wedge",
+				v(0.12, 0.32, 0.22),
+				v(0, 0.98, -0.3 + k * 0.24),
+				c.eye,
+				Enum.Material.Neon
+			)
+		end
+	end
+	-- ноги: пары по диагонали в фазе
+	local legs =
+		{ { -0.24, -0.34, 0 }, { 0.24, -0.34, math.pi }, { -0.24, 0.34, math.pi }, { 0.24, 0.34, 0 } }
+	rig.Legs = {}
+	for i, l in ipairs(legs) do
+		local g = "leg" .. i
+		b.pivots[g] = v(l[1], 0.4, l[2]) * b.s
+		b:add(g, "Block", v(0.18, 0.38, 0.18), v(l[1], 0.19, l[2]), c.dark)
+		table.insert(rig.Legs, { G = g, Ph = l[3] })
+	end
+	-- хвост
+	b.pivots.tail = v(0, 0.72, 0.5) * b.s
+	b:add(
+		"tail",
+		"Block",
+		v(if wolf then 0.18 else 0.08, if wolf then 0.18 else 0.08, 0.38),
+		v(0, 0.8, 0.66),
+		if wolf then c.belly else c.dark,
+		nil,
+		ang(rad(25), 0, 0)
+	)
+	if thorn then
+		b:add("tail", "Wedge", v(0.08, 0.2, 0.14), v(0, 0.95, 0.8), c.eye, Enum.Material.Neon)
+	end
+	rig.Top = 1.1
+	rig.CrownZ = -0.66
+end
+
+function R.flyer(b: Builder, c: Ctx, rig: any)
+	local bat = c.id == "ashbat"
+	b:add("body", "Ball", v(0.72, 0.72, 0.72), v(0, 0.95, 0.05), c.color)
+	b.pivots.head = v(0, 1.0, -0.3) * b.s
+	b:add("head", "Ball", v(0.5, 0.5, 0.5), v(0, 1.05, -0.4), if bat then c.color else c.dark)
+	eyes(b, "head", 1.1, -0.6, 0.12, 0.17, c.eye)
+	if bat then
+		for i = -1, 1, 2 do
+			b:add("head", "Wedge", v(0.08, 0.26, 0.16), v(i * 0.15, 1.36, -0.38), c.dark)
+		end
+		fangs(b, "head", 0.95, -0.62, 0.06, 0.08)
+		b:add("body", "Ball", v(0.4, 0.4, 0.4), v(0, 0.86, -0.12), c.accent, Enum.Material.Neon, nil, 0.2)
+	else
+		for k = 0, 1 do
+			b:add("body", "Cyl", v(0.1, 0.74, 0.74), v(0, 0.95, 0.0 + k * 0.2), c.dark, nil, ALONG_Z)
+		end
+		b:add("body", "Wedge", v(0.1, 0.12, 0.24), v(0, 0.9, 0.48), c.dark, nil, ang(rad(-90), 0, 0))
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Block",
+				v(0.03, 0.3, 0.03),
+				v(i * 0.1, 1.38, -0.46),
+				c.dark,
+				nil,
+				ang(rad(-20), 0, rad(i * -18))
+			)
+		end
+	end
+	rig.Wings = {}
+	for i = -1, 1, 2 do
+		local g = if i < 0 then "wingL" else "wingR"
+		b.pivots[g] = v(i * 0.26, 1.1, 0) * b.s
+		if bat then
+			b:add(g, "Block", v(0.62, 0.04, 0.42), v(i * 0.56, 1.12, 0.02), c.dark)
+			b:add(
+				g,
+				"Wedge",
+				v(0.04, 0.3, 0.42),
+				v(i * 0.98, 1.12, 0.02),
+				c.dark,
+				nil,
+				ang(0, 0, rad(i * 90))
+			)
+		else
+			b:add(
+				g,
+				"Block",
+				v(0.6, 0.03, 0.34),
+				v(i * 0.56, 1.14, 0.08),
+				WHITE,
+				Enum.Material.Glass,
+				ang(0, rad(i * -12), 0),
+				0.35
+			)
+		end
+		table.insert(rig.Wings, g)
+	end
+	rig.Hover = true
+	rig.Top = 1.4
+	rig.CrownZ = -0.4
+end
+
+function R.wisp(b: Builder, c: Ctx, rig: any)
+	b:add("body", "Ball", v(0.86, 0.86, 0.86), v(0, 1.1, 0), c.color, Enum.Material.Glass, nil, 0.45)
+	b:add("body", "Ball", v(0.56, 0.56, 0.56), v(0, 1.1, 0), c.color, Enum.Material.Neon)
+	eyes(b, "body", 1.16, -0.4, 0.13, 0.17, c.eye)
+	b.pivots.tail = v(0, 0.85, 0.1) * b.s
+	b:add("tail", "Ball", v(0.44, 0.44, 0.44), v(0, 0.76, 0.16), c.color, Enum.Material.Neon, nil, 0.3)
+	b:add("tail", "Ball", v(0.3, 0.3, 0.3), v(0, 0.5, 0.3), c.color, Enum.Material.Neon, nil, 0.45)
+	b:add("tail", "Ball", v(0.18, 0.18, 0.18), v(0, 0.3, 0.42), c.accent, Enum.Material.Neon, nil, 0.55)
+	b.pivots.orbit = v(0, 1.1, 0) * b.s
+	for k = 0, 2 do
+		local a = k / 3 * math.pi * 2
+		b:add(
+			"orbit",
+			"Ball",
+			v(0.14, 0.14, 0.14),
+			v(math.cos(a) * 0.72, 1.1, math.sin(a) * 0.72),
+			c.accent,
+			Enum.Material.Neon
+		)
+	end
+	rig.Hover = true
+	rig.Top = 1.55
+	rig.CrownZ = 0
+end
+
+function R.wraith(b: Builder, c: Ctx, rig: any)
+	b:add("body", "Block", v(0.66, 0.9, 0.5), v(0, 0.9, 0), c.color)
+	b:add("body", "Wedge", v(0.66, 0.5, 0.3), v(0, 0.32, 0.12), c.color, nil, ang(rad(180), 0, 0))
+	b:add("body", "Block", v(0.7, 0.1, 0.54), v(0, 1.0, 0), c.accent)
+	b.pivots.head = v(0, 1.35, 0) * b.s
+	b:add("head", "Ball", v(0.64, 0.64, 0.64), v(0, 1.6, 0.02), c.dark)
+	b:add("head", "Block", v(0.38, 0.3, 0.06), v(0, 1.56, -0.28), BLACK)
+	for i = -1, 1, 2 do
+		b:add("head", "Ball", v(0.12, 0.12, 0.12), v(i * 0.09, 1.6, -0.32), c.eye, Enum.Material.Neon)
+		b:add("head", "Ball", v(0.05, 0.05, 0.05), v(i * 0.09, 1.6, -0.38), WHITE, Enum.Material.Neon)
+	end
+	rig.Arms = {}
+	for i = -1, 1, 2 do
+		local g = if i < 0 then "armL" else "armR"
+		b.pivots[g] = v(i * 0.38, 1.25, 0) * b.s
+		b:add(g, "Block", v(0.18, 0.6, 0.2), v(i * 0.44, 0.98, -0.06), c.color, nil, ang(rad(-20), 0, 0))
+		b:add(g, "Ball", v(0.14, 0.14, 0.14), v(i * 0.44, 0.66, -0.18), c.dark)
+		table.insert(rig.Arms, g)
+	end
+	b.pivots.orbit = v(0, 0.6, 0) * b.s
+	for k = 0, 2 do
+		local a = k / 3 * math.pi * 2
+		b:add(
+			"orbit",
+			"Block",
+			v(0.1, 0.1, 0.1),
+			v(math.cos(a) * 0.6, 0.5 + k * 0.15, math.sin(a) * 0.6),
+			c.accent,
+			Enum.Material.Neon
+		)
+	end
+	rig.Hover = true
+	rig.Top = 1.95
+	rig.CrownZ = 0
+end
+
+function R.bug(b: Builder, c: Ctx, rig: any)
+	local scorp = c.id == "scorpling"
+	local beetle = c.id == "dunebeetle"
+	local mite = c.id == "snowmite"
+	local crab = c.id == "magmacrab"
+	if beetle or mite then
+		b:add("body", "Ball", v(0.86, 0.86, 0.86), v(0, 0.52, 0.05), if mite then c.color else c.dark)
+		if beetle then
+			b:add("body", "Block", v(0.04, 0.5, 0.82), v(0, 0.66, 0.05), BLACK)
+			b:add("body", "Ball", v(0.5, 0.5, 0.5), v(0.16, 0.8, 0.1), c.color, nil, nil, 0.1)
+		else
+			b:add("body", "Ball", v(0.4, 0.4, 0.4), v(0.22, 0.78, 0.2), c.belly)
+			b:add("body", "Ball", v(0.34, 0.34, 0.34), v(-0.24, 0.74, 0.18), c.belly)
+		end
+	elseif crab then
+		b:add("body", "Block", v(1.0, 0.44, 0.72), v(0, 0.52, 0), c.color)
+		b:add(
+			"body",
+			"Block",
+			v(0.6, 0.06, 0.06),
+			v(0, 0.75, -0.1),
+			c.accent,
+			Enum.Material.Neon,
+			ang(0, rad(20), 0)
+		)
+		b:add("body", "Block", v(0.06, 0.06, 0.5), v(0.2, 0.75, 0.05), c.accent, Enum.Material.Neon)
+	else
+		b:add("body", "Block", v(0.66, 0.34, 0.86), v(0, 0.42, 0), c.color)
+		b:add("body", "Block", v(0.54, 0.08, 0.7), v(0, 0.62, 0.02), c.dark)
+	end
+	-- голова
+	b.pivots.head = v(0, 0.45, -0.4) * b.s
+	local hz = if crab then -0.42 else -0.5
+	b:add("head", "Block", v(0.44, 0.28, 0.3), v(0, if crab then 0.55 else 0.46, hz), c.color)
+	if crab then
+		for i = -1, 1, 2 do
+			b:add("head", "Block", v(0.04, 0.24, 0.04), v(i * 0.14, 0.8, hz - 0.08), c.dark)
+		end
+		eyes(b, "head", 0.95, hz - 0.08, 0.14, 0.14, c.eye)
+	else
+		eyes(b, "head", 0.6, hz - 0.14, 0.13, 0.17, c.eye)
+	end
+	if beetle then
+		b:add("head", "Wedge", v(0.08, 0.36, 0.24), v(0, 0.72, hz - 0.08), c.eye, Enum.Material.Neon)
+	elseif mite then
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Block",
+				v(0.03, 0.28, 0.03),
+				v(i * 0.1, 0.72, hz - 0.1),
+				c.dark,
+				nil,
+				ang(rad(-25), 0, rad(i * -20))
+			)
+		end
+	end
+	-- клешни
+	if scorp or crab then
+		rig.Arms = {}
+		local big = if crab then 1.45 else 1
+		for i = -1, 1, 2 do
+			local g = if i < 0 then "armL" else "armR"
+			b.pivots[g] = v(i * 0.3, 0.45, -0.4) * b.s
+			b:add(g, "Block", v(0.1 * big, 0.1 * big, 0.34), v(i * 0.34, 0.45, -0.62), c.dark)
+			b:add(g, "Block", v(0.2 * big, 0.14 * big, 0.22 * big), v(i * 0.36, 0.47, -0.84), c.color)
+			b:add(
+				g,
+				"Wedge",
+				v(0.08 * big, 0.08 * big, 0.16 * big),
+				v(i * 0.36, 0.56, -1.0),
+				if crab then c.accent else c.dark,
+				if crab then Enum.Material.Neon else nil
+			)
+			table.insert(rig.Arms, g)
+		end
+	end
+	-- хвост скорпиона
+	if scorp then
+		b.pivots.tail = v(0, 0.5, 0.4) * b.s
+		b:add("tail", "Block", v(0.16, 0.16, 0.3), v(0, 0.58, 0.54), c.color, nil, ang(rad(30), 0, 0))
+		b:add("tail", "Block", v(0.14, 0.3, 0.14), v(0, 0.86, 0.7), c.color)
+		b:add("tail", "Block", v(0.12, 0.12, 0.26), v(0, 1.06, 0.6), c.dark, nil, ang(rad(-40), 0, 0))
+		b:add(
+			"tail",
+			"Wedge",
+			v(0.08, 0.16, 0.12),
+			v(0, 1.08, 0.44),
+			c.eye,
+			Enum.Material.Neon,
+			ang(rad(180), 0, 0)
+		)
+	end
+	-- 6 лапок
+	rig.Legs = {}
+	local i0 = 0
+	local spread = if crab then 0.5 else 0.38
+	for _, z in ipairs({ -0.24, 0.02, 0.28 }) do
+		for side = -1, 1, 2 do
+			i0 += 1
+			local g = "leg" .. i0
+			b.pivots[g] = v(side * spread, 0.36, z) * b.s
+			b:add(
+				g,
+				"Block",
+				v(0.36, 0.06, 0.07),
+				v(side * (spread + 0.14), 0.24, z),
+				c.dark,
+				nil,
+				ang(0, 0, rad(side * 35))
+			)
+			table.insert(rig.Legs, { G = g, Ph = if (i0 % 2) == 0 then 0 else math.pi })
+		end
+	end
+	rig.Top = if scorp then 1.2 else 1.0
+	rig.CrownZ = hz
+end
+
+function R.imp(b: Builder, c: Ctx, rig: any)
+	local frost = c.id == "frostimp"
+	b:add("body", "Ball", v(0.7, 0.7, 0.7), v(0, 0.72, 0), c.color)
+	b:add("body", "Ball", v(0.46, 0.46, 0.46), v(0, 0.66, -0.16), c.belly)
+	b.pivots.head = v(0, 1.0, 0) * b.s
+	b:add("head", "Ball", v(0.64, 0.64, 0.64), v(0, 1.24, -0.04), c.color)
+	eyes(b, "head", 1.3, -0.3, 0.13, 0.18, c.eye)
+	b:add("head", "Block", v(0.24, 0.06, 0.05), v(0, 1.1, -0.34), BLACK)
+	fangs(b, "head", 1.09, -0.36, 0.07, 0.07)
+	if frost then
+		for k = -1, 1 do
+			b:add(
+				"head",
+				"Wedge",
+				v(0.1, 0.34 - math.abs(k) * 0.08, 0.16),
+				v(k * 0.16, 1.62, 0.0),
+				c.accent,
+				Enum.Material.Glass,
+				ang(0, 0, rad(k * -20)),
+				0.15
+			)
+		end
+	else
+		b.pivots.flame = v(0, 1.5, 0) * b.s
+		b:add("flame", "Ball", v(0.36, 0.36, 0.36), v(0, 1.58, 0.04), c.accent, Enum.Material.Neon, nil, 0.1)
+		b:add(
+			"flame",
+			"Ball",
+			v(0.22, 0.22, 0.22),
+			v(0.04, 1.8, 0.06),
+			Color3.fromRGB(255, 220, 80),
+			Enum.Material.Neon,
+			nil,
+			0.2
+		)
+		b:add(
+			"flame",
+			"Ball",
+			v(0.12, 0.12, 0.12),
+			v(-0.02, 1.96, 0.08),
+			Color3.fromRGB(255, 250, 200),
+			Enum.Material.Neon,
+			nil,
+			0.3
+		)
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Wedge",
+				v(0.07, 0.2, 0.12),
+				v(i * 0.24, 1.5, 0.0),
+				c.dark,
+				nil,
+				ang(0, 0, rad(i * -25))
+			)
+		end
+	end
+	rig.Legs = {}
+	rig.Arms = {}
+	for i = -1, 1, 2 do
+		local lg = if i < 0 then "leg1" else "leg2"
+		b.pivots[lg] = v(i * 0.17, 0.42, 0) * b.s
+		b:add(lg, "Block", v(0.16, 0.32, 0.18), v(i * 0.17, 0.18, 0), c.dark)
+		table.insert(rig.Legs, { G = lg, Ph = if i < 0 then 0 else math.pi })
+		local ag = if i < 0 then "armL" else "armR"
+		b.pivots[ag] = v(i * 0.34, 0.9, 0) * b.s
+		b:add(
+			ag,
+			"Block",
+			v(0.13, 0.36, 0.13),
+			v(i * 0.42, 0.72, -0.02),
+			c.color,
+			nil,
+			ang(0, 0, rad(i * 12))
+		)
+		table.insert(rig.Arms, ag)
+	end
+	rig.Top = if frost then 1.75 else 2.0
+	rig.CrownZ = -0.04
+end
+
+function R.golem(b: Builder, c: Ctx, rig: any)
+	local id = c.id
+	local mat = if id == "elder_treant"
+		then Enum.Material.Wood
+		elseif id == "sand_titan" then Enum.Material.Sandstone
+		elseif id == "glacier_lord" then Enum.Material.Ice
+		elseif id == "inferno_tyrant" then Enum.Material.Basalt
+		elseif id == "stone_colossus" then Enum.Material.Slate
+		else Enum.Material.SmoothPlastic
+	rig.Legs = {}
+	rig.Arms = {}
+	for i = -1, 1, 2 do
+		local lg = if i < 0 then "leg1" else "leg2"
+		b.pivots[lg] = v(i * 0.22, 0.46, 0) * b.s
+		b:add(lg, "Block", v(0.3, 0.46, 0.32), v(i * 0.22, 0.23, 0), c.dark, mat)
+		table.insert(rig.Legs, { G = lg, Ph = if i < 0 then 0 else math.pi })
+	end
+	b:add("body", "Block", v(0.86, 0.6, 0.56), v(0, 0.76, 0), c.color, mat)
+	b:add("body", "Block", v(0.56, 0.3, 0.06), v(0, 0.8, -0.29), c.belly, mat)
+	b.pivots.head = v(0, 1.06, 0) * b.s
+	b:add("head", "Block", v(0.46, 0.38, 0.42), v(0, 1.25, -0.04), c.color, mat)
+	b:add("head", "Block", v(0.5, 0.08, 0.14), v(0, 1.38, -0.22), c.dark, mat)
+	eyes(b, "head", 1.27, -0.26, 0.11, 0.13, c.eye)
+	b:add("head", "Block", v(0.22, 0.05, 0.04), v(0, 1.13, -0.26), BLACK)
+	for i = -1, 1, 2 do
+		local ag = if i < 0 then "armL" else "armR"
+		b.pivots[ag] = v(i * 0.56, 1.0, 0) * b.s
+		b:add(ag, "Ball", v(0.32, 0.32, 0.32), v(i * 0.56, 1.0, 0), c.dark, mat)
+		b:add(ag, "Block", v(0.24, 0.5, 0.24), v(i * 0.6, 0.7, 0), c.color, mat)
+		b:add(ag, "Block", v(0.32, 0.26, 0.32), v(i * 0.6, 0.38, -0.02), c.dark, mat)
+		table.insert(rig.Arms, ag)
+	end
+	if id == "mossgolem" then
+		b:add("body", "Block", v(0.5, 0.1, 0.4), v(0.12, 1.08, 0.02), c.accent, Enum.Material.Grass)
+		b:add("armL", "Block", v(0.3, 0.1, 0.3), v(-0.56, 1.16, 0), c.accent, Enum.Material.Grass)
+		b:add("body", "Block", v(0.18, 0.06, 0.04), v(0, 0.8, -0.33), c.eye, Enum.Material.Neon)
+	elseif id == "elder_treant" then
+		for k = -1, 1 do
+			b:add(
+				"head",
+				"Block",
+				v(0.08, 0.4, 0.08),
+				v(k * 0.16, 1.58, 0.02),
+				c.dark,
+				mat,
+				ang(0, 0, rad(k * -28))
+			)
+			b:add(
+				"head",
+				"Ball",
+				v(0.34, 0.34, 0.34),
+				v(k * 0.28, 1.8 - math.abs(k) * 0.08, 0.02),
+				c.accent,
+				Enum.Material.Grass
+			)
+		end
+	elseif id == "sand_titan" then
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Wedge",
+				v(0.1, 0.5, 0.3),
+				v(i * 0.28, 1.2, 0.0),
+				c.accent,
+				nil,
+				ang(0, 0, rad(i * 8))
+			)
+		end
+		b:add("head", "Block", v(0.5, 0.08, 0.46), v(0, 1.46, -0.04), GOLD, Enum.Material.Metal)
+		b:add("body", "Block", v(0.3, 0.06, 0.04), v(0, 0.8, -0.33), c.eye, Enum.Material.Neon)
+	elseif id == "glacier_lord" then
+		for k = 0, 3 do
+			local x = if k < 2 then -0.56 else 0.56
+			b:add(
+				if k < 2 then "armL" else "armR",
+				"Wedge",
+				v(0.1, 0.36, 0.18),
+				v(x + (k % 2) * 0.08, 1.24, -0.06 + (k % 2) * 0.12),
+				c.accent,
+				Enum.Material.Glass,
+				nil,
+				0.1
+			)
+		end
+		b:add("body", "Wedge", v(0.12, 0.4, 0.26), v(0, 1.18, 0.2), c.accent, Enum.Material.Glass, nil, 0.1)
+	elseif id == "inferno_tyrant" then
+		for i = -1, 1, 2 do
+			b:add(
+				"head",
+				"Wedge",
+				v(0.1, 0.34, 0.16),
+				v(i * 0.24, 1.56, -0.02),
+				BLACK,
+				nil,
+				ang(0, 0, rad(i * -30))
+			)
+		end
+		b:add(
+			"body",
+			"Block",
+			v(0.4, 0.05, 0.04),
+			v(0, 0.86, -0.33),
+			c.accent,
+			Enum.Material.Neon,
+			ang(0, 0, rad(25))
+		)
+		b:add(
+			"body",
+			"Block",
+			v(0.3, 0.05, 0.04),
+			v(0.05, 0.7, -0.33),
+			c.accent,
+			Enum.Material.Neon,
+			ang(0, 0, rad(-20))
+		)
+		rig.Wings = {}
+		for i = -1, 1, 2 do
+			local g = if i < 0 then "wingL" else "wingR"
+			b.pivots[g] = v(i * 0.2, 1.0, 0.28) * b.s
+			b:add(g, "Block", v(0.7, 0.5, 0.04), v(i * 0.5, 1.12, 0.32), c.dark, nil, ang(0, rad(i * 20), 0))
+			table.insert(rig.Wings, g)
+		end
+	elseif id == "stone_colossus" then
+		b:add("body", "Block", v(0.08, 0.3, 0.04), v(-0.12, 0.8, -0.33), c.eye, Enum.Material.Neon)
+		b:add("body", "Block", v(0.08, 0.3, 0.04), v(0.12, 0.8, -0.33), c.eye, Enum.Material.Neon)
+		b:add("armL", "Block", v(0.06, 0.3, 0.26), v(-0.73, 0.7, 0), c.eye, Enum.Material.Neon)
+		b:add("armR", "Block", v(0.06, 0.3, 0.26), v(0.73, 0.7, 0), c.eye, Enum.Material.Neon)
+	end
+	rig.Top = 1.46
+	rig.CrownZ = -0.04
+end
+
+-- ---------------------------------------------------------------------------
+
+function EnemyVisual.archOf(id: string): string
+	return EnemyVisual.ARCH[id] or "slime"
+end
+
+function EnemyVisual.build(def: any, special: string?): Rig
+	local model = Instance.new("Model")
+	model.Name = "EV_" .. tostring(def.Id)
+	local s = def.Size or 3
+	local arch = EnemyVisual.archOf(def.Id)
+	local b = newBuilder(model, s)
+	local color: Color3 = def.Color or Color3.fromRGB(200, 200, 200)
+	local accent = EnemyVisual.ACCENT[def.Zone] or EnemyVisual.ACCENT.Any
+	if special == "moonling" then
+		accent = EnemyVisual.ACCENT.Any
+	end
+	local ctx: Ctx = {
+		id = def.Id,
+		color = color,
+		belly = color:Lerp(WHITE, 0.38),
+		dark = color:Lerp(BLACK, 0.45),
+		eye = def.Eye or BLACK,
+		accent = accent,
+		boss = def.Boss == true,
+	}
+	local rig: any = {
+		Model = model,
+		Parts = b.parts,
+		Pivots = b.pivots,
+		Arch = arch,
+		Legs = {},
+		Arms = {},
+		Wings = {},
+		Scale = s,
+		Boss = def.Boss == true,
+		Accent = accent,
+	}
+	local recipe = R[arch] or R.slime
+	recipe(b, ctx, rig)
+	local top = (rig.Top or 1) * s
+	if def.Boss then
+		local headGroup = if b.pivots.head then "head" else "body"
+		crown(b, headGroup, rig.Top or 1, rig.CrownZ or 0, 0.36)
+		top += 0.5 * s
+		b.pivots.aura = Vector3.zero
+		b:add("aura", "Cyl", v(0.04, 2.0, 2.0), v(0, 0.03, 0), accent, Enum.Material.Neon, VERT, 0.55)
+		b:add(
+			"aura",
+			"Cyl",
+			v(0.05, 1.5, 1.5),
+			v(0, 0.05, 0),
+			def.Eye or accent,
+			Enum.Material.Neon,
+			VERT,
+			0.7
+		)
+	end
+	-- невидимая опора для полоски HP (над макушкой)
+	local anchor: BasePart = Instance.new("Part")
+	anchor.Name = "Anchor"
+	anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+	anchor.Transparency = 1
+	anchor.Anchored = true
+	anchor.CanCollide = false
+	anchor.CanQuery = false
+	anchor.CanTouch = false
+	anchor.CFrame = CFrame.new(0, top + 0.6, 0)
+	anchor.Parent = model
+	table.insert(
+		b.parts,
+		{ Part = anchor, Group = "body", Rel = anchor.CFrame, Color = WHITE, Size = anchor.Size, Trans = 1 }
+	)
+	model.PrimaryPart = anchor
+	rig.Height = top
+	rig.Anchor = anchor
+	return rig :: Rig
+end
+
+-- Поза частей (чистая математика, для тестов и клиента):
+-- root — CFrame у земли (перед = -Z), body — смещение корпуса, groups — локальные повороты групп.
+function EnemyVisual.pose(rig: Rig, root: CFrame, body: CFrame, groups: { [string]: CFrame }): { CFrame }
+	local out = table.create(#rig.Parts)
+	local cache: { [string]: CFrame } = {}
+	for i, rp in ipairs(rig.Parts) do
+		local g = rp.Group
+		local t = cache[g]
+		if not t then
+			local rot = groups[g]
+			local p = rig.Pivots[g]
+			if rot and p then
+				t = CFrame.new(p) * rot * CFrame.new(-p)
+			elseif rot then
+				t = rot
+			else
+				t = CFrame.identity
+			end
+			cache[g] = t
+		end
+		out[i] = root * body * t * rp.Rel
+	end
+	return out
+end
+
+return EnemyVisual
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+				<Properties>
 					<string name="Name">EventData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
@@ -1661,7 +2611,7 @@ return EventData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
 				<Properties>
 					<string name="Name">Formulas</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -1784,7 +2734,7 @@ return Formulas
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
 				<Properties>
 					<string name="Name">Locale</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2200,7 +3150,7 @@ return Locale
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000000F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
 				<Properties>
 					<string name="Name">LocaleEn</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2328,7 +3278,7 @@ LocaleEn.Strings = {
 	["tag.vip"] = "[VIP]",
 	["tag.rebirth"] = "Rebirth {n}",
 	["tag.none"] = "",
-	["welcome.new"] = "Welcome! Tap COLLECT to earn coins, then open eggs to find pets!",
+	["welcome.new"] = "Welcome! Collect coins with the magnet and open eggs!",
 	-- srv3
 	["egg.locked_world"] = "Unlock this world first",
 	["egg.event_only"] = "This egg is only sold during the {event} event",
@@ -2349,10 +3299,10 @@ LocaleEn.Strings = {
 	["pets.empty_filter"] = "No pets match these filters.",
 	["tutorial.title"] = "Tutorial {i}/{n}: {text}",
 	["tutorial.progress"] = " ({p}/{c})",
-	["tutorial.collect"] = "press COLLECT {c} times",
-	["tutorial.hatch"] = "walk up to an egg and open it",
-	["tutorial.equip"] = "add a pet to your team (Pets → Equip)",
-	["tutorial.kill"] = "defeat an enemy in the world (ATTACK button or your pets)",
+	["tutorial.collect"] = "pick the 🧲 magnet (slot 2) and tap the screen {c} times",
+	["tutorial.hatch"] = "press Eggs on the right or walk to an egg and open it",
+	["tutorial.equip"] = "add a pet to your team (Pets on the right → Equip)",
+	["tutorial.kill"] = "defeat an enemy: ⚔️ sword (slot 1), then tap/click the screen; Q attacks too",
 	["tutorial.gather"] = "gather a resource — a tree, rock or bush",
 	["tutorial.step_done"] = "Tutorial step complete!",
 	["tutorial.step_done_coins"] = "Step complete! +{n} coins — enough for your first egg",
@@ -2451,15 +3401,12 @@ LocaleEn.Strings = {
 	["egg.hatch"] = "Hatch x{n}  ({price})",
 	["egg.note"] = "Your luck: x{luck} (already included in the odds above). Any pet can be Golden ({gold}%, x2 power) or Rainbow ({rainbow}%, x5). Rounded.",
 	-- fx
-	["hud.attack"] = "ATTACK [Q]",
-	["hud.attack_touch"] = "ATTACK",
 	["offline.title"] = "Welcome back!",
 	["offline.claim"] = "Claim",
 	["offline.text_time"] = "Your pets kept working for {time} and earned {n} coins.",
 	["offline.text"] = "Your pets kept working and earned {n} coins.",
 	["hud.coin_mult"] = "Coins x{x}",
 	["hud.friends_bonus"] = "Friends +{n}%",
-	["hud.tracker_line"] = "{npc}: {title} {n}/{max}",
 	["hud.raid"] = "RAID: {name}",
 	["hud.boss"] = "Boss: {name}",
 	-- hud
@@ -2475,16 +3422,38 @@ LocaleEn.Strings = {
 	["menu.Upgrades"] = "UPGRADES",
 	["menu.Rebirth"] = "REBIRTH",
 	["menu.Shop"] = "STORE",
-	["hud.collect"] = "COLLECT",
 	["hud.auto_on"] = "AUTO: ON",
 	["hud.auto_off"] = "AUTO: OFF",
+	["hud.shop"] = "Shop",
+	["hud.index"] = "Index",
+	["hud.eggs"] = "Eggs",
+	["hud.pets"] = "Pets",
+	["hud.quests"] = "Quests",
+	["hud.more"] = "More",
+	["hotbar.sword"] = "Sword",
+	["hotbar.collect"] = "Magnet",
+	["hotbar.potion"] = "Potion",
+	["hotbar.no_potion"] = "No potions — brew them at the hub workbench or earn them from quests",
+	["egg.go_closer"] = "Walk to the egg",
+	["more.hint"] = "Many of these are also hub stations — just walk up to them",
+	["index.progress"] = "Pets discovered: {n} / {max}",
+	["menu.Settings"] = "SETTINGS",
+	["panel.More"] = "More",
+	["panel.Index"] = "Pet Index",
+	["world.daily_chest"] = "Reward Chest",
+	["world.daily_chest_sub"] = "Daily reward",
+	["world.upgrades"] = "Workshop",
+	["world.upgrades_sub"] = "Collect, speed & luck upgrades",
+	["world.rebirth"] = "Shrine",
+	["world.rebirth_sub"] = "Rebirth: permanent multiplier",
+	["world.boards"] = "Leaderboards",
+	["prompt.claim"] = "Open",
+	["prompt.upgrade"] = "Upgrade",
+	["prompt.rebirth"] = "Rebirth",
+	["prompt.view"] = "View",
 	["hud.rebirth"] = "Rebirth {n}",
-	["hud.zone_hub"] = "Hub  (coins: {zone} x{n})",
-	["hud.zone"] = "{zone}  (x{n})",
-	["hud.per_collect"] = "+{n} per collect",
 	["hud.luck_boost"] = "Luck x{n}  {time}",
 	["hud.luck"] = "Luck x{x}",
-	["hud.settings"] = "SETTINGS · {lang}",
 	["settings.language"] = "Language",
 	["settings.auto"] = "Auto ({lang})",
 	["settings.detected"] = "Detected country: {country}",
@@ -2704,8 +3673,8 @@ LocaleEn.Strings = {
 	["hunt.card_title"] = "HUNT: {player}",
 	["hunt.objective"] = "Stop {player}!",
 	["hunt.you_title"] = "YOU HAVE THE SUPERPOWER!",
-	["hunt.you_objective"] = "Hold out until the timer ends. [Q] — shockwave",
-	["hunt.you_objective_touch"] = "Hold out until the timer ends. ATTACK — shockwave",
+	["hunt.you_objective"] = "Hold out until the timer ends. Sword hit or [Q] — shockwave",
+	["hunt.you_objective_touch"] = "Hold out until the timer ends. Tap with the sword — shockwave",
 	["hunt.damage"] = "Your damage: {n} (reward from {min})",
 	["hunt.damage_ok"] = "Your damage: {n} — reward earned",
 	["hunt.distance"] = "{n} m",
@@ -2725,6 +3694,7 @@ LocaleEn.Strings = {
 	["hunt.banner_you_survived"] = "VICTORY!",
 	["hunt.banner_you_survived_sub"] = "You kept the superpower to the end",
 	["event.started"] = "{name}!",
+	["event.next"] = "🌙 {name} in {time}",
 	["obj.superstop"] = "Stop the superplayer",
 	["obj.supersurvive"] = "Hold out with the superpower",
 }
@@ -2733,7 +3703,7 @@ return LocaleEn
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000010">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
 				<Properties>
 					<string name="Name">LocaleRu</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -2861,7 +3831,7 @@ LocaleRu.Strings = {
 	["tag.vip"] = "[VIP]",
 	["tag.rebirth"] = "Перерождение {n}",
 	["tag.none"] = "",
-	["welcome.new"] = "Добро пожаловать! Жмите «СОБРАТЬ», чтобы копить монеты, а потом открывайте яйца с питомцами!",
+	["welcome.new"] = "Добро пожаловать! Собирайте монеты магнитом и открывайте яйца!",
 	-- srv3
 	["egg.locked_world"] = "Сначала откройте этот мир",
 	["egg.event_only"] = "Это яйцо продаётся только во время события «{event}»",
@@ -2882,10 +3852,10 @@ LocaleRu.Strings = {
 	["pets.empty_filter"] = "Нет питомцев под выбранные фильтры.",
 	["tutorial.title"] = "Обучение {i}/{n}: {text}",
 	["tutorial.progress"] = " ({p}/{c})",
-	["tutorial.collect"] = "нажмите «СОБРАТЬ» {c} раз",
-	["tutorial.hatch"] = "подойдите к яйцу и откройте его",
-	["tutorial.equip"] = "возьмите питомца в команду («Питомцы» → «В команду»)",
-	["tutorial.kill"] = "победите врага в мире (кнопка «УДАР» или ваши питомцы)",
+	["tutorial.collect"] = "выберите 🧲 магнит (слот 2) и жмите по экрану {c} раз",
+	["tutorial.hatch"] = "нажмите «Яйца» справа или подойдите к яйцу и откройте его",
+	["tutorial.equip"] = "возьмите питомца в команду («Питомцы» справа → «В команду»)",
+	["tutorial.kill"] = "победите врага: ⚔️ меч (слот 1) и тап/клик по экрану, Q — тоже удар",
 	["tutorial.gather"] = "соберите ресурс — дерево, камень или куст",
 	["tutorial.step_done"] = "Шаг обучения пройден!",
 	["tutorial.step_done_coins"] = "Шаг пройден! +{n} монет — хватит на первое яйцо",
@@ -2984,15 +3954,12 @@ LocaleRu.Strings = {
 	["egg.hatch"] = "Открыть x{n}  ({price})",
 	["egg.note"] = "Ваша удача: x{luck} (уже учтена в шансах выше). Любой питомец может стать золотым ({gold}%, сила x2) или радужным ({rainbow}%, x5). Значения округлены.",
 	-- fx
-	["hud.attack"] = "УДАР [Q]",
-	["hud.attack_touch"] = "УДАР",
 	["offline.title"] = "С возвращением!",
 	["offline.claim"] = "Забрать",
 	["offline.text_time"] = "Питомцы работали {time} и заработали монет: {n}.",
 	["offline.text"] = "Питомцы продолжали работать и заработали монет: {n}.",
 	["hud.coin_mult"] = "Монеты x{x}",
 	["hud.friends_bonus"] = "Друзья +{n}%",
-	["hud.tracker_line"] = "{npc}: {title} {n}/{max}",
 	["hud.raid"] = "РЕЙД: {name}",
 	["hud.boss"] = "Босс: {name}",
 	-- hud
@@ -3008,16 +3975,38 @@ LocaleRu.Strings = {
 	["menu.Upgrades"] = "АПГРЕЙДЫ",
 	["menu.Rebirth"] = "РЕБЁРТ",
 	["menu.Shop"] = "МАГАЗИН",
-	["hud.collect"] = "СОБРАТЬ",
 	["hud.auto_on"] = "АВТО: ВКЛ",
 	["hud.auto_off"] = "АВТО: ВЫКЛ",
+	["hud.shop"] = "Магазин",
+	["hud.index"] = "Индекс",
+	["hud.eggs"] = "Яйца",
+	["hud.pets"] = "Питомцы",
+	["hud.quests"] = "Задания",
+	["hud.more"] = "Ещё",
+	["hotbar.sword"] = "Меч",
+	["hotbar.collect"] = "Магнит",
+	["hotbar.potion"] = "Зелье",
+	["hotbar.no_potion"] = "Зелий нет — сварите на верстаке в хабе или получите за задания",
+	["egg.go_closer"] = "Подойдите к яйцу",
+	["more.hint"] = "Многое из этого есть и на станциях в хабе — просто подойдите к ним",
+	["index.progress"] = "Открыто питомцев: {n} / {max}",
+	["menu.Settings"] = "НАСТРОЙКИ",
+	["panel.More"] = "Ещё",
+	["panel.Index"] = "Индекс питомцев",
+	["world.daily_chest"] = "Сундук наград",
+	["world.daily_chest_sub"] = "Ежедневная награда",
+	["world.upgrades"] = "Мастерская",
+	["world.upgrades_sub"] = "Улучшения сбора, скорости, удачи",
+	["world.rebirth"] = "Святилище",
+	["world.rebirth_sub"] = "Перерождение: постоянный множитель",
+	["world.boards"] = "Рейтинги",
+	["prompt.claim"] = "Открыть",
+	["prompt.upgrade"] = "Улучшить",
+	["prompt.rebirth"] = "Переродиться",
+	["prompt.view"] = "Смотреть",
 	["hud.rebirth"] = "Перерождение {n}",
-	["hud.zone_hub"] = "Хаб  (монеты: {zone} x{n})",
-	["hud.zone"] = "{zone}  (x{n})",
-	["hud.per_collect"] = "+{n} за сбор",
 	["hud.luck_boost"] = "Удача x{n}  {time}",
 	["hud.luck"] = "Удача x{x}",
-	["hud.settings"] = "НАСТРОЙКИ · {lang}",
 	["settings.language"] = "Язык",
 	["settings.auto"] = "Авто ({lang})",
 	["settings.detected"] = "Определена страна: {country}",
@@ -3237,8 +4226,8 @@ LocaleRu.Strings = {
 	["hunt.card_title"] = "ОХОТА: {player}",
 	["hunt.objective"] = "Останови {player}!",
 	["hunt.you_title"] = "У ТЕБЯ СУПЕРСИЛА!",
-	["hunt.you_objective"] = "Продержись до конца таймера. [Q] — ударная волна",
-	["hunt.you_objective_touch"] = "Продержись до конца таймера. УДАР — ударная волна",
+	["hunt.you_objective"] = "Продержись до конца таймера. Удар мечом или [Q] — ударная волна",
+	["hunt.you_objective_touch"] = "Продержись до конца таймера. Тап с мечом — ударная волна",
 	["hunt.damage"] = "Твой урон: {n} (награда от {min})",
 	["hunt.damage_ok"] = "Твой урон: {n} — награда положена",
 	["hunt.distance"] = "{n} м",
@@ -3258,6 +4247,7 @@ LocaleRu.Strings = {
 	["hunt.banner_you_survived"] = "ПОБЕДА!",
 	["hunt.banner_you_survived_sub"] = "Суперсила твоя до самого конца",
 	["event.started"] = "{name}!",
+	["event.next"] = "🌙 {name} через {time}",
 	["obj.superstop"] = "Останови суперигрока",
 	["obj.supersurvive"] = "Продержись с суперсилой",
 }
@@ -3646,7 +4636,7 @@ return LocaleRu
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000011">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4155,7 +5145,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000012">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4496,7 +5486,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4810,7 +5800,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5096,7 +6086,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5246,7 +6236,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5328,7 +6318,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5428,7 +6418,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5596,7 +6586,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5870,7 +6860,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6138,7 +7128,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6351,7 +7341,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6505,7 +7495,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6559,7 +7549,7 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6640,7 +7630,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6767,7 +7757,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6908,11 +7898,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000021">
+	<Item class="ServerScriptService" referent="RBX00000000000000000000000000000022">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX00000000000000000000000000000022">
+		<Item class="Script" referent="RBX00000000000000000000000000000023">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -6960,17 +7950,18 @@ require(Server.Monetization).init()
 require(Server.LeaderboardService).init()
 require(Server.LanguageService).init()
 require(Server.TutorialService).init()
+require(Server.ToolService).init() -- v2.5: меч и магнит в StarterPack (до первого появления персонажа)
 require(Server.PlayerService).init()
 
 print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX00000000000000000000000000000023">
+		<Item class="Folder" referent="RBX00000000000000000000000000000024">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7111,7 +8102,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7212,7 +8203,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7295,13 +8286,13 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
 	CombatService — враги, боссы и бой. Все расчёты урона/наград — на сервере.
-	  * Враги живут в Workspace.Enemies (Model + BillboardGui с полосой здоровья, атрибуты Hp/MaxHp для клиентской шкалы босса).
+	  * Враги живут в Workspace.Enemies: Model с невидимым хитбоксом Body и атрибутами Hp/MaxHp/EnemyId/Atk; рисовку, анимацию и полоску HP строит клиент (EnemyVisuals.client.lua).
 	  * Питомцы бьют автоматически раз в COMBAT_TICK: цель — ближайший враг; урон = сила × роль × стихия × бонусы.
 	  * Активные способности питомцев срабатывают по кулдауну (огненный шар, лечение, щит, френзи, «копание» и т.д.).
 	  * Игрок помогает ударом (Action "Attack"), урон растёт с силой команды, талантами и клинком.
@@ -7350,6 +8341,8 @@ export type Enemy = {
 	Half: number, -- половина высоты тела (для стояния на земле)
 	Damage: { [Player]: number },
 	LastAtk: number,
+	WindAt: number?, -- момент удара после замаха (телеграф для клиента)
+	WindTarget: Player?,
 	Dead: boolean,
 }
 
@@ -7372,6 +8365,8 @@ local KNOCKBACK = 2.6 -- отбрасывание рядового врага у
 local ATTACK_SLAM_DAMAGE = 28
 local ATTACK_SLAM_RANGE = 22
 local ATTACK_SLAM_INTERVAL = 3.2
+local ATTACK_SLAM_TELEGRAPH = 0.6 -- за сколько до удара по земле клиент видит замах
+local WINDUP = 0.35 -- замах обычного врага перед ударом (урон, если цель ещё рядом)
 
 -- ---------------------------------------------------------------------------
 -- Вспомогательное
@@ -7419,7 +8414,7 @@ local function buildModel(
 	pos: Vector3,
 	maxHp: number,
 	special: string?
-): (Model, BasePart, Frame, number)
+): (Model, BasePart, Frame?, number)
 	local m = Instance.new("Model")
 	m.Name = "Enemy_" .. id
 	local s = def.Size
@@ -7427,61 +8422,21 @@ local function buildModel(
 		then Vector3.new(s * 0.7, s * 1.5, s * 0.7)
 		elseif def.Shape == "Block" then Vector3.new(s, s * 0.8, s)
 		else Vector3.new(s, s, s)
+	-- Body — невидимый хитбокс (позиция/попадания); рисовку строит клиент (EnemyVisuals + EnemyVisual)
 	local body = Instance.new("Part")
 	body.Name = "Body"
 	body.Shape = if def.Shape == "Ball" then Enum.PartType.Ball else Enum.PartType.Block
 	body.Size = size
 	body.Color = def.Color
-	body.Material = if special == "moonling" then Enum.Material.Neon else Enum.Material.SmoothPlastic
+	body.Material = Enum.Material.SmoothPlastic
+	body.Transparency = 1
 	body.Anchored = true
 	body.CanCollide = false
+	body.CanTouch = false
+	body.CastShadow = false
 	body.Position = pos
 	body.Parent = m
-	for i = -1, 1, 2 do
-		local eye = Instance.new("Part")
-		eye.Name = "Eye"
-		eye.Shape = Enum.PartType.Ball
-		eye.Size = Vector3.new(s * 0.18, s * 0.18, s * 0.18)
-		eye.Color = def.Eye
-		eye.Material = Enum.Material.Neon
-		eye.Anchored = true
-		eye.CanCollide = false
-		eye.Position = pos + Vector3.new(i * s * 0.2, size.Y * 0.2, -size.Z * 0.5)
-		eye.Parent = m
-	end
 	m.PrimaryPart = body
-
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "Info"
-	gui.Size = UDim2.fromOffset(150, 40)
-	gui.StudsOffset = Vector3.new(0, size.Y * 0.5 + 2.2, 0)
-	gui.MaxDistance = if def.Boss then 160 else 80
-	gui.LightInfluence = 0
-	gui.AlwaysOnTop = false -- ScreenGui поверх; не перекрываем HUD
-	gui.Parent = body
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "NameLabel"
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Size = UDim2.fromScale(1, 0.55)
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextScaled = true
-	nameLabel.TextColor3 = if def.Boss then Color3.fromRGB(255, 190, 90) else Color3.new(1, 1, 1)
-	nameLabel.TextStrokeTransparency = 0.4
-	Locale.setWorld(nameLabel, def.Name)
-	nameLabel.Parent = gui
-	local back = Instance.new("Frame")
-	back.Name = "Back"
-	back.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	back.BorderSizePixel = 0
-	back.Position = UDim2.fromScale(0.05, 0.62)
-	back.Size = UDim2.fromScale(0.9, 0.3)
-	back.Parent = gui
-	local fill = Instance.new("Frame")
-	fill.Name = "Fill"
-	fill.BackgroundColor3 = if def.Boss then Color3.fromRGB(240, 80, 70) else Color3.fromRGB(110, 220, 110)
-	fill.BorderSizePixel = 0
-	fill.Size = UDim2.fromScale(1, 1)
-	fill.Parent = back
 
 	m:SetAttribute("EnemyName", def.Name)
 	m:SetAttribute("EnemyId", def.Id)
@@ -7490,7 +8445,8 @@ local function buildModel(
 	m:SetAttribute("Zone", def.Zone)
 	m:SetAttribute("Hp", maxHp)
 	m:SetAttribute("MaxHp", maxHp)
-	return m, body, fill, size.Y / 2
+	m:SetAttribute("Atk", 0)
+	return m, body, nil, size.Y / 2
 end
 
 local function spawnEnemy(
@@ -7911,8 +8867,13 @@ local function enemyTick(e: Enemy, dt: number, now: number)
 	end
 
 	if isRaid then
+		if target and not e.WindAt and now - e.LastAtk >= ATTACK_SLAM_INTERVAL - ATTACK_SLAM_TELEGRAPH then
+			e.WindAt = e.LastAtk + ATTACK_SLAM_INTERVAL
+			e.Model:SetAttribute("Atk", (tonumber(e.Model:GetAttribute("Atk")) or 0) + 1)
+		end
 		if target and now - e.LastAtk >= ATTACK_SLAM_INTERVAL then
 			e.LastAtk = now
+			e.WindAt = nil
 			for _, player in ipairs(Players:GetPlayers()) do
 				local root = rootOf(player)
 				local hum = humanoidOf(player)
@@ -7958,23 +8919,35 @@ local function enemyTick(e: Enemy, dt: number, now: number)
 		e.Pos = e.Pos + dir * step
 		e.Model:PivotTo(CFrame.lookAt(e.Pos, e.Pos + dir))
 	end
-	if target and dist <= EnemyData.ATTACK_RANGE and now - e.LastAtk >= EnemyData.ATTACK_INTERVAL then
+	-- удар: сначала замах (атрибут Atk → анимация на клиенте), урон через WINDUP, если цель не ушла
+	if
+		not e.WindAt
+		and target
+		and dist <= EnemyData.ATTACK_RANGE
+		and now - e.LastAtk >= EnemyData.ATTACK_INTERVAL
+	then
 		e.LastAtk = now
-		local hum = humanoidOf(target)
-		local data = DataService.get(target)
-		if hum and data then
+		e.WindAt = now + WINDUP
+		e.WindTarget = target
+		e.Model:SetAttribute("Atk", (tonumber(e.Model:GetAttribute("Atk")) or 0) + 1)
+	end
+	local victim = e.WindTarget
+	if e.WindAt and now >= e.WindAt then
+		e.WindAt = nil
+		e.WindTarget = nil
+		local root = victim and rootOf(victim)
+		local hum = victim and humanoidOf(victim)
+		local data = victim and DataService.get(victim)
+		local near = root
+			and Vector3.new(root.Position.X - e.Pos.X, 0, root.Position.Z - e.Pos.Z).Magnitude
+				<= EnemyData.ATTACK_RANGE * 1.25
+		if victim and root and near and hum and hum.Health > 0 and data then
 			local dmg = EnemyData.damageToPlayer(e.Def, e.Zone) * Economy.getDefense(data)
-			if (shieldUntil[target] or 0) > now then
+			if (shieldUntil[victim] or 0) > now then
 				dmg *= 0.5
 			end
 			hum:TakeDamage(dmg)
-			fx(
-				target,
-				"Hurt",
-				targetPos :: Vector3 + Vector3.new(0, 3, 0),
-				"-" .. tostring(math.ceil(dmg)),
-				"enemy"
-			)
+			fx(victim, "Hurt", root.Position + Vector3.new(0, 3, 0), "-" .. tostring(math.ceil(dmg)), "enemy")
 		end
 	end
 end
@@ -8195,7 +9168,7 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8296,7 +9269,7 @@ return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8329,7 +9302,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8418,7 +9391,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8500,6 +9473,7 @@ local function makeTemplate(): Data
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено
 		PetMail = {}, -- v2.4: питомцы-награды, не поместившиеся в инвентарь ({ Id, Variant }), выдаются при освобождении места
+		Index = {}, -- v2.5: [petId] = true — питомцы, которых игрок когда-либо получал («Индекс»)
 		Joined = os.time(),
 	}
 end
@@ -8905,7 +9879,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9395,7 +10369,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9651,7 +10625,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9700,7 +10674,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9781,7 +10755,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9874,7 +10848,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10044,7 +11018,7 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10090,6 +11064,18 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Tutorial = { Step = if veteran then 99 else 1, P = 0 }
 		changed = true
 	end
+	-- v2.5: «Индекс» питомцев — старые профили получают открытыми всех питомцев, что сейчас в инвентаре
+	if type(data.Index) ~= "table" then
+		data.Index = {}
+		if type(data.Pets) == "table" then
+			for _, p in pairs(data.Pets) do
+				if type(p) == "table" and type(p.Id) == "string" then
+					data.Index[p.Id] = true
+				end
+			end
+		end
+		changed = true
+	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
 	local function bad(v: any): boolean
 		return type(v) ~= "number" or v ~= v or v < 0 or v == math.huge
@@ -10122,7 +11108,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10351,7 +11337,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10375,7 +11361,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10450,7 +11436,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10863,7 +11849,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11172,7 +12158,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11309,7 +12295,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11498,7 +12484,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11604,7 +12590,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11991,7 +12977,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12078,7 +13064,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12161,7 +13147,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12205,7 +13191,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12266,7 +13252,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12342,6 +13328,22 @@ local function buildBattlePass(data: DataService.Data)
 	}
 end
 
+-- v2.5: «Индекс» — отмечаем открытыми всех питомцев в инвентаре (любой источник: яйцо, обмен, крафт, награда)
+local function syncIndex(data: DataService.Data): { [string]: boolean }
+	local index = data.Index
+	if type(index) ~= "table" then
+		index = {}
+		data.Index = index
+	end
+	for _, p in pairs(data.Pets) do
+		if type(p) == "table" and type(p.Id) == "string" and not index[p.Id] then
+			index[p.Id] = true
+		end
+	end
+	return index
+end
+State.syncIndex = syncIndex
+
 local function buildCore(player: Player, data: DataService.Data)
 	local session = Session.get(player)
 	local luckBoost, luckEnds = Economy.getLuckBoost(data)
@@ -12397,6 +13399,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		CoinMult = Economy.getCoinMultiplier(player, data),
 		TeamPower = Economy.getPetPower(data),
 		OfflinePending = data.OfflinePending or 0,
+		Index = syncIndex(data), -- v2.5
 	}
 end
 
@@ -12497,11 +13500,11 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
--- Станции хаба (верстак, лавка, алтарь, портал, торговец): ProximityPrompt просит клиента открыть нужную панель.
+-- Станции хаба (верстак, лавка, алтарь, портал, торговец; v2.5: сундук наград, мастерская, святилище, табло): ProximityPrompt просит клиента открыть нужную панель.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Remotes = require(ReplicatedStorage.Shared.Remotes)
 local ZoneData = require(ReplicatedStorage.Shared.ZoneData)
@@ -12521,6 +13524,11 @@ local PANEL_OF = {
 	altar = "Talents",
 	tom = "Trade",
 	portal = "Worlds",
+	-- v2.5: разделы, убранные с экрана
+	daily = "Daily",
+	upgrades = "Upgrades",
+	rebirth = "Rebirth",
+	board = "Boards",
 }
 
 local function onPrompt(player: Player, id: string)
@@ -12552,7 +13560,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12581,7 +13589,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12876,7 +13884,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13731,7 +14739,170 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+				<Properties>
+					<string name="Name">ToolService</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	ToolService (v2.5) — настоящие инструменты в Backpack вместо кнопок «УДАР» и «СОБРАТЬ».
+	  * "Sword"     — меч: выбран в хотбаре → клик/тап по миру = удар (клиент: AttackFx + действие Attack);
+	  * "Collector" — магнит сбора: удержание клика/тапа = сбор монет (remote Click, сервер ограничивает частоту).
+	Модели собираются кодом и кладутся в StarterPack: Roblox сам копирует их в Backpack при каждом появлении
+	персонажа. Сервер не слушает Activated — урон и монеты считают существующие действия (Attack/Click),
+	поэтому античит и лимиты прежние. Детали инструмента без коллизий и запросов (не мешают рейкастам).
+]]
+local StarterPack = game:GetService("StarterPack")
+
+local ToolService = {}
+
+ToolService.NAMES = { "Sword", "Collector" }
+
+local function part(
+	tool: Tool,
+	name: string,
+	size: Vector3,
+	offset: CFrame,
+	color: Color3,
+	material: Enum.Material,
+	shape: Enum.PartType?
+): BasePart
+	local handle = tool:FindFirstChild("Handle") :: BasePart?
+	local p = Instance.new("Part")
+	p.Name = name
+	p.Size = size
+	p.Color = color
+	p.Material = material
+	if shape then
+		p.Shape = shape
+	end
+	p.CanCollide = false
+	p.CanQuery = false
+	p.CanTouch = false
+	p.Massless = true
+	p.Anchored = false
+	p.CastShadow = false
+	if handle then
+		p.CFrame = handle.CFrame * offset
+		local w = Instance.new("WeldConstraint")
+		w.Part0 = handle
+		w.Part1 = p
+		w.Parent = p
+	else
+		p.CFrame = offset
+	end
+	p.Parent = tool
+	return p
+end
+
+-- Ось Y рукояти смотрит вперёд из кулака (стандартный RightGrip Roblox), Grip сдвигает хват к низу рукояти
+function ToolService.buildSword(): Tool
+	local t = Instance.new("Tool")
+	t.Name = "Sword"
+	t.ToolTip = "Sword"
+	t.CanBeDropped = false
+	t.RequiresHandle = true
+	t.Grip = CFrame.new(0, -0.35, 0)
+	local base = CFrame.new(0, 50, 0)
+	part(t, "Handle", Vector3.new(0.32, 1.2, 0.32), base, Color3.fromRGB(110, 70, 42), Enum.Material.Wood)
+	part(
+		t,
+		"Pommel",
+		Vector3.new(0.5, 0.5, 0.5),
+		CFrame.new(0, -0.7, 0),
+		Color3.fromRGB(255, 200, 60),
+		Enum.Material.SmoothPlastic,
+		Enum.PartType.Ball
+	)
+	part(
+		t,
+		"Guard",
+		Vector3.new(1.3, 0.26, 0.42),
+		CFrame.new(0, 0.68, 0),
+		Color3.fromRGB(255, 200, 60),
+		Enum.Material.SmoothPlastic
+	)
+	part(
+		t,
+		"Blade",
+		Vector3.new(0.2, 3.2, 0.55),
+		CFrame.new(0, 2.4, 0),
+		Color3.fromRGB(215, 225, 240),
+		Enum.Material.SmoothPlastic
+	)
+	part(
+		t,
+		"Edge",
+		Vector3.new(0.24, 3.0, 0.12),
+		CFrame.new(0, 2.35, -0.3),
+		Color3.fromRGB(120, 220, 255),
+		Enum.Material.Neon
+	)
+	part(
+		t,
+		"Tip",
+		Vector3.new(0.2, 0.42, 0.42),
+		CFrame.new(0, 4.05, 0) * CFrame.Angles(math.rad(45), 0, 0),
+		Color3.fromRGB(215, 225, 240),
+		Enum.Material.SmoothPlastic
+	)
+	return t
+end
+
+function ToolService.buildCollector(): Tool
+	local t = Instance.new("Tool")
+	t.Name = "Collector"
+	t.ToolTip = "Collector"
+	t.CanBeDropped = false
+	t.RequiresHandle = true
+	t.Grip = CFrame.new(0, -0.3, 0)
+	local base = CFrame.new(0, 60, 0)
+	part(
+		t,
+		"Handle",
+		Vector3.new(0.34, 1.2, 0.34),
+		base,
+		Color3.fromRGB(70, 74, 90),
+		Enum.Material.SmoothPlastic
+	)
+	local red = Color3.fromRGB(235, 60, 60)
+	part(t, "Bar", Vector3.new(1.7, 0.45, 0.45), CFrame.new(0, 0.8, 0), red, Enum.Material.SmoothPlastic)
+	for _, x in ipairs({ -0.62, 0.62 }) do
+		part(
+			t,
+			"Prong",
+			Vector3.new(0.45, 1.1, 0.45),
+			CFrame.new(x, 1.5, 0),
+			red,
+			Enum.Material.SmoothPlastic
+		)
+		part(
+			t,
+			"PoleTip",
+			Vector3.new(0.47, 0.32, 0.47),
+			CFrame.new(x, 2.18, 0),
+			Color3.fromRGB(255, 230, 120),
+			Enum.Material.Neon
+		)
+	end
+	return t
+end
+
+function ToolService.init()
+	for _, name in ipairs(ToolService.NAMES) do
+		local old = StarterPack:FindFirstChild(name)
+		if old then
+			old:Destroy()
+		end
+	end
+	ToolService.buildSword().Parent = StarterPack
+	ToolService.buildCollector().Parent = StarterPack
+end
+
+return ToolService
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14264,7 +15435,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14341,7 +15512,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14398,7 +15569,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14487,7 +15658,8 @@ end
 
 local function billboard(parent: BasePart, offset: Vector3, width: number, height: number): BillboardGui
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(width, height)
+	-- размер в студах: подпись уменьшается с расстоянием и не закрывает HUD на телефоне
+	gui.Size = UDim2.fromScale(width / 16, height / 16)
 	gui.StudsOffset = offset
 	gui.MaxDistance = 70 -- дальние подписи не налезают на верхний HUD
 	gui.LightInfluence = 0
@@ -14720,7 +15892,7 @@ end
 -- ---------------------------------------------------------------------------
 -- Табло лидеров
 -- ---------------------------------------------------------------------------
-local function buildBoard(parent: Instance, center: Vector3)
+local function buildBoard(parent: Instance, center: Vector3): Model
 	local m = Instance.new("Model")
 	m.Name = "Leaderboard"
 	local face = Color3.fromRGB(30, 34, 48)
@@ -14779,6 +15951,7 @@ local function buildBoard(parent: Instance, center: Vector3)
 		boardRows[i] = row
 	end
 	m.Parent = parent
+	return m
 end
 
 -- ---------------------------------------------------------------------------
@@ -15219,6 +16392,126 @@ local function buildHub(world: Folder)
 	addPrompt(portalPad, "portal", "prompt.travel", "world.portal", 0)
 	stationPositions.portal = portalPos
 
+	-- v2.5: станции разделов, убранных с экрана (лист «Ещё» дублирует их кнопками)
+	-- Сундук ежедневной награды — слева от фонтана
+	local chestPos = Vector3.new(-26, 0, 8)
+	block(
+		hub,
+		"ChestBase",
+		Vector3.new(5, 2.6, 3.4),
+		chestPos + Vector3.new(0, 1.3, 0),
+		Color3.fromRGB(150, 90, 45),
+		Enum.Material.Wood
+	)
+	local lid = block(
+		hub,
+		"ChestLid",
+		Vector3.new(5.2, 1.2, 3.6),
+		chestPos + Vector3.new(0, 3.2, 0),
+		Color3.fromRGB(175, 105, 55),
+		Enum.Material.Wood
+	)
+	for _, dx in ipairs({ -2.2, 0, 2.2 }) do
+		block(
+			hub,
+			"ChestBand",
+			Vector3.new(0.4, 3.9, 3.7),
+			chestPos + Vector3.new(dx, 1.95, 0),
+			Color3.fromRGB(255, 200, 60),
+			Enum.Material.Metal
+		)
+	end
+	mk(
+		hub,
+		"ChestGlow",
+		Enum.PartType.Ball,
+		Vector3.new(1.2, 1.2, 1.2),
+		CFrame.new(chestPos + Vector3.new(0, 2.4, -1.9)),
+		Color3.fromRGB(255, 230, 120),
+		Enum.Material.Neon,
+		false
+	)
+	sign(lid, "world.daily_chest", "world.daily_chest_sub", Color3.fromRGB(255, 210, 90), 4.5)
+	addPrompt(lid, "daily", "prompt.claim", "world.daily_chest", 0)
+	stationPositions.daily = chestPos
+
+	-- Мастерская улучшений — справа от фонтана: станок с шестернёй
+	local shopPos = Vector3.new(26, 0, 8)
+	local bench = block(
+		hub,
+		"WorkshopBase",
+		Vector3.new(6, 3, 4),
+		shopPos + Vector3.new(0, 1.5, 0),
+		Color3.fromRGB(60, 110, 200),
+		Enum.Material.Metal
+	)
+	mk(
+		hub,
+		"WorkshopGear",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.8, 4.6, 4.6),
+		CFrame.new(shopPos + Vector3.new(0, 5.6, 0)) * CFrame.Angles(0, math.rad(90), 0),
+		Color3.fromRGB(255, 200, 60),
+		Enum.Material.Metal,
+		false
+	)
+	mk(
+		hub,
+		"WorkshopCore",
+		Enum.PartType.Ball,
+		Vector3.new(1.6, 1.6, 1.6),
+		CFrame.new(shopPos + Vector3.new(0, 5.6, -0.5)),
+		Color3.fromRGB(120, 220, 255),
+		Enum.Material.Neon,
+		false
+	)
+	block(
+		hub,
+		"WorkshopArrow",
+		Vector3.new(0.8, 2.2, 0.6),
+		shopPos + Vector3.new(0, 3.3, -2),
+		Color3.fromRGB(120, 255, 140),
+		Enum.Material.Neon
+	)
+	sign(bench, "world.upgrades", "world.upgrades_sub", Color3.fromRGB(140, 200, 255), 8)
+	addPrompt(bench, "upgrades", "prompt.upgrade", "world.upgrades", 0)
+	stationPositions.upgrades = shopPos
+
+	-- Святилище перерождения — напротив алтаря талантов
+	local shrinePos = Vector3.new(70, 0, -50)
+	mk(
+		hub,
+		"ShrineStep",
+		Enum.PartType.Cylinder,
+		Vector3.new(1.2, 14, 14),
+		CFrame.new(shrinePos + Vector3.new(0, 0.6, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(90, 80, 130),
+		Enum.Material.Marble,
+		true
+	)
+	local obelisk = block(
+		hub,
+		"ShrineObelisk",
+		Vector3.new(3, 10, 3),
+		shrinePos + Vector3.new(0, 6.2, 0),
+		Color3.fromRGB(60, 50, 90),
+		Enum.Material.Marble
+	)
+	local halo = mk(
+		hub,
+		"ShrineRing",
+		Enum.PartType.Cylinder,
+		Vector3.new(0.5, 8, 8),
+		CFrame.new(shrinePos + Vector3.new(0, 12.5, 0)) * CFrame.Angles(0, 0, math.rad(90)),
+		Color3.fromRGB(200, 120, 255),
+		Enum.Material.Neon,
+		false
+	)
+	halo.Transparency = 0.3
+	sign(obelisk, "world.rebirth", "world.rebirth_sub", Color3.fromRGB(210, 160, 255), 9)
+	addPrompt(obelisk, "rebirth", "prompt.rebirth", "world.rebirth", 0)
+	stationPositions.rebirth = shrinePos
+
 	-- Яйца хаба и табло
 	local hubEggs = {}
 	for _, egg in ipairs(PetData.Eggs) do
@@ -15229,7 +16522,11 @@ local function buildHub(world: Folder)
 	for k, egg in ipairs(hubEggs) do
 		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
 	end
-	buildBoard(hub, Vector3.new(0, 0, -98))
+	local boardModel = buildBoard(hub, Vector3.new(0, 0, -98))
+	local boardPart = boardModel and boardModel:FindFirstChild("Board")
+	if boardPart and boardPart:IsA("BasePart") then
+		addPrompt(boardPart, "board", "prompt.view", "world.boards", 0) -- v2.5: окно рейтингов
+	end
 	stationPositions.board = Vector3.new(0, 0, -98)
 end
 
@@ -15398,7 +16695,7 @@ function WorldBuilder.getEggPosition(eggId: string): Vector3?
 	return eggPositions[eggId]
 end
 
--- Колбэк на ProximityPrompt NPC и станций: (player, id). id: mira|bruno|pip|tom|craft|market|altar|portal|hubReturn
+-- Колбэк на ProximityPrompt NPC и станций: (player, id). id: mira|bruno|pip|tom|craft|market|altar|portal|hubReturn|daily|upgrades|rebirth|board
 function WorldBuilder.onNpcPrompt(cb: (Player, string) -> ())
 	table.insert(npcCallbacks, cb)
 end
@@ -15434,7 +16731,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15534,15 +16831,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000004A">
+	<Item class="StarterPlayer" referent="RBX0000000000000000000000000000004C">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX0000000000000000000000000000004B">
+		<Item class="StarterPlayerScripts" referent="RBX0000000000000000000000000000004D">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000004C">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15600,7 +16897,507 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000004D">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000004F">
+				<Properties>
+					<string name="Name">EnemyVisuals</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	EnemyVisuals: клиентская рисовка и анимация врагов.
+	Сервер (CombatService) держит в Workspace.Enemies только невидимые хитбоксы Body с атрибутами
+	EnemyId/Hp/MaxHp/IsBoss/IsRaid/Atk. Здесь по ним строится модель из EnemyVisual и анимируется:
+	  - плавное догоняющее движение к серверной позиции (интерполяция), поворот по ходу;
+	  - idle-дыхание, шаги/прыжки/взмахи крыльев по скорости;
+	  - замах (атрибут Atk растёт) — телеграф удара;
+	  - вспышка + отдача при уроне; смерть — сжатие, исчезновение и осколки;
+	  - компактная полоска HP (у босса — с именем и короной).
+	Дальние враги не строятся/не анимируются (бюджет частей).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local EnemyData = require(Shared:WaitForChild("EnemyData"))
+local EnemyVisual = require(Shared:WaitForChild("EnemyVisual"))
+local Locale = require(Shared:WaitForChild("Locale"))
+
+local BUILD_DIST = 170
+local DROP_DIST = 220
+local ANIM_DIST = 120
+local DEATH_TIME = 0.55
+local FLASH_TIME = 0.09
+local WHITE = Color3.new(1, 1, 1)
+
+local player = Players.LocalPlayer
+local folder = Instance.new("Folder")
+folder.Name = "EnemyVisuals"
+folder.Parent = Workspace
+
+type Entry = {
+	Src: Model,
+	Body: BasePart,
+	Rig: any,
+	Half: number,
+	Pos: Vector3,
+	Rot: CFrame,
+	Phase: number,
+	Hp: number,
+	MaxHp: number,
+	Atk: number,
+	AtkAt: number,
+	WindDur: number,
+	FlashUntil: number,
+	Flashing: boolean,
+	Recoil: number,
+	DeadAt: number?,
+	Bar: BillboardGui?,
+	Fill: Frame?,
+	BarText: TextLabel?,
+	Seed: number,
+}
+
+local entries: { [Model]: Entry } = {}
+local dying: { Entry } = {}
+local bits: { { Part: BasePart, Vel: Vector3, Born: number } } = {}
+
+local function defOf(m: Model): any
+	local id = tostring(m:GetAttribute("EnemyId"))
+	if m:GetAttribute("IsRaid") then
+		return EnemyData.RAID_BOSS
+	end
+	if id == EnemyData.MOONLING.Id then
+		return EnemyData.MOONLING
+	end
+	return EnemyData.ById[id] or (id == EnemyData.RAID_BOSS.Id and EnemyData.RAID_BOSS) or nil
+end
+
+-- только поворот по Y из LookVector хитбокса (устойчиво к любым «кривым» CFrame)
+local function yawOf(body: BasePart): CFrame
+	local lv = body.CFrame.LookVector
+	local flat = Vector3.new(lv.X, 0, lv.Z)
+	if flat.Magnitude < 1e-3 or flat.Magnitude ~= flat.Magnitude then
+		return CFrame.identity
+	end
+	flat = flat.Unit
+	return CFrame.lookAt(Vector3.zero, flat)
+end
+
+local function barColor(r: number): Color3
+	if r > 0.5 then
+		return Color3.fromRGB(110, 230, 90)
+	elseif r > 0.25 then
+		return Color3.fromRGB(255, 205, 60)
+	end
+	return Color3.fromRGB(255, 80, 70)
+end
+
+local function stroke(parent: Instance, thick: number, color: Color3?)
+	local s = Instance.new("UIStroke")
+	s.Thickness = thick
+	s.Color = color or Color3.new(0, 0, 0)
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+local function corner(parent: Instance, r: number)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r)
+	c.Parent = parent
+end
+
+local function makeBar(e: Entry, def: any)
+	local boss = e.Rig.Boss
+	local g = Instance.new("BillboardGui")
+	g.Name = "HpBar"
+	g.Size = if boss then UDim2.fromOffset(190, 40) else UDim2.fromOffset(64, 12)
+	g.StudsOffset = Vector3.new(0, 0.4, 0)
+	g.MaxDistance = if boss then 200 else 70
+	g.LightInfluence = 0
+	g.AlwaysOnTop = false
+	g.Adornee = e.Rig.Anchor
+	local back = Instance.new("Frame")
+	back.Name = "Back"
+	back.BackgroundColor3 = Color3.fromRGB(25, 25, 32)
+	back.BorderSizePixel = 0
+	back.AnchorPoint = Vector2.new(0.5, 1)
+	back.Position = UDim2.fromScale(0.5, 1)
+	back.Size = if boss then UDim2.new(1, 0, 0, 14) else UDim2.fromScale(1, 1)
+	back.Parent = g
+	corner(back, if boss then 6 else 5)
+	stroke(back, 2, if boss then Color3.fromRGB(255, 205, 60) else nil)
+	local fill = Instance.new("Frame")
+	fill.Name = "Fill"
+	fill.BorderSizePixel = 0
+	fill.BackgroundColor3 = if boss then Color3.fromRGB(240, 70, 70) else barColor(1)
+	fill.Size = UDim2.fromScale(1, 1)
+	fill.Parent = back
+	corner(fill, if boss then 6 else 5)
+	e.Fill = fill
+	if boss then
+		local name = Instance.new("TextLabel")
+		name.Name = "Name"
+		name.BackgroundTransparency = 1
+		name.Size = UDim2.new(1, 0, 0, 22)
+		name.Font = Enum.Font.FredokaOne
+		name.TextScaled = true
+		name.TextColor3 = Color3.fromRGB(255, 215, 90)
+		name.Text = "👑 " .. Locale.n(def.Name)
+		name.Parent = g
+		stroke(name, 2).ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual
+		e.BarText = name
+	end
+	g.Parent = e.Rig.Model
+	e.Bar = g
+end
+
+local function updateBar(e: Entry, dist: number)
+	local fill = e.Fill
+	if not (fill and e.Bar) then
+		return
+	end
+	local r = math.clamp(e.Hp / math.max(1, e.MaxHp), 0, 1)
+	fill.Size = UDim2.fromScale(r, 1)
+	if not e.Rig.Boss then
+		fill.BackgroundColor3 = barColor(r)
+		-- обычным врагам полоска нужна только в бою или вблизи — меньше шума на экране
+		e.Bar.Enabled = e.DeadAt == nil and (r < 0.999 or dist < 26)
+	else
+		e.Bar.Enabled = e.DeadAt == nil
+	end
+end
+
+local function setFlash(e: Entry, on: boolean)
+	if e.Flashing == on then
+		return
+	end
+	e.Flashing = on
+	for _, rp in ipairs(e.Rig.Parts) do
+		if rp.Trans < 1 then
+			rp.Part.Color = if on then WHITE else rp.Color
+		end
+	end
+end
+
+local function build(m: Model): Entry?
+	local body = m:FindFirstChild("Body")
+	local def = defOf(m)
+	if not (body and body:IsA("BasePart") and def) then
+		return nil
+	end
+	local rig = EnemyVisual.build(def, if m:GetAttribute("EnemyId") == "moonling" then "moonling" else nil)
+	local e: Entry = {
+		Src = m,
+		Body = body,
+		Rig = rig,
+		Half = body.Size.Y / 2,
+		Pos = body.Position,
+		Rot = yawOf(body),
+		Phase = 0,
+		Hp = tonumber(m:GetAttribute("Hp")) or 1,
+		MaxHp = tonumber(m:GetAttribute("MaxHp")) or 1,
+		Atk = tonumber(m:GetAttribute("Atk")) or 0,
+		AtkAt = -10,
+		WindDur = if m:GetAttribute("IsRaid") then 0.75 else 0.5,
+		FlashUntil = 0,
+		Flashing = false,
+		Recoil = 0,
+		DeadAt = nil,
+		Bar = nil,
+		Fill = nil,
+		BarText = nil,
+		Seed = math.random() * 10,
+	}
+	makeBar(e, def)
+	rig.Model.Parent = folder
+	return e
+end
+
+local function spawnBits(e: Entry, center: Vector3)
+	local n = if e.Rig.Boss then 14 else 8
+	local s = e.Rig.Scale
+	for i = 1, n do
+		local p: BasePart = Instance.new("Part")
+		p.Name = "Bit"
+		local d = s * (0.08 + math.random() * 0.08)
+		p.Size = Vector3.new(d, d, d)
+		p.Color = if i % 3 == 0 then e.Rig.Accent else (e.Rig.Parts[1] and e.Rig.Parts[1].Color or WHITE)
+		p.Material = if i % 3 == 0 then Enum.Material.Neon else Enum.Material.SmoothPlastic
+		p.Anchored = true
+		p.CanCollide = false
+		p.CanQuery = false
+		p.CanTouch = false
+		p.CastShadow = false
+		p.CFrame = CFrame.new(center)
+		p.Parent = folder
+		local a = math.random() * math.pi * 2
+		local sp = s * (2 + math.random() * 3)
+		table.insert(bits, {
+			Part = p,
+			Vel = Vector3.new(math.cos(a) * sp, s * (3 + math.random() * 3), math.sin(a) * sp),
+			Born = os.clock(),
+		})
+	end
+end
+
+local function startDeath(e: Entry)
+	if e.DeadAt then
+		return
+	end
+	e.DeadAt = os.clock()
+	setFlash(e, false)
+	if e.Bar then
+		e.Bar.Enabled = false
+	end
+	spawnBits(e, e.Pos)
+	table.insert(dying, e)
+end
+
+local function watch(m: Model)
+	if entries[m] then
+		return
+	end
+	local e = build(m)
+	if not e then
+		return
+	end
+	entries[m] = e
+	m:GetAttributeChangedSignal("Hp"):Connect(function()
+		local hp = tonumber(m:GetAttribute("Hp")) or 0
+		if hp < e.Hp then
+			e.FlashUntil = os.clock() + FLASH_TIME
+			e.Recoil = 1
+		end
+		e.Hp = hp
+		e.MaxHp = tonumber(m:GetAttribute("MaxHp")) or e.MaxHp
+		if hp <= 0 then
+			startDeath(e)
+		end
+	end)
+	m:GetAttributeChangedSignal("Atk"):Connect(function()
+		e.Atk = tonumber(m:GetAttribute("Atk")) or 0
+		e.AtkAt = os.clock()
+	end)
+end
+
+local function unwatch(m: Model, kill: boolean)
+	local e = entries[m]
+	if not e then
+		return
+	end
+	entries[m] = nil
+	if kill then
+		startDeath(e)
+	else
+		e.Rig.Model:Destroy()
+	end
+end
+
+-- ---------------------------------------------------------------------------
+-- Анимация
+-- ---------------------------------------------------------------------------
+local ang = CFrame.Angles
+
+local function animate(e: Entry, now: number, dt: number, near: boolean)
+	local body = e.Body
+	local target = body.Position
+	if target.Magnitude > 1e6 or target.X ~= target.X then
+		return
+	end
+	local rig = e.Rig
+	local s = rig.Scale
+	local prev = e.Pos
+	local a = 1 - math.exp(-12 * dt)
+	e.Pos = prev:Lerp(target, a)
+	e.Rot = e.Rot:Lerp(yawOf(body), a)
+	local speed = Vector3.new(e.Pos.X - prev.X, 0, e.Pos.Z - prev.Z).Magnitude / math.max(dt, 1e-3)
+	local moving = math.clamp(speed / 6, 0, 1)
+	e.Phase += dt * (3 + speed * 1.6 / math.max(1, s * 0.5))
+	local t = now + e.Seed
+	local ph = e.Phase
+
+	local root = CFrame.new(e.Pos.X, e.Pos.Y - e.Half, e.Pos.Z) * e.Rot
+	local bodyY, bodyZ, lean, roll = 0, 0, 0, 0
+	local arch = rig.Arch
+	if rig.Hover then
+		bodyY = math.sin(t * 2.6) * 0.1 * s
+		lean = -0.18 * moving
+	elseif arch == "slime" then
+		bodyY = math.abs(math.sin(ph * 1.2)) * 0.28 * s * moving + math.sin(t * 2.4) * 0.03 * s
+		lean = -0.12 * moving
+	else
+		bodyY = math.abs(math.sin(ph * 2)) * 0.035 * s * moving + math.sin(t * 2) * 0.012 * s
+		roll = math.sin(ph) * 0.05 * moving
+	end
+
+	-- замах: откинуться назад -> выпад вперёд
+	local wind = 0
+	local w = (now - e.AtkAt) / e.WindDur
+	if w >= 0 and w < 1 then
+		if w < 0.65 then
+			wind = math.sin(w / 0.65 * math.pi / 2)
+			lean += 0.3 * wind
+		else
+			local k = (w - 0.65) / 0.35
+			wind = 1 - k
+			lean -= 0.42 * math.sin(k * math.pi)
+			bodyZ -= 0.25 * s * math.sin(k * math.pi)
+		end
+	end
+	-- отдача от удара
+	if e.Recoil > 0.01 then
+		bodyZ += 0.22 * s * e.Recoil
+		lean += 0.22 * e.Recoil
+		e.Recoil *= math.exp(-10 * dt)
+	end
+	setFlash(e, now < e.FlashUntil)
+
+	local groups: { [string]: CFrame } = {}
+	if near then
+		local swing = math.sin(ph * 2) * 0.55 * moving
+		for _, l in ipairs(rig.Legs) do
+			local amp = if arch == "bug" then 0.6 else 1
+			groups[l.G] = ang(math.sin(ph * 2 + l.Ph) * 0.55 * moving * amp, 0, 0)
+		end
+		for i, g in ipairs(rig.Arms) do
+			local side = if i == 1 then 1 else -1
+			local raise = -1.6 * wind
+			if arch == "bug" then
+				groups[g] = ang(0, side * (0.35 * wind + math.sin(t * 3) * 0.05), 0)
+			else
+				groups[g] = ang(swing * side * 0.8 + raise + math.sin(t * 2) * 0.04, 0, 0)
+			end
+		end
+		for i, g in ipairs(rig.Wings) do
+			local side = if i == 1 then -1 else 1
+			local speedF = if rig.Hover then 16 else 3
+			groups[g] = ang(0, 0, side * math.sin(t * speedF) * (if rig.Hover then 0.6 else 0.15))
+		end
+		if rig.Pivots.tail then
+			groups.tail = ang(0, math.sin(t * (if moving > 0.2 then 9 else 3)) * 0.35, 0)
+		end
+		if rig.Pivots.head then
+			groups.head = ang(math.sin(t * 1.7) * 0.05 - 0.25 * wind, math.sin(t * 0.9) * 0.08, 0)
+		end
+		if rig.Pivots.orbit then
+			groups.orbit = ang(0, t * 2.2, 0)
+		end
+		if rig.Pivots.flame then
+			groups.flame = CFrame.new(0, math.sin(t * 11) * 0.03 * s, 0) * ang(0, t * 3, 0)
+		end
+		if rig.Pivots.aura then
+			groups.aura = ang(0, t * 0.8, 0)
+		end
+	end
+	local bodyCF = CFrame.new(0, bodyY, bodyZ) * ang(lean, 0, roll)
+	local cfs = EnemyVisual.pose(rig, root, bodyCF, groups)
+	local parts = table.create(#rig.Parts)
+	for i, rp in ipairs(rig.Parts) do
+		parts[i] = rp.Part
+	end
+	Workspace:BulkMoveTo(parts, cfs, Enum.BulkMoveMode.FireCFrameChanged)
+end
+
+local function animateDeath(e: Entry, now: number): boolean
+	local k = math.clamp((now - (e.DeadAt or now)) / DEATH_TIME, 0, 1)
+	local rig = e.Rig
+	local shrink = math.max(0.05, 1 - k * k)
+	local root = CFrame.new(e.Pos.X, e.Pos.Y - e.Half + k * rig.Scale * 0.6, e.Pos.Z)
+		* e.Rot
+		* ang(0, k * 4, 0)
+	for _, rp in ipairs(rig.Parts) do
+		local p = rp.Part
+		p.Size = rp.Size * shrink
+		if rp.Trans < 1 then
+			p.Transparency = rp.Trans + (1 - rp.Trans) * k
+		end
+		local rel = rp.Rel
+		p.CFrame = root * CFrame.new(rel.Position * shrink) * (rel - rel.Position)
+	end
+	if k >= 1 then
+		rig.Model:Destroy()
+		return true
+	end
+	return false
+end
+
+local function enemiesFolder(): Instance?
+	return Workspace:FindFirstChild("Enemies")
+end
+
+local function connectFolder(f: Instance)
+	f.ChildRemoved:Connect(function(m)
+		if m:IsA("Model") then
+			unwatch(m, true)
+		end
+	end)
+end
+
+task.spawn(function()
+	local f = Workspace:WaitForChild("Enemies")
+	connectFolder(f)
+end)
+
+local scanAt = 0
+RunService.RenderStepped:Connect(function(dt)
+	local now = os.clock()
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart") :: BasePart?
+	local cam = Workspace.CurrentCamera
+	local here = if hrp then hrp.Position elseif cam then cam.CFrame.Position else Vector3.zero
+	-- раз в 0.4 с: построить ближних, снять дальних
+	if now >= scanAt then
+		scanAt = now + 0.4
+		local f = enemiesFolder()
+		if f then
+			for _, m in ipairs(f:GetChildren()) do
+				if m:IsA("Model") then
+					local body = m:FindFirstChild("Body")
+					if body and body:IsA("BasePart") then
+						local d = (body.Position - here).Magnitude
+						local hp = tonumber(m:GetAttribute("Hp")) or 1
+						if not entries[m] and d < BUILD_DIST and hp > 0 then
+							watch(m)
+						elseif entries[m] and d > DROP_DIST then
+							unwatch(m, false)
+						end
+					end
+				end
+			end
+		end
+	end
+	for m, e in pairs(entries) do
+		if m.Parent == nil then
+			unwatch(m, true)
+		elseif not e.DeadAt then
+			local d = (e.Body.Position - here).Magnitude
+			animate(e, now, math.min(dt, 0.1), d < ANIM_DIST)
+			updateBar(e, d)
+		end
+	end
+	for i = #dying, 1, -1 do
+		if animateDeath(dying[i], now) then
+			table.remove(dying, i)
+		end
+	end
+	for i = #bits, 1, -1 do
+		local b = bits[i]
+		local age = now - b.Born
+		if age > 0.7 or not b.Part.Parent then
+			b.Part:Destroy()
+			table.remove(bits, i)
+		else
+			b.Vel += Vector3.new(0, -60, 0) * math.min(dt, 0.1)
+			b.Part.CFrame = (b.Part.CFrame + b.Vel * math.min(dt, 0.1)) * ang(0.3, 0.2, 0)
+			b.Part.Transparency = math.clamp(age / 0.7, 0, 1)
+		end
+	end
+end)
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000050">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15736,7 +17533,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15843,22 +17640,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX0000000000000000000000000000004F">
+	<Item class="StarterGui" referent="RBX00000000000000000000000000000052">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX00000000000000000000000000000050">
+		<Item class="ScreenGui" referent="RBX00000000000000000000000000000053">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX00000000000000000000000000000051">
+			<Item class="Folder" referent="RBX00000000000000000000000000000054">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15891,7 +17688,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -15990,7 +17787,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16077,7 +17874,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16306,7 +18103,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000056">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16448,7 +18245,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000057">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16635,7 +18432,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000058">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -16672,9 +18469,24 @@ function EggPanel.init(gui: ScreenGui)
 	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
 	L.unbind(titleLabel, "Text") -- заголовок — имя яйца (ставится в render)
 
+	-- v2.5: ряд яиц (кнопка «Яйца» на HUD открывает окно и вдали от яиц — смотреть шансы)
+	local tabs = Widgets.scroller(body, {
+		Name = "EggTabs",
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -20, 0, 36),
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollBarThickness = 3,
+	})
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = tabs,
+	})
 	local sub = Widgets.label({
 		Size = UDim2.new(1, -24, 0, 24),
-		Position = UDim2.fromOffset(12, 2),
+		Position = UDim2.fromOffset(12, 40),
 		TextColor3 = Theme.TextDim,
 		ZIndex = 22,
 		Parent = body,
@@ -16682,8 +18494,8 @@ function EggPanel.init(gui: ScreenGui)
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = sub })
 
 	local list = Widgets.scroller(body, {
-		Position = UDim2.fromOffset(10, 30),
-		Size = UDim2.new(1, -20, 1, -112),
+		Position = UDim2.fromOffset(10, 68),
+		Size = UDim2.new(1, -20, 1, -164), -- снизу — сноска об удаче (2 строки) и кнопки
 	})
 	Widgets.New(
 		"UIListLayout",
@@ -16700,6 +18512,7 @@ function EggPanel.init(gui: ScreenGui)
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8, Parent = note })
 
 	local currentEgg: string? = nil
+	local nearEgg = false -- игрок у этого яйца (иначе кнопки открытия подсказывают подойти)
 	local buttons = {}
 	for i, count in ipairs(Config.HATCH_COUNTS) do
 		local n = #Config.HATCH_COUNTS
@@ -16724,9 +18537,9 @@ function EggPanel.init(gui: ScreenGui)
 	local ticketBtn = Widgets.button({
 		Text = L.k("egg.use_ticket"),
 		Color = Theme.Purple,
-		Size = UDim2.fromOffset(150, 30),
+		Size = UDim2.fromOffset(150, 28),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 0),
+		Position = UDim2.new(1, -12, 0, 38), -- строка цены (сверху — ряд яиц)
 		ZIndex = 23,
 		Visible = false,
 		OnClick = function()
@@ -16751,10 +18564,14 @@ function EggPanel.init(gui: ScreenGui)
 			have = Util.formatNumber(if egg.Currency == "Gems" then core.Gems else core.Coins),
 		})
 		for i, count in ipairs(Config.HATCH_COUNTS) do
-			buttons[i].Text = L.t("egg.hatch", { n = count, price = Util.formatNumber(egg.Price * count) })
+			buttons[i].Text = if nearEgg
+				then L.t("egg.hatch", { n = count, price = Util.formatNumber(egg.Price * count) })
+				else L.t("egg.go_closer")
+			Widgets.setEnabled(buttons[i], nearEgg, if i == 1 then Theme.Green else Theme.Blue)
 		end
 		local tickets = core.Items and core.Items["ticket_" .. egg.Id] or 0
 		ticketBtn.Visible = tickets > 0
+		sub.Size = UDim2.new(1, if tickets > 0 then -184 else -24, 0, 24)
 		ticketBtn.Text = L.t("egg.use_ticket_n", { n = tickets })
 		note.Text = L.t("egg.note", {
 			luck = string.format("%.2f", core.Luck),
@@ -16796,15 +18613,17 @@ function EggPanel.init(gui: ScreenGui)
 				Parent = row,
 			})
 			Widgets.corner(dot, 12)
-			Widgets.label({
+			local nameLabel = Widgets.label({
 				Text = L.n(def.Name),
-				Size = UDim2.new(0.38, 0, 1, -14),
-				Position = UDim2.fromOffset(40, 7),
+				Size = UDim2.new(0.44, -44, 1, -8),
+				Position = UDim2.fromOffset(40, 4),
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = rarity.Color,
 				ZIndex = 23,
 				Parent = row,
 			})
+			-- одинаковый кегль у коротких и длинных имён (длинные переносятся)
+			Widgets.New("UITextSizeConstraint", { MaxTextSize = 17, Parent = nameLabel })
 			Widgets.label({
 				Text = L.n(def.Rarity),
 				Size = UDim2.new(0.18, 0, 1, -18),
@@ -16859,17 +18678,64 @@ function EggPanel.init(gui: ScreenGui)
 		end
 	end)
 
-	Remotes.getEvent("OpenEgg").OnClientEvent:Connect(function(eggId)
-		if type(eggId) ~= "string" or not PetData.EggsById[eggId] then
-			return
+	local function drawTabs()
+		Widgets.clear(tabs)
+		local core = ClientState.Core
+		for i, egg in ipairs(PetData.Eggs) do
+			local locked = core ~= nil and egg.Zone ~= "Hub" and not (core.Zones and core.Zones[egg.Zone])
+			local b = Widgets.button({
+				Name = "Tab_" .. egg.Id,
+				Text = (if locked then "🔒 " else "") .. L.n(egg.Name),
+				Color = if egg.Id == currentEgg then Theme.Orange else Theme.BgCard,
+				Size = UDim2.fromOffset(118, 32),
+				MaxTextSize = 15,
+				ZIndex = 23,
+				OnClick = function()
+					if egg.Id ~= currentEgg then
+						currentEgg = egg.Id
+						nearEgg = false
+						lastKey = ""
+						drawTabs()
+						render()
+					end
+				end,
+				Parent = tabs,
+			})
+			b.LayoutOrder = i
 		end
+	end
+
+	local function show(eggId: string, near: boolean)
 		currentEgg = eggId
+		nearEgg = near
 		lastKey = ""
+		drawTabs()
 		render()
 		if not panel.IsOpen() then
 			panel.Open()
 		end
+	end
+	Remotes.getEvent("OpenEgg").OnClientEvent:Connect(function(eggId)
+		if type(eggId) ~= "string" or not PetData.EggsById[eggId] then
+			return
+		end
+		show(eggId, true)
 	end)
+	-- v2.5: кнопка «Яйца» на HUD — ближайшее яйцо (если рядом) или яйцо текущего мира для просмотра шансов
+	function panel.Show(eggId: string?, near: boolean)
+		local id = eggId
+		if not id then
+			local core = ClientState.Core
+			for _, egg in ipairs(PetData.Eggs) do
+				if core and egg.Zone == core.CurrentZone then
+					id = egg.Id
+					break
+				end
+			end
+			id = id or currentEgg or PetData.Eggs[1].Id
+		end
+		show(id :: string, near and eggId ~= nil)
+	end
 
 	return panel
 end
@@ -16878,22 +18744,19 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000059">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
--- Боевой HUD и эффекты: всплывающие числа, полоса босса, баннеры событий, трекер заданий,
--- кнопка Attack (клавиша Q), окно оффлайн-награды, открытие панелей по станциям хаба.
+-- Боевой HUD и эффекты: всплывающие числа, таймеры справа снизу (охота, события, буст, босс),
+-- окно оффлайн-награды, открытие панелей по станциям хаба. Удар — инструмент «Меч» в хотбаре (Hotbar, v2.5).
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
-local AttackFx = require(Shared:WaitForChild("AttackFx"))
-local QuestData = require(Shared:WaitForChild("QuestData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
 
@@ -16968,94 +18831,133 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end)
 	end)
 
-	-- ---------- статус множителей ----------
-	local status = UiKit.text(gui, "", UDim2.new(0.5, -150, 0, 67), UDim2.fromOffset(300, 19), {
-		TextXAlignment = Enum.TextXAlignment.Center,
-		TextColor3 = Theme.TextDim,
-		MaxSize = 14,
-		ZIndex = 5,
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.15,
-	})
-	status.Name = "Multipliers"
-	Widgets.corner(status, 8)
-
-	-- ---------- полоса босса ----------
-	local bossBox = Widgets.New("Frame", {
-		Name = "BossBar",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 90),
-		Size = UDim2.fromOffset(420, 44),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.1,
-		Visible = false,
-		ZIndex = 6,
-		Parent = gui,
-	})
-	Widgets.corner(bossBox, 12)
-	Widgets.stroke(bossBox, Theme.Red, 2)
-	local bossName = UiKit.text(
-		bossBox,
-		"",
-		UDim2.fromOffset(10, 2),
-		UDim2.new(1, -90, 0, 20),
-		{ Font = Theme.Font, MaxSize = 17, ZIndex = 7 }
-	)
-	local bossTimer = UiKit.text(
-		bossBox,
-		"",
-		UDim2.new(1, -90, 0, 2),
-		UDim2.fromOffset(80, 20),
-		{ TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = Theme.Gold, MaxSize = 15, ZIndex = 7 }
-	)
-	local bossBar = UiKit.bar(bossBox, UDim2.fromOffset(10, 24), UDim2.new(1, -20, 0, 14), Theme.Red)
-
-	-- ---------- события ----------
-	local events = Widgets.New("Frame", {
-		Name = "Events",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 12),
-		Size = UDim2.fromOffset(250, 150),
+	-- ---------- таймеры справа снизу (v2.5): охота, события, буст удачи, босс — компактные плашки ----------
+	local timer = Widgets.New("Frame", {
+		Name = "Timer",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -14, 1, -12),
+		Size = UDim2.fromOffset(240, 1),
 		BackgroundTransparency = 1,
 		ZIndex = 5,
 		Parent = gui,
 	})
-	UiKit.list(events, 4)
-	local huntCard = HuntHud.init(gui, events)
+	local timerScale = Widgets.New("UIScale", { Parent = timer })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 5),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		HorizontalAlignment = Enum.HorizontalAlignment.Right,
+		Parent = timer,
+	})
+	local function chip(name: string, order: number, accent: Color3): (Frame, TextLabel)
+		local f = Widgets.New("Frame", {
+			Name = name,
+			Size = UDim2.new(1, 0, 0, 30),
+			BackgroundColor3 = Color3.fromRGB(24, 26, 40),
+			BackgroundTransparency = 0.15,
+			LayoutOrder = order,
+			ZIndex = 6,
+			Parent = timer,
+		})
+		Widgets.corner(f, 10)
+		Widgets.stroke(f, accent, 2)
+		local t = Widgets.bold({
+			Name = "Text",
+			Text = "",
+			Size = UDim2.new(1, -14, 1, -6),
+			Position = UDim2.fromOffset(7, 3),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextColor3 = accent,
+			MaxTextSize = 17,
+			MinTextSize = 10,
+			Stroke = 2,
+			ZIndex = 7,
+			Parent = f,
+		})
+		return f, t
+	end
+
+	-- босс / рейд: имя, таймер и полоса
+	local bossBox = Widgets.New("Frame", {
+		Name = "BossBar",
+		Size = UDim2.new(1, 0, 0, 46),
+		BackgroundColor3 = Color3.fromRGB(24, 26, 40),
+		BackgroundTransparency = 0.1,
+		Visible = false,
+		LayoutOrder = 90,
+		ZIndex = 6,
+		Parent = timer,
+	})
+	Widgets.corner(bossBox, 10)
+	Widgets.stroke(bossBox, Theme.Red, 2)
+	local bossName = Widgets.bold({
+		Text = "",
+		Position = UDim2.fromOffset(8, 3),
+		Size = UDim2.new(1, -70, 0, 20),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Color3.fromRGB(255, 190, 90),
+		MaxTextSize = 16,
+		MinTextSize = 10,
+		Stroke = 2,
+		ZIndex = 7,
+		Parent = bossBox,
+	})
+	local bossTimer = Widgets.bold({
+		Text = "",
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -8, 0, 3),
+		Size = UDim2.fromOffset(58, 20),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextColor3 = Theme.Gold,
+		MaxTextSize = 16,
+		Stroke = 2,
+		ZIndex = 7,
+		Parent = bossBox,
+	})
+	local bossBar = UiKit.bar(bossBox, UDim2.fromOffset(8, 26), UDim2.new(1, -16, 0, 14), Theme.Red)
+	bossBar.Back.ZIndex = 7
+
+	local luckChip, luckText = chip("LuckChip", 80, Theme.Green)
+	luckChip.Visible = false
+
+	-- события: одна строка на событие «⏱ Имя 1:45»; описание — в баннере при старте
+	local huntCard = HuntHud.init(gui, timer)
 	local eventList: any = {}
 	local seenActive: { [string]: boolean } = {}
 	local EVENT_COLORS = { GoldenRain = Theme.Gold, LunarNight = Theme.Purple, BossRaid = Theme.Red }
+	local eventChips: { [string]: any } = {}
+	-- как в образце: когда ничего не идёт — одна компактная плашка «🌙 Имя через 1:45» (ближайшее событие)
+	local nextChip, nextText = chip("NextEvent", 100, Color3.fromRGB(200, 205, 230))
+	nextChip.Visible = false
 	local function drawEvents()
-		Widgets.clear(events, { "HuntCard" })
-		local n = 0
+		local soon, soonLeft, anyOn = nil, math.huge, false
 		for _, e in ipairs(eventList) do
+			local left = math.max(0, (e.Left or 0) - (os.clock() - (e.Got or 0)))
 			if e.Active then
-				n += 1
-				local card = Widgets.New("Frame", {
-					Name = "Event_" .. e.Id,
-					Size = UDim2.new(1, 0, 0, 40),
-					BackgroundColor3 = Theme.Bg,
-					BackgroundTransparency = 0.1,
-					LayoutOrder = n,
-					ZIndex = 6,
-					Parent = events,
-				})
-				Widgets.corner(card, 10)
-				Widgets.stroke(card, Theme.Gold, 2)
-				UiKit.text(
-					card,
-					L.n(e.Name) .. "  " .. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0)))),
-					UDim2.fromOffset(8, 1),
-					UDim2.new(1, -16, 0, 18),
-					{ Font = Theme.Font, TextColor3 = Theme.Gold, MaxSize = 14, ZIndex = 7 }
-				)
-				UiKit.text(
-					card,
-					L.n(e.Desc),
-					UDim2.fromOffset(8, 19),
-					UDim2.new(1, -16, 0, 18),
-					{ TextColor3 = Theme.TextDim, MaxSize = 11, ZIndex = 7 }
-				)
+				anyOn = true
+			elseif left < soonLeft then
+				soon, soonLeft = e, left
+			end
+		end
+		nextChip.Visible = soon ~= nil and not anyOn
+		if soon then
+			nextText.Text = L.t("event.next", { name = L.n(soon.Name), time = Util.formatTime(soonLeft) })
+		end
+		for i, e in ipairs(eventList) do
+			local c = eventChips[e.Id]
+			if e.Active then
+				if not c then
+					local f, t = chip("Event_" .. e.Id, 10 + i, EVENT_COLORS[e.Id] or Theme.Gold)
+					c = { Frame = f, Text = t }
+					eventChips[e.Id] = c
+				end
+				c.Text.Text = "⏱ "
+					.. L.n(e.Name)
+					.. "  "
+					.. Util.formatTime(math.max(0, e.Left - (os.clock() - (e.Got or 0))))
+			elseif c then
+				c.Frame:Destroy()
+				eventChips[e.Id] = nil
 			end
 		end
 	end
@@ -17079,106 +18981,22 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		eventList = list
 		drawEvents()
 	end)
-
-	-- ---------- трекер заданий ----------
-	local tracker = Widgets.New("Frame", {
-		Name = "Tracker",
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 170),
-		Size = UDim2.fromOffset(250, 60),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0.25,
-		Visible = false,
-		ZIndex = 5,
-		Parent = gui,
-	})
-	Widgets.corner(tracker, 10)
-	local trackerText = UiKit.text(
-		tracker,
-		"",
-		UDim2.fromOffset(8, 4),
-		UDim2.new(1, -16, 1, -8),
-		{ MaxSize = 13, TextWrapped = true, TextYAlignment = Enum.TextYAlignment.Top, ZIndex = 6 }
-	)
-
-	-- трекер — сразу под карточками событий/охоты (колонка справа не перекрывается)
-	-- колонка справа: ширина и верх зависят от раскладки (Layout, v2.4)
-	local colW, colTop, colRight = 250, 12, -12
-	local function relayout()
-		local y = colTop
-		for _, c in ipairs(events:GetChildren()) do
-			if c:IsA("GuiObject") and c.Visible then
-				y += c.Size.Y.Offset + 4
-			end
-		end
-		events.Position = UDim2.new(1, colRight, 0, colTop)
-		events.Size = UDim2.fromOffset(colW, math.max(1, y - colTop))
-		tracker.Position = UDim2.new(1, colRight, 0, y + 4)
-		tracker.Size = UDim2.fromOffset(colW, tracker.Size.Y.Offset)
-	end
 	local _ = huntCard
 
-	-- ---------- кнопка Attack ----------
-	local lastAttack = 0
-	local function attack()
-		if os.clock() - lastAttack < AttackFx.SWING_TIME then
-			return
-		end
-		lastAttack = os.clock()
-		-- Замах рисуем сразу (предсказание на клиенте), даже если врагов рядом нет — удар «в воздух», без тоста.
-		AttackFx.swing(Players.LocalPlayer, true)
-		Actions.call("Attack")
-	end
-	local attackBtn = Widgets.button({
-		Name = "Attack",
-		Text = L.k("hud.attack"),
-		Color = Theme.Red,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0.5, -380, 1, -24),
-		Size = UDim2.fromOffset(120, 56),
-		MaxTextSize = 20,
-		OnClick = attack,
-		Parent = gui,
-	})
-	UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.KeyCode == Enum.KeyCode.Q then
-			attack()
-		end
-	end)
-
-	-- ---------- раскладка под экран (v2.4, аудит В6) ----------
-	-- десктоп: как раньше; телефон: кнопка удара у правого края над прыжком, колонка справа под плашкой мира
+	-- ---------- раскладка (v2.5): справа снизу; на тач-экране не под кнопкой прыжка ----------
 	Layout.onChanged(function(lay)
-		L.bind(attackBtn, "Text", L.k(if lay.Touch then "hud.attack_touch" else "hud.attack"))
-		if lay.Mode == "wide" then
-			attackBtn.AnchorPoint = Vector2.new(0, 1)
-			attackBtn.Position = UDim2.new(0.5, -380, 1, -24)
-			attackBtn.Size = UDim2.fromOffset(120, 56)
-			status.AnchorPoint = Vector2.new(0, 0)
-			status.Position = UDim2.new(0.5, -150, 0, 67)
-			status.Size = UDim2.fromOffset(300, 19)
-			bossBox.Position = UDim2.new(0.5, 0, 0, 90)
-			bossBox.Size = UDim2.fromOffset(420, 44)
-			colW, colTop, colRight = 250, 12, -12
+		local s = if lay.Mode == "wide" then 1 elseif lay.Mode == "portrait" then 0.82 else 0.78
+		timerScale.Scale = s
+		if lay.Mode == "portrait" then
+			timer.Position = UDim2.new(1, -10, 1, -100)
+			timer.Size = UDim2.fromOffset(math.min(240, (lay.W - 20) / s * 0.62), timer.Size.Y.Offset)
+		elseif lay.Mode == "landscape" then
+			timer.Position = UDim2.new(1, if lay.Touch then -104 else -10, 1, -8)
+			timer.Size = UDim2.fromOffset(240, timer.Size.Y.Offset)
 		else
-			local rightW = Layout.rightWidth(lay)
-			attackBtn.AnchorPoint = Vector2.new(1, 1)
-			attackBtn.Size = UDim2.fromOffset(104, 52)
-			if lay.Mode == "portrait" then
-				attackBtn.Position = UDim2.new(1, -12, 1, -124)
-				bossBox.Position = UDim2.new(0.5, 0, 0, 376)
-				bossBox.Size = UDim2.fromOffset(math.min(420, lay.W - 24), 44)
-			else
-				attackBtn.Position = UDim2.new(1, -130, 1, -16)
-				bossBox.Position = UDim2.new(0.5, 0, 0, 114)
-				bossBox.Size = UDim2.fromOffset(320, 44)
-			end
-			status.AnchorPoint = Vector2.new(1, 0)
-			status.Position = UDim2.new(1, -8, 0, if lay.Mode == "portrait" then 62 else 58)
-			status.Size = UDim2.fromOffset(rightW, 18)
-			colW, colTop, colRight = rightW, Layout.eventsTop(lay), -8
+			timer.Position = UDim2.new(1, if lay.Touch then -190 else -14, 1, -12)
+			timer.Size = UDim2.fromOffset(250, timer.Size.Y.Offset)
 		end
-		relayout()
 	end)
 
 	-- ---------- оффлайн-награда ----------
@@ -17246,31 +19064,8 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		elseif core.OfflinePending == 0 then
 			offline.Visible = false
 		end
-		local parts = { L.t("hud.coin_mult", { x = ("%.2f"):format(core.CoinMult or 1) }) }
-		if (core.FriendBonus or 0) > 0 then
-			table.insert(parts, L.t("hud.friends_bonus", { n = math.floor(core.FriendBonus * 100 + 0.5) }))
-		end
-		status.Text = table.concat(parts, "   |   ")
-		-- трекер: принятые задания цепочек
-		local lines = {}
-		for _, npcId in ipairs(QuestData.NpcOrder) do
-			local st = core.Quests.Chains[npcId]
-			local step = st and st.Accepted and QuestData.Chains[npcId].Steps[st.Step]
-			if step then
-				table.insert(
-					lines,
-					L.t("hud.tracker_line", {
-						npc = L.n(QuestData.Npcs[npcId].Name),
-						title = L.n(step.Title),
-						n = st.Progress,
-						max = step.Obj.Count,
-					})
-				)
-			end
-		end
-		tracker.Visible = #lines > 0
-		trackerText.Text = table.concat(lines, "\n")
-		tracker.Size = UDim2.fromOffset(colW, 12 + #lines * 18)
+		local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
+		luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
 	end)
 
 	-- ---------- станции хаба ----------
@@ -17289,7 +19084,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		end
 		acc = 0
 		local folder = Workspace:FindFirstChild("Enemies")
-		local character = game:GetService("Players").LocalPlayer.Character
+		local character = Players.LocalPlayer.Character
 		local root = character and character:FindFirstChild("HumanoidRootPart")
 		local boss = nil
 		local bestDist = 140 -- не показываем полосу босса другой зоны
@@ -17323,7 +19118,23 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		if #eventList > 0 then
 			drawEvents()
 		end
-		relayout()
+		-- высота стека = видимые плашки (пустая рамка не перекрывает соседние кнопки)
+		local hgt = 0
+		for _, c in ipairs(timer:GetChildren()) do
+			if c:IsA("GuiObject") and c.Visible then
+				hgt += c.Size.Y.Offset + 5
+			end
+		end
+		timer.Size = UDim2.fromOffset(timer.Size.X.Offset, math.max(1, hgt))
+		local core = ClientState.Core
+		if core then
+			local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
+			luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
+			if luckChip.Visible then
+				luckText.Text = "🍀 "
+					.. L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
+			end
+		end
 	end)
 end
 
@@ -17331,7 +19142,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -17529,206 +19340,152 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
 					<Properties>
-						<string name="Name">Hud</string>
+						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
--- Основной HUD: валюты, мир, кнопка COLLECT, автосбор, меню слева.
+--[[
+	Hotbar (v2.5) — хотбар инструментов снизу по центру вместо кнопок «УДАР» и «СОБРАТЬ».
+	  1 — Меч (Tool "Sword"): выбран → клик/тап по миру = удар (AttackFx + действие Attack). Q бьёт всегда
+	      (и сам берёт меч в руку). Удар в воздухе и по суперигроку — то же действие Attack, что и раньше.
+	  2 — Магнит (Tool "Collector"): удержание клика/тапа = сбор монет (remote Click, 10 раз/с); F — один сбор.
+	  3 — Зелье: не инструмент, а быстрый слот: тап выпивает лучшее зелье из инвентаря (UseItem).
+	Стандартный Backpack Roblox скрыт (свой хотбар), клавиши 1–3 выбирают слот, повторный выбор убирает инструмент.
+]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
+local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
+local AttackFx = require(Shared:WaitForChild("AttackFx"))
 local L = require(Shared:WaitForChild("Locale"))
-local QuestData = require(Shared:WaitForChild("QuestData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
-local ZoneData = require(Shared:WaitForChild("ZoneData"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
 
-local Hud = {}
+local Hotbar = {}
 
-local MENU = {
-	{ Id = "Pets", Text = L.k("menu.Pets"), Color = Theme.Orange },
-	{ Id = "Quests", Text = L.k("menu.Quests"), Color = Theme.Blue },
-	{ Id = "Craft", Text = L.k("menu.Craft"), Color = Theme.Green },
-	{ Id = "Market", Text = L.k("menu.Market"), Color = Theme.Gold },
-	{ Id = "Zones", Text = L.k("menu.Zones"), Color = Theme.Green },
-	{ Id = "Talents", Text = L.k("menu.Talents"), Color = Theme.Purple },
-	{ Id = "Trade", Text = L.k("menu.Trade"), Color = Theme.Orange },
-	{ Id = "Boards", Text = L.k("menu.Boards"), Color = Theme.Blue },
-	{ Id = "Daily", Text = L.k("menu.Daily"), Color = Theme.Gold },
-	{ Id = "Upgrades", Text = L.k("menu.Upgrades"), Color = Theme.Blue },
-	{ Id = "Rebirth", Text = L.k("menu.Rebirth"), Color = Theme.Purple },
-	{ Id = "Shop", Text = L.k("menu.Shop"), Color = Theme.Red },
+Hotbar.SLOTS = {
+	{
+		Tool = "Sword",
+		Icon = "⚔️",
+		Text = "hotbar.sword",
+		Color = Color3.fromRGB(235, 80, 80),
+		Key = Enum.KeyCode.One,
+	},
+	{
+		Tool = "Collector",
+		Icon = "🧲",
+		Text = "hotbar.collect",
+		Color = Color3.fromRGB(255, 190, 40),
+		Key = Enum.KeyCode.Two,
+	},
+	{
+		Tool = nil,
+		Icon = "🧪",
+		Text = "hotbar.potion",
+		Color = Color3.fromRGB(170, 100, 255),
+		Key = Enum.KeyCode.Three,
+	},
 }
+-- порядок выбора зелья для быстрого слота
+Hotbar.POTIONS = { "luck_potion", "coin_elixir", "xp_treat" }
 
-local function statPill(parent: Instance, order: number, icon: string, color: Color3): TextLabel
-	local pill = Widgets.New("Frame", {
-		Name = "Stat" .. order,
-		Size = UDim2.fromOffset(190, 38),
-		Position = UDim2.fromOffset(12, 12 + (order - 1) * 44),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
-		Parent = parent,
-	})
-	Widgets.corner(pill, 19)
-	Widgets.stroke(pill, color, 2)
-	local badge = Widgets.label({
-		Text = icon,
-		Size = UDim2.fromOffset(30, 30),
-		Position = UDim2.fromOffset(4, 4),
-		BackgroundTransparency = 0,
-		BackgroundColor3 = color,
-		TextColor3 = Color3.new(1, 1, 1),
-		Font = Theme.Font,
-		Parent = pill,
-	})
-	Widgets.corner(badge, 15)
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = badge })
-	local value = Widgets.label({
-		Name = "Value",
-		Text = "…", -- v2.4 (аудит М5): плейсхолдер до первого снимка состояния
-		Size = UDim2.new(1, -46, 1, -10),
-		Position = UDim2.fromOffset(40, 5),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Font = Theme.Font,
-		Parent = pill,
-	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, Parent = value })
-	return value
+local player = Players.LocalPlayer
+local lastAttack = 0
+local holding = false
+local preferred = "Sword"
+
+local function character(): Model?
+	return player.Character
 end
 
-local function inHub(): boolean
-	local char = Players.LocalPlayer.Character
-	local root = char and char:FindFirstChild("HumanoidRootPart")
-	return root ~= nil and root.Position.Magnitude < ZoneData.HUB_RADIUS
+local function humanoid(): Humanoid?
+	local c = character()
+	return c and c:FindFirstChildOfClass("Humanoid")
 end
 
-function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
+local function findTool(name: string): Tool?
+	local c = character()
+	local t = c and c:FindFirstChild(name)
+	if t and t:IsA("Tool") then
+		return t
+	end
+	local bp = player:FindFirstChildOfClass("Backpack")
+	t = bp and bp:FindFirstChild(name)
+	return if t and t:IsA("Tool") then t else nil
+end
+
+function Hotbar.equipped(): string?
+	local c = character()
+	local t = c and c:FindFirstChildOfClass("Tool")
+	return t and t.Name
+end
+
+function Hotbar.equip(name: string)
+	local hum, tool = humanoid(), findTool(name)
+	if hum and tool and tool.Parent ~= character() then
+		hum:EquipTool(tool)
+	end
+	preferred = name
+end
+
+-- Удар: Q, клик/тап с мечом в руке. Замах рисуется сразу (предсказание), урон считает сервер.
+function Hotbar.attack()
+	if os.clock() - lastAttack < AttackFx.SWING_TIME then
+		return
+	end
+	lastAttack = os.clock()
+	if Hotbar.equipped() ~= "Sword" then
+		Hotbar.equip("Sword")
+	end
+	AttackFx.swing(player, true)
+	Actions.call("Attack")
+end
+
+function Hotbar.bestPotion(): (string?, number)
+	local core = ClientState.Core
+	local items = core and core.Items or {}
+	local total = 0
+	for _, id in ipairs(Hotbar.POTIONS) do
+		total += items[id] or 0
+	end
+	for _, id in ipairs(Hotbar.POTIONS) do
+		if (items[id] or 0) > 0 then
+			return id, total
+		end
+	end
+	return nil, 0
+end
+
+function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
+	pcall(function()
+		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
+	end)
 	local clickRemote = Remotes.getEvent("Click")
 
-	local coinsLabel = statPill(gui, 1, "$", Theme.Gold)
-	local gemsLabel = statPill(gui, 2, "G", Theme.Gem)
-	local rebirthLabel = statPill(gui, 3, "R", Theme.Purple)
-
-	-- Настройки (язык): маленькая кнопка под валютами, показывает текущий язык
-	local settingsBtn = Widgets.button({
-		Name = "Settings",
-		Text = L.t("hud.settings", { lang = string.upper(L.lang()) }),
-		Color = Theme.BgLight,
-		Position = UDim2.fromOffset(12, 12 + 3 * 44),
-		Size = UDim2.fromOffset(190, 30),
-		MaxTextSize = 16,
-		Parent = gui,
-		OnClick = function()
-			openPanel("Settings")
-		end,
-	})
-
-	-- Мир и множитель сверху по центру
-	local zoneBox = Widgets.New("Frame", {
-		Name = "ZoneBox",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 10),
-		Size = UDim2.fromOffset(300, 54),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
-		Parent = gui,
-	})
-	Widgets.corner(zoneBox, 14)
-	Widgets.stroke(zoneBox, Theme.BgLight, 2)
-	local zoneLabel = Widgets.label({
-		Text = "…",
-		Size = UDim2.new(1, -12, 0.55, -2),
-		Position = UDim2.fromOffset(6, 3),
-		Font = Theme.Font,
-		Parent = zoneBox,
-	})
-	local buffLabel = Widgets.label({
-		Size = UDim2.new(1, -12, 0.4, -2),
-		Position = UDim2.new(0, 6, 0.58, 0),
-		TextColor3 = Theme.TextDim,
-		Parent = zoneBox,
-	})
-
-	-- Кнопка COLLECT
-	local perClickLabel = Widgets.label({
-		Name = "PerClick",
+	local bar = Widgets.New("Frame", {
+		Name = "Hotbar",
 		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -104),
-		Size = UDim2.fromOffset(260, 24),
-		TextColor3 = Theme.Gold,
-		TextStrokeTransparency = 0.5,
+		Position = UDim2.new(0.5, 0, 1, -12),
+		Size = UDim2.fromOffset(3 * 72 + 2 * 10, 72),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
 		Parent = gui,
 	})
-	local collect = Widgets.button({
-		Name = "Collect",
-		Text = L.k("hud.collect"),
-		Color = Theme.Orange,
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -24),
-		Size = UDim2.fromOffset(250, 76),
-		MaxTextSize = 40,
-		Parent = gui,
-	})
-
-	local autoBtn = Widgets.button({
-		Name = "AutoToggle",
-		Text = L.k("hud.auto_on"),
-		Color = Theme.Green,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0.5, 140, 1, -24),
-		Size = UDim2.fromOffset(110, 40),
-		Visible = false,
-		Parent = gui,
-		OnClick = function()
-			local core = ClientState.Core
-			if core then
-				Actions.call("SetAutoCollect", not core.AutoCollect)
-			end
-		end,
-	})
-
-	-- Удержание кнопки = повторные клики (сервер всё равно ограничивает частоту)
-	local holding = false
-	local function popup(text: string)
-		local absPos = collect.AbsolutePosition
-		local absSize = collect.AbsoluteSize
-		-- координаты переводим в систему ScreenGui (учитывает верхний отступ GUI inset)
-		local x = absPos.X - gui.AbsolutePosition.X + absSize.X * (0.2 + math.random() * 0.6)
-		local y = absPos.Y - gui.AbsolutePosition.Y - 10
-		local l = Widgets.label({
-			Text = text,
-			Size = UDim2.fromOffset(110, 28),
-			Position = UDim2.fromOffset(x - 55, y),
-			TextColor3 = Theme.Gold,
-			TextStrokeTransparency = 0.3,
-			Font = Theme.Font,
-			ZIndex = 40,
-			Parent = gui,
-		})
-		local tw = Widgets.tween(
-			l,
-			0.7,
-			{ Position = UDim2.fromOffset(x - 55, y - 70), TextTransparency = 1, TextStrokeTransparency = 1 }
-		)
-		tw.Completed:Once(function()
-			l:Destroy()
-		end)
-	end
+	local scale = Widgets.New("UIScale", { Parent = bar })
+	local slots = {}
 	local function collectOnce()
 		clickRemote:FireServer()
 		local core = ClientState.Core
-		if core then
-			popup("+" .. Util.formatNumber(core.PerClick))
-		end
+		onCollect(core and core.PerClick)
 	end
 	local function startHolding()
 		if holding then
@@ -17742,150 +19499,531 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 			end
 		end)
 	end
-	collect.MouseButton1Down:Connect(startHolding)
-	collect.MouseButton1Up:Connect(function()
-		holding = false
-	end)
-	collect.MouseLeave:Connect(function()
-		holding = false
+
+	local function usePotion()
+		local id = Hotbar.bestPotion()
+		if not id then
+			Toasts.show("hotbar.no_potion", "info")
+			return
+		end
+		Actions.call("UseItem", id)
+	end
+
+	local function selectSlot(i: number)
+		local s = Hotbar.SLOTS[i]
+		if not s.Tool then
+			usePotion()
+			return
+		end
+		local hum = humanoid()
+		if not hum then
+			return
+		end
+		if Hotbar.equipped() == s.Tool then
+			hum:UnequipTools()
+			preferred = ""
+		else
+			Hotbar.equip(s.Tool)
+		end
+	end
+	Hotbar.select = selectSlot
+
+	for i, s in ipairs(Hotbar.SLOTS) do
+		local b = Widgets.hudButton({
+			Name = "Slot" .. i,
+			Color = Color3.fromRGB(40, 44, 62),
+			Icon = s.Icon,
+			Text = L.k(s.Text),
+			Layout = "column",
+			MaxTextSize = 15,
+			MinTextSize = 9,
+			TextStroke = 2,
+			Size = UDim2.fromOffset(72, 72),
+			Position = UDim2.fromOffset((i - 1) * 82, 0),
+			StrokeSize = 3,
+			OnClick = function()
+				selectSlot(i)
+			end,
+			Parent = bar,
+		})
+		local key = Widgets.bold({
+			Name = "Key",
+			Text = tostring(i),
+			Size = UDim2.fromOffset(18, 18),
+			Position = UDim2.fromOffset(4, 2),
+			MaxTextSize = 15,
+			Stroke = 2,
+			TextColor3 = Theme.Gold,
+			ZIndex = 8,
+			Parent = b,
+		})
+		local count = Widgets.bold({
+			Name = "Count",
+			Text = "",
+			AnchorPoint = Vector2.new(1, 0),
+			Size = UDim2.fromOffset(34, 18),
+			Position = UDim2.new(1, -4, 0, 2),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			MaxTextSize = 15,
+			Stroke = 2,
+			ZIndex = 8,
+			Parent = b,
+		})
+		slots[i] =
+			{ Button = b, Key = key, Count = count, Def = s, Stroke = b:FindFirstChildOfClass("UIStroke") }
+	end
+
+	local function paint()
+		local eq = Hotbar.equipped()
+		local _, potions = Hotbar.bestPotion()
+		for _, sl in ipairs(slots) do
+			local on = sl.Def.Tool ~= nil and sl.Def.Tool == eq
+			sl.Button.BackgroundColor3 = if on then sl.Def.Color else Color3.fromRGB(40, 44, 62)
+			if sl.Stroke then
+				sl.Stroke.Color = if on then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
+				sl.Stroke.Thickness = if on then 4 else 3
+			end
+			sl.Button:SetAttribute("Selected", on)
+			if not sl.Def.Tool then
+				sl.Count.Text = if potions > 0 then "×" .. Util.formatNumber(potions) else ""
+				sl.Button.BackgroundColor3 = if potions > 0
+					then Color3.fromRGB(70, 50, 110)
+					else Color3.fromRGB(40, 44, 62)
+			end
+		end
+	end
+	ClientState.onCore(paint)
+
+	-- инструменты: подписываемся на Activated/Deactivated каждого нового экземпляра (Backpack заполняется заново при респавне)
+	local bound = setmetatable({}, { __mode = "k" })
+	local function bind(tool: Instance)
+		if not tool:IsA("Tool") or bound[tool] then
+			return
+		end
+		bound[tool] = true
+		if tool.Name == "Sword" then
+			tool.Activated:Connect(Hotbar.attack)
+		elseif tool.Name == "Collector" then
+			tool.Activated:Connect(startHolding)
+			tool.Deactivated:Connect(function()
+				holding = false
+			end)
+			tool.Unequipped:Connect(function()
+				holding = false
+			end)
+		end
+		tool.Equipped:Connect(paint)
+		tool.Unequipped:Connect(function()
+			task.defer(paint)
+		end)
+	end
+	local function watch(container: Instance)
+		for _, c in ipairs(container:GetChildren()) do
+			bind(c)
+		end
+		container.ChildAdded:Connect(function(c)
+			bind(c)
+			task.defer(paint)
+		end)
+		container.ChildRemoved:Connect(function()
+			task.defer(paint)
+		end)
+	end
+	local function onCharacter(c: Model)
+		watch(c)
+		task.spawn(function()
+			local bp = player:WaitForChild("Backpack", 10)
+			if bp then
+				watch(bp)
+				-- в руку — последний выбранный инструмент (новичку на шаге «сбор» — магнит)
+				local core = ClientState.Core
+				local want = preferred
+				if core and core.Tutorial and core.Tutorial.Step == 1 then
+					want = "Collector"
+				end
+				if want ~= "" then
+					local tool = bp:WaitForChild(want, 10)
+					if tool and c.Parent and not c:FindFirstChildOfClass("Tool") then
+						Hotbar.equip(want)
+					end
+				end
+			end
+			paint()
+		end)
+	end
+	if player.Character then
+		onCharacter(player.Character)
+	end
+	player.CharacterAdded:Connect(onCharacter)
+
+	UserInputService.InputBegan:Connect(function(input, processed)
+		if processed then
+			return
+		end
+		if input.KeyCode == Enum.KeyCode.Q then
+			Hotbar.attack()
+		elseif input.KeyCode == Enum.KeyCode.F then
+			collectOnce()
+		else
+			for i, s in ipairs(Hotbar.SLOTS) do
+				if input.KeyCode == s.Key then
+					selectSlot(i)
+				end
+			end
+		end
 	end)
 	UserInputService.InputEnded:Connect(function(input)
 		if
 			input.UserInputType == Enum.UserInputType.MouseButton1
 			or input.UserInputType == Enum.UserInputType.Touch
-			or input.KeyCode == Enum.KeyCode.Space
 		then
 			holding = false
 		end
 	end)
-	UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.KeyCode == Enum.KeyCode.F then
-			collectOnce()
-		end
-	end)
 
-	-- Меню слева (две колонки)
-	local menu = Widgets.New("Frame", {
-		Name = "Menu",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, 60),
-		Size = UDim2.fromOffset(212, (#MENU // 2) * 44),
+	Layout.onChanged(function(lay)
+		for _, sl in ipairs(slots) do
+			sl.Key.Visible = not lay.Touch
+		end
+		scale.Scale = Hotbar.scaleFor(lay)
+		-- на телефоне в портрете хотбар не заходит под кнопку прыжка (справа внизу)
+		local dx = 0
+		if lay.Touch and lay.Mode == "portrait" then
+			dx = math.min(0, (lay.W - 104) - (lay.W / 2 + 118 * scale.Scale))
+		end
+		bar.Position = UDim2.new(0.5, dx, 1, if lay.Mode == "wide" then -12 else -8)
+	end)
+	paint()
+	return bar
+end
+
+-- Масштаб кластеров HUD (общий для Hud/Hotbar): десктоп ~1, телефон ~0.8
+function Hotbar.scaleFor(lay): number
+	if lay.Mode == "portrait" then
+		return math.clamp(lay.W / 470, 0.72, 0.9)
+	elseif lay.Mode == "landscape" then
+		return math.clamp(lay.H / 500, 0.66, 0.85)
+	end
+	return math.clamp(math.min(lay.W / 1280, lay.H / 720), 0.85, 1.15)
+end
+
+return Hotbar
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+					<Properties>
+						<string name="Name">Hud</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	Hud (v2.5) — минимум кнопок на экране, крупно и ярко (жирный шрифт, толстая чёрная обводка):
+	  * слева по центру — «Магазин» и «Индекс» + переключатель автосбора (если есть пропуск) + маленькая «Ещё»;
+	  * справа по центру — три квадратные иконки: Яйца, Питомцы, Задания (с точкой «!»);
+	  * слева снизу — монеты и самоцветы (большие числа с обводкой, без плашек);
+	  * снизу по центру — хотбар инструментов (Hotbar), справа снизу — таймеры событий (Fx «Timer»).
+	Остальные разделы (улучшения, перерождение, таланты, награды, миры, крафт, рынок, обмен, рейтинги,
+	настройки) — в листе «Ещё» (MorePanel) и на станциях хаба (ProximityPrompt + табличка).
+	Верх экрана свободен (панель Roblox и GuiInset). Каждый кластер масштабируется UIScale (Hotbar.scaleFor).
+]]
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+
+local L = require(Shared:WaitForChild("Locale"))
+local PetData = require(Shared:WaitForChild("PetData"))
+local QuestData = require(Shared:WaitForChild("QuestData"))
+local Util = require(Shared:WaitForChild("Util"))
+local Config = require(Shared:WaitForChild("Config"))
+
+local Actions = require(script.Parent.Actions)
+local ClientState = require(script.Parent.ClientState)
+local Hotbar = require(script.Parent.Hotbar)
+local Layout = require(script.Parent.Layout)
+local Theme = require(script.Parent.Theme)
+local Widgets = require(script.Parent.Widgets)
+
+local Hud = {}
+Hud.eggPanel = nil :: any -- панель яйца (UIController): кнопка «Яйца» вызывает eggPanel.Show
+Hud.state = nil :: any -- флаги «есть что забрать» для листа «Ещё»
+Hud.buttons = nil :: any
+
+Hud.LEFT = {
+	{ Id = "Shop", Name = "ShopBtn", Icon = "🛒", Text = "hud.shop", Color = Color3.fromRGB(70, 200, 80) },
+	{
+		Id = "Index",
+		Name = "IndexBtn",
+		Icon = "📖",
+		Text = "hud.index",
+		Color = Color3.fromRGB(60, 150, 255),
+	},
+}
+Hud.RIGHT = {
+	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
+	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
+	{
+		Id = "Quests",
+		Name = "QuestsBtn",
+		Icon = "📜",
+		Text = "hud.quests",
+		Color = Color3.fromRGB(80, 200, 100),
+	},
+}
+
+-- Ближайшее яйцо в радиусе открытия (клиентская подсказка; сервер всё равно проверяет дистанцию)
+function Hud.nearestEgg(): (string?, number)
+	local char = Players.LocalPlayer.Character
+	local root = char and char:FindFirstChild("HumanoidRootPart")
+	local world = Workspace:FindFirstChild("World")
+	if not root then
+		return nil, math.huge
+	end
+	local best, bd = nil, math.huge
+	for _, d in ipairs((world or Workspace):GetDescendants()) do
+		if d:IsA("Model") and string.sub(d.Name, 1, 4) == "Egg_" then
+			local id = string.sub(d.Name, 5)
+			if PetData.EggsById[id] then
+				local dist = (d:GetPivot().Position - root.Position).Magnitude
+				if dist < bd then
+					best, bd = id, dist
+				end
+			end
+		end
+	end
+	return best, bd
+end
+
+local function currencyRow(
+	parent: Instance,
+	name: string,
+	icon: string,
+	color: Color3,
+	order: number
+): TextLabel
+	local row = Widgets.New("Frame", {
+		Name = name,
+		Size = UDim2.new(1, 0, 0, 42),
 		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		Parent = parent,
+	})
+	Widgets.New("TextLabel", {
+		Name = "Icon",
+		Text = icon,
+		BackgroundTransparency = 1,
+		TextScaled = true,
+		Font = Theme.Font,
+		TextColor3 = color,
+		Size = UDim2.fromOffset(40, 40),
+		Parent = row,
+	})
+	return Widgets.bold({
+		Name = "Value",
+		Text = "…",
+		Size = UDim2.new(1, -48, 1, 0),
+		Position = UDim2.fromOffset(48, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = color,
+		Stroke = 3,
+		MaxTextSize = 36,
+		Parent = row,
+	})
+end
+
+function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
+	-- ---------- слева: Магазин / Индекс / авто / Ещё ----------
+	local left = Widgets.New("Frame", {
+		Name = "LeftButtons",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 12, 0.45, 0),
+		Size = UDim2.fromOffset(176, 236),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
 		Parent = gui,
 	})
-	local grid = Widgets.New("UIGridLayout", {
-		CellPadding = UDim2.fromOffset(6, 5),
-		CellSize = UDim2.fromOffset(103, 39),
+	local leftScale = Widgets.New("UIScale", { Parent = left })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 10),
 		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = menu,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Parent = left,
 	})
-	local dots = {}
-	for i, item in ipairs(MENU) do
-		local b = Widgets.button({
-			Name = item.Id,
-			Text = item.Text,
+	local buttons = {}
+	for i, item in ipairs(Hud.LEFT) do
+		buttons[item.Id] = Widgets.hudButton({
+			Name = item.Name,
 			Color = item.Color,
-			Size = UDim2.fromOffset(103, 39),
-			MaxTextSize = 20,
+			Icon = item.Icon,
+			Text = L.k(item.Text),
+			Size = UDim2.fromOffset(176, 60),
+			MaxTextSize = 28,
+			LayoutOrder = i,
 			OnClick = function()
 				openPanel(item.Id)
 			end,
-			Parent = menu,
+			Parent = left,
 		})
-		b.LayoutOrder = i
-		if item.Id == "Daily" or item.Id == "Quests" or item.Id == "Talents" or item.Id == "Market" then
-			local dot = Widgets.label({
-				Text = "!",
-				BackgroundTransparency = 0,
-				BackgroundColor3 = Theme.Red,
-				Size = UDim2.fromOffset(20, 20),
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.new(1, -4, 0, 4),
-				Font = Theme.Font,
-				Visible = false,
-				ZIndex = 5,
-				Parent = b,
-			})
-			Widgets.corner(dot, 10)
-			dots[item.Id] = dot
-		end
 	end
+	local autoBtn = Widgets.hudButton({
+		Name = "AutoToggle",
+		Color = Theme.Green,
+		Text = L.k("hud.auto_on"),
+		Size = UDim2.fromOffset(176, 34),
+		MaxTextSize = 18,
+		Radius = 17,
+		LayoutOrder = 3,
+		OnClick = function()
+			local core = ClientState.Core
+			if core then
+				Actions.call("SetAutoCollect", not core.AutoCollect)
+			end
+		end,
+		Parent = left,
+	})
+	autoBtn.Visible = false
+	local moreBtn = Widgets.hudButton({
+		Name = "MoreBtn",
+		Color = Color3.fromRGB(150, 90, 240),
+		Icon = "☰",
+		Text = L.k("hud.more"),
+		Size = UDim2.fromOffset(120, 40),
+		MaxTextSize = 20,
+		LayoutOrder = 4,
+		OnClick = function()
+			openPanel("More")
+		end,
+		Parent = left,
+	})
+	local moreDot = Widgets.dot(moreBtn)
 
-	-- Раскладка под экран (v2.4): десктоп — как раньше; телефон — компактные плашки, меню и кнопки у краёв
-	local pills = { coinsLabel.Parent, gemsLabel.Parent, rebirthLabel.Parent }
-	Layout.onChanged(function(lay)
-		local wide = lay.Mode == "wide"
-		local pillW, pillH, step = if wide then 190 else 150, if wide then 38 else 32, if wide then 44 else 36
-		for i, pill in ipairs(pills) do
-			pill.Size = UDim2.fromOffset(pillW, pillH)
-			pill.Position = UDim2.fromOffset(12, 12 + (i - 1) * step)
-		end
-		settingsBtn.Size = UDim2.fromOffset(pillW, if wide then 30 else 26)
-		settingsBtn.Position = UDim2.fromOffset(12, 12 + 3 * step)
-		if wide then
-			zoneBox.AnchorPoint = Vector2.new(0.5, 0)
-			zoneBox.Position = UDim2.new(0.5, 0, 0, 10)
-			zoneBox.Size = UDim2.fromOffset(300, 54)
-			perClickLabel.Position = UDim2.new(0.5, 0, 1, -104)
-			perClickLabel.Size = UDim2.fromOffset(260, 24)
-			collect.Position = UDim2.new(0.5, 0, 1, -24)
-			collect.Size = UDim2.fromOffset(250, 76)
-			autoBtn.AnchorPoint = Vector2.new(0, 1)
-			autoBtn.Position = UDim2.new(0.5, 140, 1, -24)
-			autoBtn.Size = UDim2.fromOffset(110, 40)
-			menu.AnchorPoint = Vector2.new(0, 0.5)
-			menu.Position = UDim2.new(0, 12, 0.5, 60)
-			menu.Size = UDim2.fromOffset(212, (#MENU // 2) * 44)
-			grid.CellSize = UDim2.fromOffset(103, 39)
-			grid.CellPadding = UDim2.fromOffset(6, 5)
+	-- ---------- справа: Яйца / Питомцы / Задания ----------
+	local right = Widgets.New("Frame", {
+		Name = "RightButtons",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.42, 0),
+		Size = UDim2.fromOffset(76, 3 * 76 + 2 * 10),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = gui,
+	})
+	local rightScale = Widgets.New("UIScale", { Parent = right })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = right,
+	})
+	for i, item in ipairs(Hud.RIGHT) do
+		buttons[item.Id] = Widgets.hudButton({
+			Name = item.Name,
+			Color = item.Color,
+			Icon = item.Icon,
+			Text = L.k(item.Text),
+			Layout = "column",
+			Size = UDim2.fromOffset(76, 76),
+			MaxTextSize = 16,
+			MinTextSize = 9,
+			TextStroke = 2,
+			LayoutOrder = i,
+			OnClick = function()
+				if item.Id == "Eggs" then
+					local egg, dist = Hud.nearestEgg()
+					openPanel("Egg", true)
+					local eggPanel = Hud.eggPanel
+					if eggPanel and eggPanel.Show then
+						eggPanel.Show(
+							if egg and dist <= Config.EGG_MAX_DISTANCE then egg else nil,
+							dist <= Config.EGG_MAX_DISTANCE
+						)
+					end
+				else
+					openPanel(item.Id)
+				end
+			end,
+			Parent = right,
+		})
+	end
+	local questDot = Widgets.dot(buttons.Quests)
+	local petsDot = Widgets.dot(buttons.Pets)
+
+	-- ---------- слева снизу: валюты ----------
+	local wallet = Widgets.New("Frame", {
+		Name = "Currency",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 14, 1, -12),
+		Size = UDim2.fromOffset(170, 2 * 42 + 4),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = gui,
+	})
+	local walletScale = Widgets.New("UIScale", { Parent = wallet })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		Parent = wallet,
+	})
+	local gemsLabel = currencyRow(wallet, "Gems", "💎", Theme.Gem, 1)
+	local coinsLabel = currencyRow(wallet, "Coins", "🪙", Theme.Gold, 2)
+
+	-- ---------- хотбар и всплывающие «+N» над ним ----------
+	local hotbar
+	local function popup(n: number?)
+		if not n or not hotbar then
 			return
 		end
-		local rightW = Layout.rightWidth(lay)
-		zoneBox.AnchorPoint = Vector2.new(1, 0)
-		zoneBox.Position = UDim2.new(1, -8, 0, 10)
-		zoneBox.Size = UDim2.fromOffset(rightW, if lay.Mode == "portrait" then 50 else 46)
-		perClickLabel.Position = UDim2.new(0.5, 0, 1, -80)
-		perClickLabel.Size = UDim2.fromOffset(220, 22)
-		collect.Position = UDim2.new(0.5, 0, 1, -16)
-		collect.Size = UDim2.fromOffset(170, 60)
-		autoBtn.AnchorPoint = Vector2.new(1, 1)
-		autoBtn.Size = UDim2.fromOffset(104, 34)
-		menu.AnchorPoint = Vector2.new(0, 0)
+		local s = Hotbar.scaleFor(Layout.get())
+		local l = Widgets.bold({
+			Name = "CollectPop",
+			Text = "+" .. Util.formatNumber(n),
+			AnchorPoint = Vector2.new(0.5, 1),
+			Size = UDim2.fromOffset(140, 30),
+			Position = UDim2.new(0.5, math.random(-70, 70), 1, -(90 * s + 10)),
+			TextColor3 = Theme.Gold,
+			MaxTextSize = 26,
+			Stroke = 2.5,
+			ZIndex = 40,
+			Parent = gui,
+		})
+		local p = l.Position
+		local tw = Widgets.tween(l, 0.7, { Position = p + UDim2.fromOffset(0, -60), TextTransparency = 1 })
+		tw.Completed:Once(function()
+			l:Destroy()
+		end)
+	end
+	hotbar = Hotbar.init(gui, popup)
+
+	-- ---------- раскладка (Layout): якоря + UIScale ----------
+	Layout.onChanged(function(lay)
+		local s = Hotbar.scaleFor(lay)
+		-- боковые кнопки компактнее хотбара (как в образце): на телефоне не закрывают персонажа
+		local side = s * (if lay.Mode == "wide" then 0.92 else 0.8)
+		leftScale.Scale, rightScale.Scale, walletScale.Scale = side, side, s
 		if lay.Mode == "portrait" then
-			-- меню двумя колонками под валютами; правая колонка экрана — мир и события
-			autoBtn.Position = UDim2.new(1, -12, 1, -184)
-			menu.Position = UDim2.fromOffset(12, 154)
-			grid.CellSize = UDim2.fromOffset(86, 32)
-			grid.CellPadding = UDim2.fromOffset(6, 4)
-			menu.Size = UDim2.fromOffset(178, (#MENU // 2) * 36)
+			left.Position = UDim2.new(0, 10, 0.45, 0)
+			right.Position = UDim2.new(1, -10, 0.42, 0)
+			-- над хотбаром: снизу по центру тесно (хотбар + кнопка прыжка)
+			wallet.Position = UDim2.new(0, 12, 1, -math.floor(90 * s + 4))
+		elseif lay.Mode == "landscape" then
+			left.Position = UDim2.new(0, 10, 0.45, 0)
+			right.Position = UDim2.new(1, -10, 0.4, 0)
+			wallet.Position = UDim2.new(0, 12, 1, -6)
 		else
-			-- горизонтально: меню 4×3 сверху между валютами и плашкой мира, низ экрана свободен для джойстика
-			autoBtn.Position = UDim2.new(1, -130, 1, -76)
-			menu.Position = UDim2.fromOffset(172, 10)
-			grid.CellSize = UDim2.fromOffset(80, 30)
-			grid.CellPadding = UDim2.fromOffset(4, 4)
-			menu.Size = UDim2.fromOffset(4 * 84, (#MENU // 4) * 34)
+			left.Position = UDim2.new(0, 14, 0.45, 0)
+			right.Position = UDim2.new(1, -14, 0.42, 0)
+			wallet.Position = UDim2.new(0, 16, 1, -12)
 		end
 	end)
 
-	-- Обновление при каждом снимке состояния
+	-- ---------- данные ----------
 	ClientState.onCore(function(core)
 		coinsLabel.Text = Util.formatNumber(core.Coins)
 		gemsLabel.Text = Util.formatNumber(core.Gems)
-		rebirthLabel.Text = L.t("hud.rebirth", { n = core.Rebirths })
-		local zone = ZoneData.ById[core.CurrentZone]
-		if zone then
-			zoneLabel.Text = if inHub()
-				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
-				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
-		end
-		perClickLabel.Text = L.t("hud.per_collect", { n = Util.formatNumber(core.PerClick) })
-		settingsBtn.Text = L.t("hud.settings", { lang = string.upper(L.lang()) })
 		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
-		autoBtn.Text = if core.AutoCollect then L.t("hud.auto_on") else L.t("hud.auto_off")
+		local cap = autoBtn:FindFirstChild("Caption")
+		if cap then
+			L.bind(cap, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
+		end
 		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
-		dots.Daily.Visible = core.Daily.CanClaim
-		dots.Talents.Visible = core.TalentPoints > 0
 		local readyQuest = false
 		for id, e in pairs(core.Quests.Daily) do
 			local def = QuestData.DailyById[id]
@@ -17893,7 +20031,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 				readyQuest = true
 			end
 		end
-		dots.Quests.Visible = readyQuest
+		questDot.Visible = readyQuest
+		petsDot.Visible = (core.PetMail or 0) > 0
 		local bpReady = false
 		for lv = 1, core.BattlePass.Level do
 			if not core.BattlePass.Free[tostring(lv)] then
@@ -17901,43 +20040,19 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 				break
 			end
 		end
-		dots.Market.Visible = bpReady
+		moreDot.Visible = core.Daily.CanClaim or core.TalentPoints > 0 or bpReady
+		Hud.state = { Daily = core.Daily.CanClaim, Talents = core.TalentPoints > 0, Market = bpReady }
 	end)
 
-	-- Таймер буста удачи (обновляется каждый кадр "дёшево": только текст раз в 0.5с)
-	local acc = 0
-	RunService.Heartbeat:Connect(function(dt)
-		acc += dt
-		if acc < 0.5 then
-			return
-		end
-		acc = 0
-		local core = ClientState.Core
-		if not core then
-			return
-		end
-		local zone = ZoneData.ById[core.CurrentZone]
-		if zone then
-			zoneLabel.Text = if inHub()
-				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
-				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
-		end
-		local left = core.LuckBoostEnds - ClientState.serverNow()
-		if core.LuckBoost > 1 and left > 0 then
-			buffLabel.Text = L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
-			buffLabel.TextColor3 = Theme.Green
-		else
-			buffLabel.Text = L.t("hud.luck", { x = string.format("%.2f", core.Luck) })
-			buffLabel.TextColor3 = Theme.TextDim
-		end
-	end)
+	Hud.buttons = buttons
+	return buttons
 end
 
 return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18390,7 +20505,209 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005D">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+					<Properties>
+						<string name="Name">IndexPanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	IndexPanel (v2.5) — «Индекс» питомцев: все питомцы по яйцам, открытые (когда-либо полученные) цветные
+	с именем и редкостью, закрытые — тёмный силуэт «???». Открытые считает сервер (data.Index, core.Index).
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
+local PetData = require(Shared:WaitForChild("PetData"))
+
+local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
+local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
+local Widgets = require(script.Parent.Widgets)
+
+local IndexPanel = {}
+
+-- Все питомцы яиц (без повторов, в порядке яиц) — чистая функция, покрыта тестом
+function IndexPanel.entries(): { { Egg: string, Pets: { string } } }
+	local out, seen = {}, {}
+	for _, egg in ipairs(PetData.Eggs) do
+		local list = {}
+		for _, e in ipairs(egg.Pets) do
+			if not seen[e.Id] and PetData.PetsById[e.Id] then
+				seen[e.Id] = true
+				table.insert(list, e.Id)
+			end
+		end
+		if #list > 0 then
+			table.insert(out, { Egg = egg.Id, Pets = list })
+		end
+	end
+	return out
+end
+
+function IndexPanel.count(index: { [string]: boolean }?): (number, number)
+	local open, total = 0, 0
+	for _, sec in ipairs(IndexPanel.entries()) do
+		for _, id in ipairs(sec.Pets) do
+			total += 1
+			if index and index[id] then
+				open += 1
+			end
+		end
+	end
+	return open, total
+end
+
+function IndexPanel.init(gui: ScreenGui)
+	local panel = Widgets.panel(gui, "Index")
+	local body = panel.Body
+	local head = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 26), {
+		Name = "Progress",
+		Font = Theme.Font,
+		TextColor3 = Theme.Gold,
+		MaxSize = 20,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	local bar = UiKit.bar(body, UDim2.fromOffset(40, 28), UDim2.new(1, -80, 0, 10), Theme.Gold)
+	local scroll = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 44),
+		Size = UDim2.new(1, -20, 1, -50),
+	})
+	UiKit.list(scroll, 8)
+	local cell = 96
+
+	local lastKey = ""
+	local function render(force: boolean?)
+		local core = ClientState.Core
+		local index = core and core.Index or {}
+		local open, total = IndexPanel.count(index)
+		head.Text = L.t("index.progress", { n = open, max = total })
+		bar.Set(open / math.max(1, total))
+		local keyParts = { tostring(cell), L.lang() }
+		for id in pairs(index) do
+			table.insert(keyParts, id)
+		end
+		table.sort(keyParts)
+		local key = table.concat(keyParts, ",")
+		if key == lastKey and not force then
+			return
+		end
+		lastKey = key
+		Widgets.clear(scroll)
+		for si, sec in ipairs(IndexPanel.entries()) do
+			local egg = PetData.EggsById[sec.Egg]
+			local frame = Widgets.New("Frame", {
+				Name = "Sec_" .. sec.Egg,
+				Size = UDim2.new(1, -8, 0, 26),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+				LayoutOrder = si,
+				ZIndex = 22,
+				Parent = scroll,
+			})
+			UiKit.text(frame, L.n(egg.Name), UDim2.fromOffset(4, 0), UDim2.new(1, -8, 0, 24), {
+				Font = Theme.Font,
+				MaxSize = 18,
+			})
+			local grid = Widgets.New("Frame", {
+				Name = "Grid",
+				Position = UDim2.fromOffset(0, 28),
+				Size = UDim2.fromScale(1, 0),
+				AutomaticSize = Enum.AutomaticSize.Y,
+				BackgroundTransparency = 1,
+				ZIndex = 22,
+				Parent = frame,
+			})
+			Widgets.New("UIGridLayout", {
+				CellSize = UDim2.fromOffset(cell, cell + 14),
+				CellPadding = UDim2.fromOffset(8, 8),
+				SortOrder = Enum.SortOrder.LayoutOrder,
+				Parent = grid,
+			})
+			for pi, petId in ipairs(sec.Pets) do
+				local def = PetData.PetsById[petId]
+				local known = index[petId] == true
+				local rarity = PetData.Rarities[def.Rarity]
+				local c = Widgets.New("Frame", {
+					Name = "Pet_" .. petId,
+					BackgroundColor3 = if known then Theme.BgCard else Color3.fromRGB(22, 25, 38),
+					LayoutOrder = pi,
+					ZIndex = 22,
+					Parent = grid,
+				})
+				c:SetAttribute("Known", known)
+				Widgets.corner(c, 12)
+				Widgets.stroke(c, if known then rarity.Color else Theme.BgLight, 3)
+				if known then
+					UiKit.petIcon(c, petId, nil, 46, UDim2.new(0.5, -23, 0, 8))
+				else
+					local q = Widgets.bold({
+						Text = "?",
+						Size = UDim2.fromOffset(46, 46),
+						Position = UDim2.new(0.5, -23, 0, 8),
+						BackgroundTransparency = 0,
+						BackgroundColor3 = Color3.fromRGB(20, 22, 32),
+						TextColor3 = Theme.TextDim,
+						MaxTextSize = 30,
+						ZIndex = 23,
+						Parent = c,
+					})
+					Widgets.corner(q, 23)
+				end
+				UiKit.text(
+					c,
+					if known then L.n(def.Name) else "???",
+					UDim2.fromOffset(4, 58),
+					UDim2.new(1, -8, 0, 22),
+					{
+						Font = Theme.Font,
+						MaxSize = 15,
+						MinSize = 9,
+						TextXAlignment = Enum.TextXAlignment.Center,
+						TextColor3 = if known then Theme.Text else Theme.TextDim,
+					}
+				)
+				UiKit.text(c, L.n(def.Rarity), UDim2.fromOffset(4, 82), UDim2.new(1, -8, 0, 20), {
+					MaxSize = 13,
+					MinSize = 9,
+					TextXAlignment = Enum.TextXAlignment.Center,
+					TextColor3 = if known then rarity.Color else Theme.TextDim,
+				})
+			end
+		end
+	end
+	Layout.onChanged(function(lay)
+		cell = if lay.Mode == "wide" then 96 else 84
+		if panel.IsOpen() then
+			render(true)
+		end
+	end)
+	ClientState.onCore(function()
+		if panel.IsOpen() then
+			render()
+		end
+	end)
+	L.onChanged(function()
+		if panel.IsOpen() then
+			render(true)
+		end
+	end)
+
+	return {
+		Root = panel.Root,
+		Open = function()
+			panel.Open()
+			render(true)
+		end,
+		Close = panel.Close,
+		IsOpen = panel.IsOpen,
+	}
+end
+
+return IndexPanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18508,7 +20825,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -18825,7 +21142,148 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+					<Properties>
+						<string name="Name">MorePanel</string>
+						<ProtectedString name="Source"><![CDATA[--!nonstrict
+--[[
+	MorePanel (v2.5) — лист «Ещё»: все разделы, которых больше нет на экране кнопками.
+	Каждый раздел есть и физической станцией в хабе (подойти → ProximityPrompt → то же окно).
+	Сверху — множители (монеты, друзья, удача), которые раньше висели строкой под плашкой мира.
+]]
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local L = require(Shared:WaitForChild("Locale"))
+local Util = require(Shared:WaitForChild("Util"))
+
+local ClientState = require(script.Parent.ClientState)
+local Layout = require(script.Parent.Layout)
+local Theme = require(script.Parent.Theme)
+local UiKit = require(script.Parent.UiKit)
+local Widgets = require(script.Parent.Widgets)
+
+local MorePanel = {}
+
+-- Id панели, иконка, цвет; Where — где эта станция в хабе (подсказка под кнопкой)
+MorePanel.ITEMS = {
+	{ Id = "Upgrades", Icon = "⬆️", Color = Color3.fromRGB(60, 150, 255) },
+	{ Id = "Rebirth", Icon = "♻️", Color = Color3.fromRGB(170, 90, 255) },
+	{ Id = "Talents", Icon = "✨", Color = Color3.fromRGB(140, 80, 230) },
+	{ Id = "Daily", Icon = "🎁", Color = Color3.fromRGB(255, 180, 40) },
+	{ Id = "Zones", Icon = "🌍", Color = Color3.fromRGB(60, 190, 120) },
+	{ Id = "Craft", Icon = "⚒️", Color = Color3.fromRGB(200, 130, 70) },
+	{ Id = "Market", Icon = "🏪", Color = Color3.fromRGB(240, 90, 110) },
+	{ Id = "Trade", Icon = "🤝", Color = Color3.fromRGB(255, 140, 50) },
+	{ Id = "Boards", Icon = "🏆", Color = Color3.fromRGB(230, 190, 60) },
+	{ Id = "Settings", Icon = "⚙️", Color = Color3.fromRGB(110, 120, 150) },
+}
+
+function MorePanel.init(
+	gui: ScreenGui,
+	openPanel: (string, boolean?) -> (),
+	dots: () -> { [string]: boolean }
+)
+	local panel = Widgets.panel(gui, "More")
+	local body = panel.Body
+
+	local info = UiKit.text(body, "", UDim2.fromOffset(12, 0), UDim2.new(1, -24, 0, 22), {
+		Name = "Multipliers",
+		TextColor3 = Theme.Gold,
+		Font = Theme.Font,
+		MaxSize = 17,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+	local scroll = Widgets.scroller(body, {
+		Position = UDim2.fromOffset(10, 28),
+		Size = UDim2.new(1, -20, 1, -58),
+	})
+	local grid = Widgets.New("UIGridLayout", {
+		CellSize = UDim2.fromOffset(150, 64),
+		CellPadding = UDim2.fromOffset(10, 10),
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = scroll,
+	})
+	Widgets.New("UIPadding", { PaddingTop = UDim.new(0, 6), PaddingBottom = UDim.new(0, 6), Parent = scroll })
+	UiKit.text(body, L.k("more.hint"), UDim2.new(0, 12, 1, -28), UDim2.new(1, -24, 0, 24), {
+		TextColor3 = Theme.TextDim,
+		MaxSize = 14,
+		MinSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center,
+	})
+
+	local dotOf = {}
+	for i, item in ipairs(MorePanel.ITEMS) do
+		local b = Widgets.hudButton({
+			Name = item.Id,
+			Color = item.Color,
+			Icon = item.Icon,
+			Text = L.k("menu." .. item.Id),
+			Size = UDim2.fromOffset(150, 64),
+			MaxTextSize = 20,
+			MinTextSize = 10,
+			LayoutOrder = i,
+			ZIndex = 23,
+			OnClick = function()
+				openPanel(item.Id, true)
+			end,
+			Parent = scroll,
+		})
+		dotOf[item.Id] = Widgets.dot(b)
+	end
+
+	Layout.onChanged(function(lay)
+		if lay.Mode == "portrait" then
+			grid.CellSize = UDim2.new(0.5, -10, 0, 58)
+		elseif lay.Mode == "landscape" then
+			grid.CellSize = UDim2.new(0.25, -10, 0, 56)
+		else
+			grid.CellSize = UDim2.fromOffset(150, 64)
+		end
+	end)
+
+	local function render()
+		local core = ClientState.Core
+		if not core then
+			return
+		end
+		local parts = {
+			L.t("hud.coin_mult", { x = ("%.2f"):format(core.CoinMult or 1) }),
+			L.t("hud.luck", { x = ("%.2f"):format(core.Luck or 1) }),
+		}
+		if (core.FriendBonus or 0) > 0 then
+			table.insert(parts, L.t("hud.friends_bonus", { n = math.floor(core.FriendBonus * 100 + 0.5) }))
+		end
+		table.insert(parts, L.t("hud.rebirth", { n = Util.formatNumber(core.Rebirths) }))
+		info.Text = table.concat(parts, "  ·  ")
+		local d = dots()
+		for id, dot in pairs(dotOf) do
+			dot.Visible = d[id] == true
+		end
+	end
+	ClientState.onCore(function()
+		if panel.IsOpen() then
+			render()
+		end
+	end)
+	L.onChanged(render)
+
+	return {
+		Root = panel.Root,
+		Open = function()
+			render()
+			panel.Open()
+		end,
+		Close = panel.Close,
+		IsOpen = panel.IsOpen,
+	}
+end
+
+return MorePanel
+]]></ProtectedString>
+					</Properties>
+				</Item>
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19580,7 +22038,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19838,7 +22296,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19957,7 +22415,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20064,7 +22522,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20305,7 +22763,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20487,7 +22945,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -20515,11 +22973,11 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
--- Всплывающие уведомления сверху экрана и баннеры событий (общий стек: совпавшие события не перекрывают друг друга).
+-- Всплывающие уведомления и баннеры событий (общий стек сверху по центру, v2.5 — компактные: тост 30 px, баннер 46 px).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local L = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Locale"))
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Remotes"))
@@ -20553,7 +23011,7 @@ function Toasts.show(msg: any, kind: string?)
 	local text = L.renderLocal(msg) or ""
 	local color = COLORS[kind or "info"] or Theme.Blue
 	local toast = Widgets.New("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 40),
+		Size = UDim2.new(1, 0, 0, 30),
 		BackgroundColor3 = color,
 		Text = text,
 		TextColor3 = Theme.Text,
@@ -20569,11 +23027,11 @@ function Toasts.show(msg: any, kind: string?)
 	Widgets.New("UIPadding", {
 		PaddingLeft = UDim.new(0, 10),
 		PaddingRight = UDim.new(0, 10),
-		PaddingTop = UDim.new(0, 5),
-		PaddingBottom = UDim.new(0, 5),
+		PaddingTop = UDim.new(0, 4),
+		PaddingBottom = UDim.new(0, 4),
 		Parent = toast,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 22, MinTextSize = 10, Parent = toast })
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 17, MinTextSize = 10, Parent = toast })
 	task.delay(3.2, function()
 		if toast.Parent then
 			local tw = Widgets.tween(toast, 0.4, { BackgroundTransparency = 1, TextTransparency = 1 })
@@ -20592,7 +23050,7 @@ function Toasts.banner(title: any, sub: any?, color: Color3?, seconds: number?):
 	local accent = color or Theme.Gold
 	local b = Widgets.New("Frame", {
 		Name = "Banner",
-		Size = UDim2.new(1, 0, 0, if sub then 56 else 40),
+		Size = UDim2.new(1, 0, 0, if sub then 46 else 32),
 		BackgroundColor3 = Theme.Bg,
 		BackgroundTransparency = 0.05,
 		ZIndex = 60,
@@ -20604,26 +23062,26 @@ function Toasts.banner(title: any, sub: any?, color: Color3?, seconds: number?):
 	local t = Widgets.label({
 		Name = "Title",
 		Text = L.renderLocal(title) or "",
-		Size = UDim2.new(1, -20, 0, 27),
+		Size = UDim2.new(1, -20, 0, 22),
 		Position = UDim2.fromOffset(10, 3),
 		Font = Theme.Font,
 		TextColor3 = accent,
 		ZIndex = 61,
 		Parent = b,
 	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, MinTextSize = 10, Parent = t })
+	Widgets.New("UITextSizeConstraint", { MaxTextSize = 20, MinTextSize = 10, Parent = t })
 	local s: TextLabel? = nil
 	if sub then
 		s = Widgets.label({
 			Name = "Sub",
 			Text = L.renderLocal(sub) or "",
-			Size = UDim2.new(1, -20, 0, 22),
-			Position = UDim2.fromOffset(10, 31),
+			Size = UDim2.new(1, -20, 0, 17),
+			Position = UDim2.fromOffset(10, 26),
 			TextColor3 = Theme.Text,
 			ZIndex = 61,
 			Parent = b,
 		})
-		Widgets.New("UITextSizeConstraint", { MaxTextSize = 16, MinTextSize = 9, Parent = s })
+		Widgets.New("UITextSizeConstraint", { MaxTextSize = 14, MinTextSize = 10, Parent = s })
 	end
 	task.delay(seconds or 4, function()
 		if b.Parent then
@@ -20645,32 +23103,24 @@ function Toasts.init(gui: ScreenGui)
 	container = Widgets.New("Frame", {
 		Name = "Toasts",
 		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 140), -- ниже панели мира и полосы босса
-		Size = UDim2.new(0.5, 0, 0, 260),
+		Position = UDim2.new(0.5, 0, 0, 6), -- под панелью Roblox (GuiInset), временно: тосты сами исчезают
+		Size = UDim2.new(1, -24, 0, 200),
 		BackgroundTransparency = 1,
 		ZIndex = 60,
 		Parent = gui,
 	})
-	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(460, 300), Parent = container })
-	local list = Widgets.New("UIListLayout", {
-		Padding = UDim.new(0, 6),
+	Widgets.New("UISizeConstraint", { MaxSize = Vector2.new(420, 200), Parent = container })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 4),
 		HorizontalAlignment = Enum.HorizontalAlignment.Center,
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = container,
 	})
-	-- телефон вертикально (v2.4): тосты снизу над кнопкой сбора, чтобы не закрывать шапку открытой панели
 	Layout.onChanged(function(lay)
-		if lay.Mode == "portrait" then
-			container.AnchorPoint = Vector2.new(0.5, 1)
-			container.Position = UDim2.new(0.5, 0, 1, -100)
-			container.Size = UDim2.new(1, -24, 0, 160)
-			list.VerticalAlignment = Enum.VerticalAlignment.Bottom
-		else
-			container.AnchorPoint = Vector2.new(0.5, 0)
-			container.Position = UDim2.new(0.5, 0, 0, if lay.Mode == "landscape" then 120 else 140)
-			container.Size = UDim2.new(0.5, 0, 0, 260)
-			list.VerticalAlignment = Enum.VerticalAlignment.Top
-		end
+		-- телефон горизонтально: уже, чтобы не задевать кнопки по краям
+		container.Size = if lay.Mode == "landscape"
+			then UDim2.new(0.5, 0, 0, 160)
+			else UDim2.new(1, -24, 0, 200)
 	end)
 	Remotes.getEvent("Notify").OnClientEvent:Connect(function(text, kind)
 		if type(text) == "string" or type(text) == "table" then
@@ -20683,7 +23133,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21189,17 +23639,19 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
 --[[
 	TutorialHud — плашка обучения первой сессии (v2.4, аудит Г3). Только отображение:
 	шаги и прогресс приходят в снимке ядра (core.Tutorial), всё засчитывает сервер (TutorialService).
-	Расположение зависит от раскладки (Layout): под плашкой мира на широком экране, слева над кнопкой
-	удара в портрете, под меню в ландшафте. Кнопка «Пропустить» — действие TutorialSkip.
+	v2.5: плашка над хотбаром (в портрете — между кнопками и валютами), а нужный элемент HUD подсвечивается
+	пульсирующей рамкой: «сбор» — слот 2 (магнит), «яйцо» — кнопка «Яйца», «в команду» — «Питомцы»,
+	«враг» — слот 1 (меч). Кнопка «Пропустить» — действие TutorialSkip.
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 local TutorialData = require(Shared:WaitForChild("TutorialData"))
@@ -21211,6 +23663,9 @@ local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
 local TutorialHud = {}
+
+-- шаг обучения → имя подсвечиваемого элемента HUD
+TutorialHud.TARGETS = { collect = "Slot2", hatch = "EggsBtn", equip = "PetsBtn", kill = "Slot1" }
 
 function TutorialHud.init(gui: ScreenGui)
 	local box = Widgets.New("Frame", {
@@ -21254,29 +23709,59 @@ function TutorialHud.init(gui: ScreenGui)
 
 	Layout.onChanged(function(li)
 		if li.Mode == "portrait" then
-			box.AnchorPoint = Vector2.new(0, 1)
-			-- над кнопками «УДАР»/«СОБРАТЬ», на всю ширину: текст не мельче 11 px
-			box.Position = UDim2.new(0, 12, 1, -188)
-			box.Size = UDim2.fromOffset(math.max(200, li.W - 24), 50)
+			box.AnchorPoint = Vector2.new(0.5, 0)
+			box.Position = UDim2.new(0.5, 0, 0.45, 132)
+			box.Size = UDim2.fromOffset(math.max(200, li.W - 24), 48)
 			tsc.MinTextSize = 11
 		elseif li.Mode == "landscape" then
-			box.AnchorPoint = Vector2.new(0, 0)
-			box.Position = UDim2.fromOffset(172, 118)
-			box.Size = UDim2.fromOffset(336, 44)
-			tsc.MinTextSize = 9
+			box.AnchorPoint = Vector2.new(0.5, 1)
+			box.Position = UDim2.new(0.5, 0, 1, -74)
+			box.Size = UDim2.fromOffset(math.min(330, li.W - 420), 42)
+			tsc.MinTextSize = 10
 		else
-			box.AnchorPoint = Vector2.new(0.5, 0)
-			box.Position = UDim2.new(0.5, 0, 0, 102)
-			box.Size = UDim2.fromOffset(420, 36)
-			tsc.MinTextSize = 9
+			box.AnchorPoint = Vector2.new(0.5, 1)
+			box.Position = UDim2.new(0.5, 0, 1, -100)
+			box.Size = UDim2.fromOffset(470, 40)
+			tsc.MinTextSize = 10
 		end
 	end)
+
+	-- подсветка нужного элемента HUD
+	local ring = Widgets.New("Frame", {
+		Name = "TutorialRing",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.fromScale(0.5, 0.5),
+		Size = UDim2.new(1, 12, 1, 12),
+		BackgroundTransparency = 1,
+		ZIndex = 12,
+		Visible = false,
+	})
+	Widgets.corner(ring, 16)
+	local ringStroke = Widgets.stroke(ring, Theme.Gold, 4)
+	local pulse = 0
+	RunService.Heartbeat:Connect(function(dt)
+		if ring.Visible then
+			pulse += dt * 5
+			ringStroke.Transparency = 0.15 + 0.35 * (0.5 + 0.5 * math.sin(pulse))
+		end
+	end)
+	local function highlight(name: string?)
+		local target = name and gui:FindFirstChild(name, true)
+		if target and target:IsA("GuiObject") then
+			ring.Parent = target
+			ring.Visible = true
+		else
+			ring.Visible = false
+			ring.Parent = nil
+		end
+	end
 
 	local function refresh()
 		local core = ClientState.Core
 		local t = core and core.Tutorial
 		local step = t and TutorialData.Steps[t.Step]
 		box.Visible = step ~= nil
+		highlight(step and TutorialHud.TARGETS[step.Id])
 		if not step then
 			return
 		end
@@ -21294,7 +23779,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21357,17 +23842,18 @@ function UiKit.text(
 	}
 	if opts then
 		for k, v in pairs(opts) do
-			if k ~= "MaxSize" and k ~= "NoLimit" then
+			if k ~= "MaxSize" and k ~= "MinSize" and k ~= "NoLimit" then
 				p[k] = v
 			end
 		end
 	end
 	local l = Widgets.label(p)
 	if not (opts and opts.NoLimit) then
-		New(
-			"UITextSizeConstraint",
-			{ MaxTextSize = (opts and opts.MaxSize) or 18, MinTextSize = 8, Parent = l }
-		)
+		New("UITextSizeConstraint", {
+			MaxTextSize = (opts and opts.MaxSize) or 18,
+			MinTextSize = (opts and opts.MinSize) or 8,
+			Parent = l,
+		})
 	end
 	return l
 end
@@ -21551,7 +24037,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21656,7 +24142,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21788,6 +24274,164 @@ function Widgets.button(props: { [string]: any }): TextButton
 	return btn
 end
 
+-- v2.5: жирная подпись HUD с толстой чёрной обводкой (как в популярных симуляторах)
+function Widgets.bold(props: { [string]: any }): TextLabel
+	local strokeSize = props.Stroke or 2.5
+	local maxSize = props.MaxTextSize
+	local minSize = props.MinTextSize
+	local p = {
+		BackgroundTransparency = 1,
+		Font = Theme.Font,
+		TextColor3 = Color3.new(1, 1, 1),
+		TextScaled = true,
+		TextWrapped = false,
+		Text = "",
+	}
+	for k, v in pairs(props) do
+		if k ~= "Stroke" and k ~= "MaxTextSize" and k ~= "MinTextSize" then
+			p[k] = v
+		end
+	end
+	local l: TextLabel = New("TextLabel", p)
+	New("UIStroke", {
+		Color = Color3.new(0, 0, 0),
+		Thickness = strokeSize,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Contextual,
+		LineJoinMode = Enum.LineJoinMode.Round,
+		Parent = l,
+	})
+	if maxSize or minSize then
+		New("UITextSizeConstraint", { MaxTextSize = maxSize or 100, MinTextSize = minSize or 1, Parent = l })
+	end
+	return l
+end
+
+-- v2.5: яркая кнопка HUD: толстая чёрная рамка, иконка (эмодзи) и/или жирная подпись с обводкой.
+-- props: Name, Color, Icon, Text (строка или L.k), Size, Position, AnchorPoint, Parent, OnClick, Layout ("row" | "column")
+function Widgets.hudButton(props: { [string]: any }): TextButton
+	local color: Color3 = props.Color or Theme.Blue
+	local btn: TextButton = New("TextButton", {
+		Name = props.Name,
+		Text = "",
+		AutoButtonColor = false,
+		BackgroundColor3 = color,
+		Size = props.Size or UDim2.fromOffset(64, 64),
+		Position = props.Position or UDim2.new(),
+		AnchorPoint = props.AnchorPoint or Vector2.zero,
+		LayoutOrder = props.LayoutOrder or 0,
+		ZIndex = props.ZIndex or 4,
+		Parent = props.Parent,
+	})
+	Widgets.corner(btn, props.Radius or 12)
+	New("UIStroke", {
+		Color = Color3.new(0, 0, 0),
+		Thickness = props.StrokeSize or 3,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = btn,
+	})
+	-- светлая «глянцевая» полоса сверху — объём без картинок
+	local shine = New("Frame", {
+		Name = "Shine",
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.78,
+		BorderSizePixel = 0,
+		Position = UDim2.fromOffset(4, 3),
+		Size = UDim2.new(1, -8, 0.36, 0),
+		ZIndex = (props.ZIndex or 4) + 1,
+		Parent = btn,
+	})
+	Widgets.corner(shine, 9)
+	local z = (props.ZIndex or 4) + 2
+	local column = props.Layout == "column"
+	if props.Icon then
+		New("TextLabel", {
+			Name = "Icon",
+			BackgroundTransparency = 1,
+			Text = props.Icon,
+			TextScaled = true,
+			Font = Theme.Font,
+			TextColor3 = Color3.new(1, 1, 1),
+			AnchorPoint = if column then Vector2.new(0.5, 0) else Vector2.new(0, 0.5),
+			Position = if column then UDim2.fromScale(0.5, 0.08) else UDim2.new(0, 8, 0.5, 0),
+			Size = if column then UDim2.fromScale(0.62, 0.62) else UDim2.fromOffset(30, 30),
+			ZIndex = z,
+			Parent = btn,
+		})
+	end
+	if props.Text then
+		local cap = Widgets.bold({
+			Name = "Caption",
+			Text = props.Text,
+			Stroke = props.TextStroke or 2.5,
+			MaxTextSize = props.MaxTextSize or 26,
+			MinTextSize = props.MinTextSize or 10,
+			TextXAlignment = if props.Icon and not column
+				then Enum.TextXAlignment.Left
+				else Enum.TextXAlignment.Center,
+			AnchorPoint = if column then Vector2.new(0.5, 1) else Vector2.new(0, 0.5),
+			Position = if column
+				then UDim2.new(0.5, 0, 1, -3)
+				elseif props.Icon then UDim2.fromScale(0, 0.5)
+				else UDim2.new(0, 8, 0.5, 0),
+			Size = if column then UDim2.new(1, -4, 0.3, 0) else UDim2.new(1, -16, 0.62, 0),
+			ZIndex = z,
+			Parent = btn,
+		})
+		if props.Icon and not column then
+			-- подпись справа от квадратной иконки (размеры в «дизайнерских» пикселях: UIScale кластера масштабирует всё сразу)
+			local h = (props.Size and props.Size.Y.Offset) or 56
+			local sz = math.floor(h * 0.72)
+			local icon = btn:FindFirstChild("Icon") :: TextLabel
+			icon.Size = UDim2.fromOffset(sz, sz)
+			cap.Position = UDim2.new(0, sz + 14, 0.5, 0)
+			cap.Size = UDim2.new(1, -(sz + 20), 0.62, 0)
+		end
+	end
+	local scale = New("UIScale", { Parent = btn })
+	btn.MouseEnter:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1.06 })
+	end)
+	btn.MouseLeave:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1 })
+	end)
+	btn.MouseButton1Down:Connect(function()
+		Widgets.tween(scale, 0.06, { Scale = 0.92 })
+	end)
+	btn.MouseButton1Up:Connect(function()
+		Widgets.tween(scale, 0.1, { Scale = 1 })
+	end)
+	if props.OnClick then
+		btn.Activated:Connect(props.OnClick)
+	end
+	return btn
+end
+
+-- Красная точка «!» на кнопке (есть что забрать)
+function Widgets.dot(parent: GuiObject): TextLabel
+	local d = Widgets.label({
+		Name = "Dot",
+		Text = "!",
+		Font = Theme.Font,
+		BackgroundTransparency = 0,
+		BackgroundColor3 = Theme.Red,
+		TextStrokeTransparency = 0.2,
+		Size = UDim2.fromOffset(22, 22),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Position = UDim2.new(1, -3, 0, 3),
+		Visible = false,
+		ZIndex = 9,
+		Parent = parent,
+	})
+	Widgets.corner(d, 11)
+	New("UIStroke", {
+		Color = Color3.new(0, 0, 0),
+		Thickness = 2,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = d,
+	})
+	return d
+end
+
 function Widgets.setEnabled(btn: TextButton, enabled: boolean, color: Color3?)
 	btn.Active = enabled
 	btn.BackgroundColor3 = if enabled then (color or Theme.Green) else Theme.Disabled
@@ -21818,6 +24462,10 @@ function Widgets.panel(gui: ScreenGui, title: string, onClose: (() -> ())?)
 		if lay.Mode == "portrait" then
 			root.Size = UDim2.new(1, -16, 0.68, 0)
 			root.Position = UDim2.fromScale(0.5, 0.46)
+		elseif lay.Mode == "landscape" and lay.Touch then
+			-- справа — кнопка прыжка: панель сдвинута влево, чтобы не перекрывать её кнопки
+			root.Size = UDim2.new(1, -140, 1, -24)
+			root.Position = UDim2.new(0.5, -55, 0.5, 0)
 		elseif lay.Mode == "landscape" then
 			root.Size = UDim2.new(0.84, 0, 1, -24)
 			root.Position = UDim2.fromScale(0.5, 0.5)
@@ -21930,7 +24578,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22062,7 +24710,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000006D">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000073">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22094,6 +24742,7 @@ panels.Quests = require(Modules:WaitForChild("QuestsPanel")).init(gui)
 panels.Craft = require(Modules:WaitForChild("CraftPanel")).init(gui)
 panels.Boards = require(Modules:WaitForChild("BoardsPanel")).init(gui)
 panels.Trade = require(Modules:WaitForChild("TradePanel")).init(gui)
+panels.Index = require(Modules:WaitForChild("IndexPanel")).init(gui) -- v2.5: индекс питомцев
 local Dialog = require(Modules:WaitForChild("DialogPanel")).init(gui)
 require(Modules:WaitForChild("HatchPopup")).init(gui)
 
@@ -22126,6 +24775,11 @@ require(Modules:WaitForChild("Fx")).init(gui, function(name: string)
 	openPanel(name, true)
 end)
 
+-- v2.5: лист «Ещё» — все разделы, убранные с экрана (они же — станции хаба)
+panels.More = require(Modules:WaitForChild("MorePanel")).init(gui, openPanel, function()
+	return Hud.state or {}
+end)
+Hud.eggPanel = panels.Egg
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)

@@ -1,14 +1,14 @@
 {
-  "version": "2.2.0",
+  "version": "2.3.0",
   "project": {
     "name": "PetCollectorSimulator",
     "kind": "rojo"
   },
   "scripts": {
-    "total": 97,
-    "transpiled": 97,
+    "total": 103,
+    "transpiled": 103,
     "failed": [],
-    "lines": 21587
+    "lines": 24211
   },
   "globals": {
     "used": 31,
@@ -50,6 +50,7 @@
   "libraryFunctions": {
     "supported": [
       "CFrame.Angles",
+      "CFrame.identity",
       "CFrame.lookAt",
       "CFrame.new",
       "Color3.fromHSV",
@@ -64,6 +65,7 @@
       "UDim2.fromScale",
       "UDim2.new",
       "Vector2.new",
+      "Vector2.zero",
       "Vector3.new",
       "Vector3.zero",
       "math.abs",
@@ -96,6 +98,7 @@
       "string.upper",
       "table.clone",
       "table.concat",
+      "table.create",
       "table.find",
       "table.insert",
       "table.remove",
@@ -120,6 +123,8 @@
       "PolicyService",
       "ReplicatedStorage",
       "RunService",
+      "StarterGui",
+      "StarterPack",
       "TweenService",
       "UserInputService",
       "Workspace"
@@ -147,14 +152,22 @@
       "SpawnLocation",
       "StringValue",
       "SurfaceGui",
-      "TextLabel"
+      "TextLabel",
+      "Tool",
+      "UICorner",
+      "UIStroke",
+      "WedgePart",
+      "WeldConstraint"
     ],
     "unsupported": []
   },
   "enums": {
     "supported": [
       "ApplyStrokeMode.Border",
+      "ApplyStrokeMode.Contextual",
+      "AutomaticSize.X",
       "AutomaticSize.Y",
+      "CoreGuiType.Backpack",
       "EasingDirection.In",
       "EasingDirection.Out",
       "EasingStyle",
@@ -165,23 +178,30 @@
       "Font.FredokaOne",
       "Font.GothamBold",
       "HorizontalAlignment.Center",
+      "HorizontalAlignment.Right",
       "HumanoidDisplayDistanceType.None",
       "InfoType",
       "InfoType.GamePass",
       "InfoType.Product",
       "KeyCode.E",
       "KeyCode.F",
+      "KeyCode.One",
       "KeyCode.Q",
-      "KeyCode.Space",
+      "KeyCode.Three",
+      "KeyCode.Two",
+      "LineJoinMode.Round",
       "Material",
+      "Material.Basalt",
       "Material.Cobblestone",
       "Material.Fabric",
       "Material.Glass",
       "Material.Grass",
+      "Material.Ice",
       "Material.Marble",
       "Material.Metal",
       "Material.Neon",
       "Material.Sand",
+      "Material.Sandstone",
       "Material.Slate",
       "Material.SmoothPlastic",
       "Material.Snow",
@@ -207,10 +227,11 @@
       "UserInputType.MouseButton1",
       "UserInputType.Touch",
       "VerticalAlignment.Bottom",
-      "VerticalAlignment.Center",
-      "VerticalAlignment.Top"
+      "VerticalAlignment.Center"
     ],
-    "unsupported": []
+    "unsupported": [
+      "BulkMoveMode.FireCFrameChanged"
+    ]
   },
   "methodsNotFound": [
     "GetUserInfosByUserIdsAsync"

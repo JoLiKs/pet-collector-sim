@@ -2,7 +2,7 @@
 """Браузерный (Chromium) тест реальной игры: Luau-код -> транспилятор -> эмулятор. Кликает по интерфейсу.
 Запуск:  bash tests/browser/build_ui_site.sh && python3 tests/browser/test_game_ui.py [--shots DIR]
 Печатает OK/FAIL по шагам, сохраняет скриншоты (по умолчанию docs/screens)."""
-import os, sys
+import os, re, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.environ.get('R2W_DIR', '/workspace/roblox2web') + '/tests/browser')
 sys.path.insert(0, HERE)
@@ -12,6 +12,13 @@ SHOTS = os.path.join(HERE, '..', '..', 'docs', 'screens')
 if '--shots' in sys.argv: SHOTS = sys.argv[sys.argv.index('--shots') + 1]
 os.makedirs(SHOTS, exist_ok=True)
 fails = []; oks = 0
+def open_panel(n):
+    """Раздел из HUD: справа/слева — прямые кнопки, остальное — через «Ещё»."""
+    direct = {'Pets': 'PetsBtn', 'Quests': 'QuestsBtn', 'Shop': 'ShopBtn', 'Index': 'IndexBtn'}
+    if n in direct:
+        g.click('[data-n="%s"]' % direct[n]); return
+    g.click('[data-n="MoreBtn"]'); g.wait(lambda: g.vis('[data-n="MorePanel"] [data-n="%s"]' % n), what='more ' + n)
+    g.click('[data-n="MorePanel"] [data-n="%s"]' % n)
 def check(name, cond, info=''):
     global oks
     if cond: oks += 1; print('OK  ', name)
@@ -20,24 +27,45 @@ def check(name, cond, info=''):
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
     page.goto(url + 'index.html?persist=0&seed=1&country=US')
-    g.wait(lambda: g.vis('[data-n="Collect"]'))
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     check('HUD загружен, ошибок эмулятора нет', page.evaluate('R2W.ENV.errorCount') == 0)
-    g.wait(lambda: g.vis('[data-n="Menu"]'))
     page.wait_for_timeout(1500)
     g.shot('01_hub')
-    # Атака в воздух (хаб) — без тоста No enemy in range
-    g.click('[data-n="Attack"]'); g.vwait(0.6)
+    # v2.5: компактный HUD как в Roblox-симуляторах — без сетки из 12 кнопок и без кнопки «УДАР»
+    for n in ['ShopBtn', 'IndexBtn', 'MoreBtn']:
+        check('слева: ' + n, g.vis('[data-n="LeftButtons"] [data-n="%s"]' % n))
+    for n in ['EggsBtn', 'PetsBtn', 'QuestsBtn']:
+        check('справа: ' + n, g.vis('[data-n="RightButtons"] [data-n="%s"]' % n))
+    check('валюты слева снизу', g.vis('[data-n="Currency"] [data-n="Coins"]') and g.vis('[data-n="Currency"] [data-n="Gems"]'))
+    check('хотбар: 3 слота', all(g.vis('[data-n="Hotbar"] [data-n="Slot%d"]' % i) for i in (1, 2, 3)))
+    g.wait(lambda: g.vis('[data-n="Timer"] [data-n="NextEvent"]'), what='next event chip', timeout=30)
+    nxt = g.p.locator('[data-n="Timer"] [data-n="NextEvent"]').first.inner_text()
+    check('справа снизу — компактный таймер до ближайшего события', ':' in nxt and '🌙' in nxt, nxt)
+    check('нет старого меню и кнопок УДАР/СБОР', not g.vis('[data-n="Menu"]') and not g.vis('[data-n="Attack"]') and not g.vis('[data-n="Collect"]'))
+    # Удар — выбрать меч в хотбаре и кликнуть по миру (настоящий Tool в руке); в воздухе — без тоста
+    JS_TOOL = "(()=>{const c=R2W.ENV.localPlayer.props.Character; if(!c) return ''; const t=c.children.find(x=>x.className==='Tool'); return t? t.props.Name: ''})()"
+    if g.p.evaluate(JS_TOOL) == 'Sword': page.keyboard.press('2'); g.vwait(0.4)  # повторный выбор слота снимает инструмент
+    g.click('[data-n="Hotbar"] [data-n="Slot1"]'); g.vwait(0.5)
+    check('слот 1 — меч в руке (Tool)', g.p.evaluate(JS_TOOL) == 'Sword', g.p.evaluate(JS_TOOL))
+    page.mouse.click(640, 330); g.vwait(0.6)
     toast_txt = g.p.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
     bad = ('No enemy' in toast_txt) or ('Too far' in toast_txt) or ('нет враг' in toast_txt.lower())
     check('атака в воздух без тоста', not bad, toast_txt)
     g.shot('01b_air_swing')
-    for n in ['Pets', 'Quests', 'Craft', 'Market', 'Zones', 'Talents', 'Trade', 'Boards', 'Daily', 'Upgrades', 'Rebirth', 'Shop']:
-        check('меню: кнопка ' + n, g.vis('[data-n="Menu"] [data-n="%s"]' % n))
+    page.keyboard.press('2'); g.vwait(0.4)
+    check('клавиша 2 — магнит в руке', g.p.evaluate(JS_TOOL) == 'Collector', g.p.evaluate(JS_TOOL))
+    # «Ещё»: все разделы, которых нет на главном экране
+    g.click('[data-n="MoreBtn"]')
+    g.wait(lambda: g.vis('[data-n="MorePanel"]'), what='more')
+    for n in ['Upgrades', 'Rebirth', 'Talents', 'Daily', 'Zones', 'Craft', 'Market', 'Trade', 'Boards', 'Settings']:
+        check('«Ещё»: ' + n, g.vis('[data-n="MorePanel"] [data-n="%s"]' % n))
+    g.shot('01c_more')
+    g.click('[data-n="MorePanel"] [data-n="Close"]')
     check('виден 3D-мир (меши)', page.evaluate('R2W.ENV.world3d.meshes.size') > 100)
 
     # --- ресурсы и питомцы
     g.cmd('seed')
-    g.wait(lambda: '60' in g.text('[data-n="Stat1"] [data-n="Value"]'))
+    g.wait(lambda: '60' in g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]'))
     check('валюты пришли в HUD (60K монет)', True)
     # --- вылупление из яйца хаба
     g.cmd('tp:-22,-76')
@@ -51,7 +79,17 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     check('вылупление из яйца', True)
     g.click('[data-n="HatchOverlay"] [data-n="Awesome"]')
     if g.vis('[data-n="EggPanel"]'): g.click('[data-n="EggPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Pets"]')
+    # Индекс: вылупленные питомцы открыты, остальные — «???»
+    open_panel('Index')
+    g.wait(lambda: g.vis('[data-n="IndexPanel"] [data-n="Progress"]'), what='index')
+    g.p.wait_for_timeout(600)
+    prog = g.text('[data-n="IndexPanel"] [data-n="Progress"]')
+    m = re.search(r'(\d+)\s*/\s*(\d+)', prog)
+    check('Индекс: открыто ≥ 1 из всех', bool(m) and int(m.group(1)) >= 1 and int(m.group(2)) >= 30, prog)
+    check('Индекс: закрытые показаны как ???', '???' in g.text('[data-n="IndexPanel"]'))
+    g.shot('02c_index')
+    g.click('[data-n="IndexPanel"] [data-n="Close"]')
+    open_panel('Pets')
     g.wait(lambda: len(g.names('[data-n="PetsPanel"]')) > 40)
     txt = g.text('[data-n="PetsPanel"]')
     check('инвентарь питомцев: 7 штук', 'Pets 7/30' in txt, txt[:80])
@@ -81,7 +119,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="PetsPanel"] [data-n="Close"]')
 
     # --- крафт
-    g.click('[data-n="Menu"] [data-n="Craft"]')
+    open_panel('Craft')
     g.wait(lambda: g.vis('[data-n="CraftPanel"]') and g.p.locator('[data-n="CraftPanel"] [data-n="Make"]').count() > 0)
     g.shot('05_craft')
     g.click('[data-n="CraftPanel"] [data-n="Make"]')
@@ -101,7 +139,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.shot('06_dialog')
     check('диалог NPC дошёл до «Accept quest»', 'Accept' in g.text('[data-n="DialogBox"] [data-n="Action"]'))
     g.click('[data-n="DialogBox"] [data-n="Action"]'); g.p.wait_for_timeout(1500)
-    g.click('[data-n="Menu"] [data-n="Quests"]')
+    open_panel('Quests')
     g.click('[data-n="QuestsPanel"] [data-n="Tab_Story"]')
     g.wait(lambda: 'Wood for the Bench' in g.text('[data-n="QuestsPanel"]'), what='story')
     check('квест принят и виден в журнале', 'Wood for the Bench' in g.text('[data-n="QuestsPanel"]'))
@@ -112,12 +150,12 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
 
     # --- рынок + батл-пасс
     g.cmd('tp:0,-30')
-    g.click('[data-n="Menu"] [data-n="Market"]')
+    open_panel('Market')
     g.wait(lambda: g.vis('[data-n="MarketPanel"]') and g.p.locator('[data-n="MarketPanel"] [data-n="Buy"]').count() > 0)
     g.shot('08_market')
-    before = g.text('[data-n="Stat1"] [data-n="Value"]') + g.text('[data-n="Stat2"] [data-n="Value"]')
+    before = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]') + g.text('[data-n="Currency"] [data-n="Gems"] [data-n="Value"]')
     g.click('[data-n="MarketPanel"] [data-n="Buy"]'); g.p.wait_for_timeout(2000)
-    after = g.text('[data-n="Stat1"] [data-n="Value"]') + g.text('[data-n="Stat2"] [data-n="Value"]')
+    after = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]') + g.text('[data-n="Currency"] [data-n="Gems"] [data-n="Value"]')
     check('покупка в магазине ротации списывает валюту', before != after, before + ' ' + after)
     g.cmd('bpxp:500')
     g.click('[data-n="MarketPanel"] [data-n="Tab_Battle Pass"]')
@@ -129,16 +167,16 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.click('[data-n="MarketPanel"] [data-n="Close"]')
 
     # --- таланты, топы
-    g.click('[data-n="Menu"] [data-n="Talents"]'); g.p.wait_for_timeout(800)
+    open_panel('Talents'); g.p.wait_for_timeout(800)
     check('таланты: 3 ветки', all(b in g.text('[data-n="TalentsPanel"]') for b in ['Economy', 'Combat', 'Nature']))
     g.shot('10_talents')
     g.click('[data-n="TalentsPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Boards"]'); g.wait(lambda: 'Player1' in g.text('[data-n="LeaderboardsPanel"]'), what='boards')
+    open_panel('Boards'); g.wait(lambda: 'Player1' in g.text('[data-n="LeaderboardsPanel"]'), what='boards')
     check('лидерборды показывают игрока', 'Player1' in g.text('[data-n="LeaderboardsPanel"]'), g.text('[data-n="LeaderboardsPanel"]')[:100])
     g.click('[data-n="LeaderboardsPanel"] [data-n="Close"]')
 
     # --- торговля с ботом
-    g.click('[data-n="Menu"] [data-n="Trade"]')
+    open_panel('Trade')
     g.click('[data-n="TradePanel"] [data-n="TradeBot"]')
     g.wait(lambda: g.vis('[data-n="TradePanel"] [data-n="Live"]'), what='trade live')
     g.click('[data-n="TradePanel"] [data-n="Picker"] [data-n^="Add_"]'); g.p.wait_for_timeout(1500)
@@ -154,10 +192,18 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
 
     # --- события
     g.cmd('event:GoldenRain'); g.p.wait_for_timeout(1500)
-    check('баннер события', g.p.locator('[data-n="Events"] [data-n^="Event_"]').count() >= 1)
+    check('событие — компактная плашка в таймере справа снизу', g.p.locator('[data-n="Timer"] [data-n^="Event_"]').count() >= 1)
+    check('во время события «через N:NN» скрыто', not g.vis('[data-n="Timer"] [data-n="NextEvent"]'))
+    # станции хаба: разделы из бывшего меню открываются и у NPC/объектов (ProximityPrompt)
+    g.cmd('tp:-26,12')
+    g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='daily prompt')
+    page.keyboard.press('e')
+    g.wait(lambda: g.vis('[data-n="Daily RewardsPanel"]'), what='daily panel')
+    check('станция «Сундук наград» открывает ежедневные награды', True)
+    g.click('[data-n="Daily RewardsPanel"] [data-n="Close"]')
 
     # --- мир: бой
-    g.click('[data-n="Menu"] [data-n="Zones"]'); g.p.wait_for_timeout(800)
+    open_panel('Zones'); g.p.wait_for_timeout(800)
     g.shot('12_worlds')
     g.p.evaluate("document.querySelector('[data-n=ZonesPanel] [data-n=Close], [data-n=WorldsPanel] [data-n=Close]').click()")
     g.cmd('tp:520,40')
@@ -168,17 +214,19 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     hurt = 0
     for _ in range(12):
         g.cmd('tpenemy'); g.vwait(0.5)
-        g.click('[data-n="Attack"]'); g.vwait(0.6)
+        page.keyboard.press('q'); g.vwait(0.6)
         hurt = g.p.evaluate(JS_HURT)
         if hurt:
             break
     g.shot('13_combat')
+    nvis = g.p.evaluate("(R2W.ENV.workspace.findChild('EnemyVisuals')||{children:[]}).children.length")
+    check('враги нарисованы клиентом (EnemyVisuals)', nvis >= 3, nvis)
     check('удар игрока/питомцев наносит урон врагам', hurt > 0, 'hurt=%s' % hurt)
     # Добьём врага: Kill Fx с текстом лута и/или LootOrb в мире
-    hud0 = g.text('[data-n="Stat1"] [data-n="Value"]')
+    hud0 = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]')
     killed = False
     for _ in range(30):
-        g.cmd('tpenemy'); g.click('[data-n="Attack"]'); g.vwait(0.35)
+        g.cmd('tpenemy'); page.mouse.click(640, 330); g.vwait(0.35)
         if g.p.locator('[data-n^="Fx_Kill"]').count() > 0:
             killed = True
             break
@@ -190,7 +238,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.vwait(1.2)
     orbs = g.p.evaluate("(()=>{const f=R2W.ENV.workspace.findChild('Enemies'); if(!f) return 0; return f.children.filter(c=>c.props&&c.props.Name==='LootOrb').length})()")
     kill_fx = g.p.locator('[data-n^="Fx_Kill"]').count()
-    hud1 = g.text('[data-n="Stat1"] [data-n="Value"]')
+    hud1 = g.text('[data-n="Currency"] [data-n="Coins"] [data-n="Value"]')
     check('убийство даёт лут (fx/orbs/монеты)', kill_fx > 0 or orbs > 0 or hud1 != hud0, 'fx=%s orbs=%s hud %s→%s' % (kill_fx, orbs, hud0, hud1))
     g.shot('13b_loot')
     g.cmd('event:BossRaid')

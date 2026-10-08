@@ -77,6 +77,7 @@ local function makeTemplate(): Data
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено
 		PetMail = {}, -- v2.4: питомцы-награды, не поместившиеся в инвентарь ({ Id, Variant }), выдаются при освобождении места
+		Index = {}, -- v2.5: [petId] = true — питомцы, которых игрок когда-либо получал («Индекс»)
 		Joined = os.time(),
 	}
 end

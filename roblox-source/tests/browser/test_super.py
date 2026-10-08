@@ -36,7 +36,7 @@ def card(page): return page.evaluate("(()=>{const t=document.querySelector('[dat
 with serve('/tmp/gw_ui') as url, browser() as ctx:
     page = ctx.new_page(); errs = collect(page); g = G(page); g.shots = SHOTS
     page.goto(url + 'index.html?persist=0&seed=1&country=RU')
-    g.wait(lambda: g.vis('[data-n="Collect"]')); page.wait_for_timeout(2000)
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar'); page.wait_for_timeout(2000)
     g.cmd('seed'); g.cmd('tp:0,10'); g.vwait(1.0)
     nb = page.evaluate("(()=>{const b=R2W.ENV.workspace.findChild('Bots'); return b? b.children.length: 0})()")
     check('в демо есть 3 бота-игрока (DEMO_BOTS)', nb == 3, nb)
@@ -61,11 +61,11 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     check('аура суперигрока (оболочка + кольцо)', fx.get('SuperAura', 0) == 1 and fx.get('SuperRing', 0) >= 10, fx)
     page.evaluate('R2W.ENV.paused=true'); page.wait_for_timeout(500); g.shot('24_super_hunt'); page.evaluate('R2W.ENV.paused=false')
 
-    # удары по суперигроку кнопкой УДАР
+    # удары по суперигроку: v2.5 — меч из хотбара (Q / клик по миру), кнопки «УДАР» больше нет
     hp0 = page.evaluate(TARGET)['hp']; low = hp0; stopped = False; shot_stop = False
-    for i in range(140):
+    for i in range(420):  # до конца раунда (клавиша Q быстрее старого клика по кнопке)
         if i % 3 == 0: g.cmd('super:near')
-        g.click('[data-n="Attack"]'); page.wait_for_timeout(120)
+        page.keyboard.press('q'); page.wait_for_timeout(120)
         t = page.evaluate(TARGET)
         if t is None:
             stopped = True
@@ -105,14 +105,14 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
     g.vwait(4.6)   # боты подбегают, баннер уходит
     wave = None
     for _ in range(6):
-        g.click('[data-n="Attack"]')
+        page.keyboard.press('q')
         for _ in range(30):
             fx = page.evaluate(FX)
             if fx.get('ShockShard', 0) >= 10: wave = fx; page.evaluate('R2W.ENV.paused=true'); break
             page.wait_for_timeout(15)
         if wave: break
         g.vwait(2.4)
-    check('ударная волна по кнопке УДАР', bool(wave), fx)
+    check('ударная волна по удару мечом (Q)', bool(wave), fx)
     page.evaluate('R2W.ENV.cam.dist=26; R2W.ENV.cam.pitch=0.35')
     page.wait_for_timeout(400); g.shot('23_super_me'); page.evaluate('R2W.ENV.paused=false')
     t = page.evaluate(TARGET)
@@ -121,7 +121,7 @@ with serve('/tmp/gw_ui') as url, browser() as ctx:
         g.vwait(1.0); t = page.evaluate(TARGET)
     check('боты-охотники бьют суперигрока', t and t['hp'] < t['max'], t)
     # v2.4 (аудит К1): награда за удержание — только активному суперигроку (≥ 2 ударных волн или движение)
-    g.vwait(2.4); g.click('[data-n="Attack"]'); g.vwait(0.5)
+    g.vwait(2.4); page.keyboard.press('q'); g.vwait(0.5)
     g.cmd('super:end')
     g.wait(lambda: 'ПОБЕДА' in toasts(page) or 'ТЕБЯ ОСТАНОВИЛИ' in toasts(page), timeout=15, what='end banner')
     tt = toasts(page)

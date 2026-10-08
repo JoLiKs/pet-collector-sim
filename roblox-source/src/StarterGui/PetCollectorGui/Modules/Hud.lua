@@ -1,357 +1,313 @@
 --!nonstrict
--- Основной HUD: валюты, мир, кнопка COLLECT, автосбор, меню слева.
+--[[
+	Hud (v2.5) — минимум кнопок на экране, крупно и ярко (жирный шрифт, толстая чёрная обводка):
+	  * слева по центру — «Магазин» и «Индекс» + переключатель автосбора (если есть пропуск) + маленькая «Ещё»;
+	  * справа по центру — три квадратные иконки: Яйца, Питомцы, Задания (с точкой «!»);
+	  * слева снизу — монеты и самоцветы (большие числа с обводкой, без плашек);
+	  * снизу по центру — хотбар инструментов (Hotbar), справа снизу — таймеры событий (Fx «Timer»).
+	Остальные разделы (улучшения, перерождение, таланты, награды, миры, крафт, рынок, обмен, рейтинги,
+	настройки) — в листе «Ещё» (MorePanel) и на станциях хаба (ProximityPrompt + табличка).
+	Верх экрана свободен (панель Roblox и GuiInset). Каждый кластер масштабируется UIScale (Hotbar.scaleFor).
+]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local L = require(Shared:WaitForChild("Locale"))
+local PetData = require(Shared:WaitForChild("PetData"))
 local QuestData = require(Shared:WaitForChild("QuestData"))
-local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
-local ZoneData = require(Shared:WaitForChild("ZoneData"))
+local Config = require(Shared:WaitForChild("Config"))
 
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
+local Hotbar = require(script.Parent.Hotbar)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
 local Widgets = require(script.Parent.Widgets)
 
 local Hud = {}
+Hud.eggPanel = nil :: any -- панель яйца (UIController): кнопка «Яйца» вызывает eggPanel.Show
+Hud.state = nil :: any -- флаги «есть что забрать» для листа «Ещё»
+Hud.buttons = nil :: any
 
-local MENU = {
-	{ Id = "Pets", Text = L.k("menu.Pets"), Color = Theme.Orange },
-	{ Id = "Quests", Text = L.k("menu.Quests"), Color = Theme.Blue },
-	{ Id = "Craft", Text = L.k("menu.Craft"), Color = Theme.Green },
-	{ Id = "Market", Text = L.k("menu.Market"), Color = Theme.Gold },
-	{ Id = "Zones", Text = L.k("menu.Zones"), Color = Theme.Green },
-	{ Id = "Talents", Text = L.k("menu.Talents"), Color = Theme.Purple },
-	{ Id = "Trade", Text = L.k("menu.Trade"), Color = Theme.Orange },
-	{ Id = "Boards", Text = L.k("menu.Boards"), Color = Theme.Blue },
-	{ Id = "Daily", Text = L.k("menu.Daily"), Color = Theme.Gold },
-	{ Id = "Upgrades", Text = L.k("menu.Upgrades"), Color = Theme.Blue },
-	{ Id = "Rebirth", Text = L.k("menu.Rebirth"), Color = Theme.Purple },
-	{ Id = "Shop", Text = L.k("menu.Shop"), Color = Theme.Red },
+Hud.LEFT = {
+	{ Id = "Shop", Name = "ShopBtn", Icon = "🛒", Text = "hud.shop", Color = Color3.fromRGB(70, 200, 80) },
+	{
+		Id = "Index",
+		Name = "IndexBtn",
+		Icon = "📖",
+		Text = "hud.index",
+		Color = Color3.fromRGB(60, 150, 255),
+	},
+}
+Hud.RIGHT = {
+	{ Id = "Eggs", Name = "EggsBtn", Icon = "🥚", Text = "hud.eggs", Color = Color3.fromRGB(240, 70, 70) },
+	{ Id = "Pets", Name = "PetsBtn", Icon = "🐾", Text = "hud.pets", Color = Color3.fromRGB(255, 150, 40) },
+	{
+		Id = "Quests",
+		Name = "QuestsBtn",
+		Icon = "📜",
+		Text = "hud.quests",
+		Color = Color3.fromRGB(80, 200, 100),
+	},
 }
 
-local function statPill(parent: Instance, order: number, icon: string, color: Color3): TextLabel
-	local pill = Widgets.New("Frame", {
-		Name = "Stat" .. order,
-		Size = UDim2.fromOffset(190, 38),
-		Position = UDim2.fromOffset(12, 12 + (order - 1) * 44),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
-		Parent = parent,
-	})
-	Widgets.corner(pill, 19)
-	Widgets.stroke(pill, color, 2)
-	local badge = Widgets.label({
-		Text = icon,
-		Size = UDim2.fromOffset(30, 30),
-		Position = UDim2.fromOffset(4, 4),
-		BackgroundTransparency = 0,
-		BackgroundColor3 = color,
-		TextColor3 = Color3.new(1, 1, 1),
-		Font = Theme.Font,
-		Parent = pill,
-	})
-	Widgets.corner(badge, 15)
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = badge })
-	local value = Widgets.label({
-		Name = "Value",
-		Text = "…", -- v2.4 (аудит М5): плейсхолдер до первого снимка состояния
-		Size = UDim2.new(1, -46, 1, -10),
-		Position = UDim2.fromOffset(40, 5),
-		TextXAlignment = Enum.TextXAlignment.Left,
-		Font = Theme.Font,
-		Parent = pill,
-	})
-	Widgets.New("UITextSizeConstraint", { MaxTextSize = 24, Parent = value })
-	return value
-end
-
-local function inHub(): boolean
+-- Ближайшее яйцо в радиусе открытия (клиентская подсказка; сервер всё равно проверяет дистанцию)
+function Hud.nearestEgg(): (string?, number)
 	local char = Players.LocalPlayer.Character
 	local root = char and char:FindFirstChild("HumanoidRootPart")
-	return root ~= nil and root.Position.Magnitude < ZoneData.HUB_RADIUS
+	local world = Workspace:FindFirstChild("World")
+	if not root then
+		return nil, math.huge
+	end
+	local best, bd = nil, math.huge
+	for _, d in ipairs((world or Workspace):GetDescendants()) do
+		if d:IsA("Model") and string.sub(d.Name, 1, 4) == "Egg_" then
+			local id = string.sub(d.Name, 5)
+			if PetData.EggsById[id] then
+				local dist = (d:GetPivot().Position - root.Position).Magnitude
+				if dist < bd then
+					best, bd = id, dist
+				end
+			end
+		end
+	end
+	return best, bd
 end
 
-function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
-	local clickRemote = Remotes.getEvent("Click")
-
-	local coinsLabel = statPill(gui, 1, "$", Theme.Gold)
-	local gemsLabel = statPill(gui, 2, "G", Theme.Gem)
-	local rebirthLabel = statPill(gui, 3, "R", Theme.Purple)
-
-	-- Настройки (язык): маленькая кнопка под валютами, показывает текущий язык
-	local settingsBtn = Widgets.button({
-		Name = "Settings",
-		Text = L.t("hud.settings", { lang = string.upper(L.lang()) }),
-		Color = Theme.BgLight,
-		Position = UDim2.fromOffset(12, 12 + 3 * 44),
-		Size = UDim2.fromOffset(190, 30),
-		MaxTextSize = 16,
-		Parent = gui,
-		OnClick = function()
-			openPanel("Settings")
-		end,
+local function currencyRow(
+	parent: Instance,
+	name: string,
+	icon: string,
+	color: Color3,
+	order: number
+): TextLabel
+	local row = Widgets.New("Frame", {
+		Name = name,
+		Size = UDim2.new(1, 0, 0, 42),
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		Parent = parent,
 	})
-
-	-- Мир и множитель сверху по центру
-	local zoneBox = Widgets.New("Frame", {
-		Name = "ZoneBox",
-		AnchorPoint = Vector2.new(0.5, 0),
-		Position = UDim2.new(0.5, 0, 0, 10),
-		Size = UDim2.fromOffset(300, 54),
-		BackgroundColor3 = Theme.Bg,
-		BackgroundTransparency = 0, -- сплошной фон: надписи мира не просвечивают сквозь панель
-		Parent = gui,
-	})
-	Widgets.corner(zoneBox, 14)
-	Widgets.stroke(zoneBox, Theme.BgLight, 2)
-	local zoneLabel = Widgets.label({
-		Text = "…",
-		Size = UDim2.new(1, -12, 0.55, -2),
-		Position = UDim2.fromOffset(6, 3),
+	Widgets.New("TextLabel", {
+		Name = "Icon",
+		Text = icon,
+		BackgroundTransparency = 1,
+		TextScaled = true,
 		Font = Theme.Font,
-		Parent = zoneBox,
+		TextColor3 = color,
+		Size = UDim2.fromOffset(40, 40),
+		Parent = row,
 	})
-	local buffLabel = Widgets.label({
-		Size = UDim2.new(1, -12, 0.4, -2),
-		Position = UDim2.new(0, 6, 0.58, 0),
-		TextColor3 = Theme.TextDim,
-		Parent = zoneBox,
+	return Widgets.bold({
+		Name = "Value",
+		Text = "…",
+		Size = UDim2.new(1, -48, 1, 0),
+		Position = UDim2.fromOffset(48, 0),
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = color,
+		Stroke = 3,
+		MaxTextSize = 36,
+		Parent = row,
 	})
+end
 
-	-- Кнопка COLLECT
-	local perClickLabel = Widgets.label({
-		Name = "PerClick",
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -104),
-		Size = UDim2.fromOffset(260, 24),
-		TextColor3 = Theme.Gold,
-		TextStrokeTransparency = 0.5,
+function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
+	-- ---------- слева: Магазин / Индекс / авто / Ещё ----------
+	local left = Widgets.New("Frame", {
+		Name = "LeftButtons",
+		AnchorPoint = Vector2.new(0, 0.5),
+		Position = UDim2.new(0, 12, 0.45, 0),
+		Size = UDim2.fromOffset(176, 236),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
 		Parent = gui,
 	})
-	local collect = Widgets.button({
-		Name = "Collect",
-		Text = L.k("hud.collect"),
-		Color = Theme.Orange,
-		AnchorPoint = Vector2.new(0.5, 1),
-		Position = UDim2.new(0.5, 0, 1, -24),
-		Size = UDim2.fromOffset(250, 76),
-		MaxTextSize = 40,
-		Parent = gui,
+	local leftScale = Widgets.New("UIScale", { Parent = left })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Center,
+		Parent = left,
 	})
-
-	local autoBtn = Widgets.button({
+	local buttons = {}
+	for i, item in ipairs(Hud.LEFT) do
+		buttons[item.Id] = Widgets.hudButton({
+			Name = item.Name,
+			Color = item.Color,
+			Icon = item.Icon,
+			Text = L.k(item.Text),
+			Size = UDim2.fromOffset(176, 60),
+			MaxTextSize = 28,
+			LayoutOrder = i,
+			OnClick = function()
+				openPanel(item.Id)
+			end,
+			Parent = left,
+		})
+	end
+	local autoBtn = Widgets.hudButton({
 		Name = "AutoToggle",
-		Text = L.k("hud.auto_on"),
 		Color = Theme.Green,
-		AnchorPoint = Vector2.new(0, 1),
-		Position = UDim2.new(0.5, 140, 1, -24),
-		Size = UDim2.fromOffset(110, 40),
-		Visible = false,
-		Parent = gui,
+		Text = L.k("hud.auto_on"),
+		Size = UDim2.fromOffset(176, 34),
+		MaxTextSize = 18,
+		Radius = 17,
+		LayoutOrder = 3,
 		OnClick = function()
 			local core = ClientState.Core
 			if core then
 				Actions.call("SetAutoCollect", not core.AutoCollect)
 			end
 		end,
+		Parent = left,
 	})
+	autoBtn.Visible = false
+	local moreBtn = Widgets.hudButton({
+		Name = "MoreBtn",
+		Color = Color3.fromRGB(150, 90, 240),
+		Icon = "☰",
+		Text = L.k("hud.more"),
+		Size = UDim2.fromOffset(120, 40),
+		MaxTextSize = 20,
+		LayoutOrder = 4,
+		OnClick = function()
+			openPanel("More")
+		end,
+		Parent = left,
+	})
+	local moreDot = Widgets.dot(moreBtn)
 
-	-- Удержание кнопки = повторные клики (сервер всё равно ограничивает частоту)
-	local holding = false
-	local function popup(text: string)
-		local absPos = collect.AbsolutePosition
-		local absSize = collect.AbsoluteSize
-		-- координаты переводим в систему ScreenGui (учитывает верхний отступ GUI inset)
-		local x = absPos.X - gui.AbsolutePosition.X + absSize.X * (0.2 + math.random() * 0.6)
-		local y = absPos.Y - gui.AbsolutePosition.Y - 10
-		local l = Widgets.label({
-			Text = text,
-			Size = UDim2.fromOffset(110, 28),
-			Position = UDim2.fromOffset(x - 55, y),
+	-- ---------- справа: Яйца / Питомцы / Задания ----------
+	local right = Widgets.New("Frame", {
+		Name = "RightButtons",
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -12, 0.42, 0),
+		Size = UDim2.fromOffset(76, 3 * 76 + 2 * 10),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = gui,
+	})
+	local rightScale = Widgets.New("UIScale", { Parent = right })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 10),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = right,
+	})
+	for i, item in ipairs(Hud.RIGHT) do
+		buttons[item.Id] = Widgets.hudButton({
+			Name = item.Name,
+			Color = item.Color,
+			Icon = item.Icon,
+			Text = L.k(item.Text),
+			Layout = "column",
+			Size = UDim2.fromOffset(76, 76),
+			MaxTextSize = 16,
+			MinTextSize = 9,
+			TextStroke = 2,
+			LayoutOrder = i,
+			OnClick = function()
+				if item.Id == "Eggs" then
+					local egg, dist = Hud.nearestEgg()
+					openPanel("Egg", true)
+					local eggPanel = Hud.eggPanel
+					if eggPanel and eggPanel.Show then
+						eggPanel.Show(
+							if egg and dist <= Config.EGG_MAX_DISTANCE then egg else nil,
+							dist <= Config.EGG_MAX_DISTANCE
+						)
+					end
+				else
+					openPanel(item.Id)
+				end
+			end,
+			Parent = right,
+		})
+	end
+	local questDot = Widgets.dot(buttons.Quests)
+	local petsDot = Widgets.dot(buttons.Pets)
+
+	-- ---------- слева снизу: валюты ----------
+	local wallet = Widgets.New("Frame", {
+		Name = "Currency",
+		AnchorPoint = Vector2.new(0, 1),
+		Position = UDim2.new(0, 14, 1, -12),
+		Size = UDim2.fromOffset(170, 2 * 42 + 4),
+		BackgroundTransparency = 1,
+		ZIndex = 4,
+		Parent = gui,
+	})
+	local walletScale = Widgets.New("UIScale", { Parent = wallet })
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		VerticalAlignment = Enum.VerticalAlignment.Bottom,
+		Parent = wallet,
+	})
+	local gemsLabel = currencyRow(wallet, "Gems", "💎", Theme.Gem, 1)
+	local coinsLabel = currencyRow(wallet, "Coins", "🪙", Theme.Gold, 2)
+
+	-- ---------- хотбар и всплывающие «+N» над ним ----------
+	local hotbar
+	local function popup(n: number?)
+		if not n or not hotbar then
+			return
+		end
+		local s = Hotbar.scaleFor(Layout.get())
+		local l = Widgets.bold({
+			Name = "CollectPop",
+			Text = "+" .. Util.formatNumber(n),
+			AnchorPoint = Vector2.new(0.5, 1),
+			Size = UDim2.fromOffset(140, 30),
+			Position = UDim2.new(0.5, math.random(-70, 70), 1, -(90 * s + 10)),
 			TextColor3 = Theme.Gold,
-			TextStrokeTransparency = 0.3,
-			Font = Theme.Font,
+			MaxTextSize = 26,
+			Stroke = 2.5,
 			ZIndex = 40,
 			Parent = gui,
 		})
-		local tw = Widgets.tween(
-			l,
-			0.7,
-			{ Position = UDim2.fromOffset(x - 55, y - 70), TextTransparency = 1, TextStrokeTransparency = 1 }
-		)
+		local p = l.Position
+		local tw = Widgets.tween(l, 0.7, { Position = p + UDim2.fromOffset(0, -60), TextTransparency = 1 })
 		tw.Completed:Once(function()
 			l:Destroy()
 		end)
 	end
-	local function collectOnce()
-		clickRemote:FireServer()
-		local core = ClientState.Core
-		if core then
-			popup("+" .. Util.formatNumber(core.PerClick))
-		end
-	end
-	local function startHolding()
-		if holding then
-			return
-		end
-		holding = true
-		task.spawn(function()
-			while holding do
-				collectOnce()
-				task.wait(0.1)
-			end
-		end)
-	end
-	collect.MouseButton1Down:Connect(startHolding)
-	collect.MouseButton1Up:Connect(function()
-		holding = false
-	end)
-	collect.MouseLeave:Connect(function()
-		holding = false
-	end)
-	UserInputService.InputEnded:Connect(function(input)
-		if
-			input.UserInputType == Enum.UserInputType.MouseButton1
-			or input.UserInputType == Enum.UserInputType.Touch
-			or input.KeyCode == Enum.KeyCode.Space
-		then
-			holding = false
-		end
-	end)
-	UserInputService.InputBegan:Connect(function(input, processed)
-		if not processed and input.KeyCode == Enum.KeyCode.F then
-			collectOnce()
-		end
-	end)
+	hotbar = Hotbar.init(gui, popup)
 
-	-- Меню слева (две колонки)
-	local menu = Widgets.New("Frame", {
-		Name = "Menu",
-		AnchorPoint = Vector2.new(0, 0.5),
-		Position = UDim2.new(0, 12, 0.5, 60),
-		Size = UDim2.fromOffset(212, (#MENU // 2) * 44),
-		BackgroundTransparency = 1,
-		Parent = gui,
-	})
-	local grid = Widgets.New("UIGridLayout", {
-		CellPadding = UDim2.fromOffset(6, 5),
-		CellSize = UDim2.fromOffset(103, 39),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = menu,
-	})
-	local dots = {}
-	for i, item in ipairs(MENU) do
-		local b = Widgets.button({
-			Name = item.Id,
-			Text = item.Text,
-			Color = item.Color,
-			Size = UDim2.fromOffset(103, 39),
-			MaxTextSize = 20,
-			OnClick = function()
-				openPanel(item.Id)
-			end,
-			Parent = menu,
-		})
-		b.LayoutOrder = i
-		if item.Id == "Daily" or item.Id == "Quests" or item.Id == "Talents" or item.Id == "Market" then
-			local dot = Widgets.label({
-				Text = "!",
-				BackgroundTransparency = 0,
-				BackgroundColor3 = Theme.Red,
-				Size = UDim2.fromOffset(20, 20),
-				AnchorPoint = Vector2.new(0.5, 0.5),
-				Position = UDim2.new(1, -4, 0, 4),
-				Font = Theme.Font,
-				Visible = false,
-				ZIndex = 5,
-				Parent = b,
-			})
-			Widgets.corner(dot, 10)
-			dots[item.Id] = dot
-		end
-	end
-
-	-- Раскладка под экран (v2.4): десктоп — как раньше; телефон — компактные плашки, меню и кнопки у краёв
-	local pills = { coinsLabel.Parent, gemsLabel.Parent, rebirthLabel.Parent }
+	-- ---------- раскладка (Layout): якоря + UIScale ----------
 	Layout.onChanged(function(lay)
-		local wide = lay.Mode == "wide"
-		local pillW, pillH, step = if wide then 190 else 150, if wide then 38 else 32, if wide then 44 else 36
-		for i, pill in ipairs(pills) do
-			pill.Size = UDim2.fromOffset(pillW, pillH)
-			pill.Position = UDim2.fromOffset(12, 12 + (i - 1) * step)
-		end
-		settingsBtn.Size = UDim2.fromOffset(pillW, if wide then 30 else 26)
-		settingsBtn.Position = UDim2.fromOffset(12, 12 + 3 * step)
-		if wide then
-			zoneBox.AnchorPoint = Vector2.new(0.5, 0)
-			zoneBox.Position = UDim2.new(0.5, 0, 0, 10)
-			zoneBox.Size = UDim2.fromOffset(300, 54)
-			perClickLabel.Position = UDim2.new(0.5, 0, 1, -104)
-			perClickLabel.Size = UDim2.fromOffset(260, 24)
-			collect.Position = UDim2.new(0.5, 0, 1, -24)
-			collect.Size = UDim2.fromOffset(250, 76)
-			autoBtn.AnchorPoint = Vector2.new(0, 1)
-			autoBtn.Position = UDim2.new(0.5, 140, 1, -24)
-			autoBtn.Size = UDim2.fromOffset(110, 40)
-			menu.AnchorPoint = Vector2.new(0, 0.5)
-			menu.Position = UDim2.new(0, 12, 0.5, 60)
-			menu.Size = UDim2.fromOffset(212, (#MENU // 2) * 44)
-			grid.CellSize = UDim2.fromOffset(103, 39)
-			grid.CellPadding = UDim2.fromOffset(6, 5)
-			return
-		end
-		local rightW = Layout.rightWidth(lay)
-		zoneBox.AnchorPoint = Vector2.new(1, 0)
-		zoneBox.Position = UDim2.new(1, -8, 0, 10)
-		zoneBox.Size = UDim2.fromOffset(rightW, if lay.Mode == "portrait" then 50 else 46)
-		perClickLabel.Position = UDim2.new(0.5, 0, 1, -80)
-		perClickLabel.Size = UDim2.fromOffset(220, 22)
-		collect.Position = UDim2.new(0.5, 0, 1, -16)
-		collect.Size = UDim2.fromOffset(170, 60)
-		autoBtn.AnchorPoint = Vector2.new(1, 1)
-		autoBtn.Size = UDim2.fromOffset(104, 34)
-		menu.AnchorPoint = Vector2.new(0, 0)
+		local s = Hotbar.scaleFor(lay)
+		-- боковые кнопки компактнее хотбара (как в образце): на телефоне не закрывают персонажа
+		local side = s * (if lay.Mode == "wide" then 0.92 else 0.8)
+		leftScale.Scale, rightScale.Scale, walletScale.Scale = side, side, s
 		if lay.Mode == "portrait" then
-			-- меню двумя колонками под валютами; правая колонка экрана — мир и события
-			autoBtn.Position = UDim2.new(1, -12, 1, -184)
-			menu.Position = UDim2.fromOffset(12, 154)
-			grid.CellSize = UDim2.fromOffset(86, 32)
-			grid.CellPadding = UDim2.fromOffset(6, 4)
-			menu.Size = UDim2.fromOffset(178, (#MENU // 2) * 36)
+			left.Position = UDim2.new(0, 10, 0.45, 0)
+			right.Position = UDim2.new(1, -10, 0.42, 0)
+			-- над хотбаром: снизу по центру тесно (хотбар + кнопка прыжка)
+			wallet.Position = UDim2.new(0, 12, 1, -math.floor(90 * s + 4))
+		elseif lay.Mode == "landscape" then
+			left.Position = UDim2.new(0, 10, 0.45, 0)
+			right.Position = UDim2.new(1, -10, 0.4, 0)
+			wallet.Position = UDim2.new(0, 12, 1, -6)
 		else
-			-- горизонтально: меню 4×3 сверху между валютами и плашкой мира, низ экрана свободен для джойстика
-			autoBtn.Position = UDim2.new(1, -130, 1, -76)
-			menu.Position = UDim2.fromOffset(172, 10)
-			grid.CellSize = UDim2.fromOffset(80, 30)
-			grid.CellPadding = UDim2.fromOffset(4, 4)
-			menu.Size = UDim2.fromOffset(4 * 84, (#MENU // 4) * 34)
+			left.Position = UDim2.new(0, 14, 0.45, 0)
+			right.Position = UDim2.new(1, -14, 0.42, 0)
+			wallet.Position = UDim2.new(0, 16, 1, -12)
 		end
 	end)
 
-	-- Обновление при каждом снимке состояния
+	-- ---------- данные ----------
 	ClientState.onCore(function(core)
 		coinsLabel.Text = Util.formatNumber(core.Coins)
 		gemsLabel.Text = Util.formatNumber(core.Gems)
-		rebirthLabel.Text = L.t("hud.rebirth", { n = core.Rebirths })
-		local zone = ZoneData.ById[core.CurrentZone]
-		if zone then
-			zoneLabel.Text = if inHub()
-				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
-				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
-		end
-		perClickLabel.Text = L.t("hud.per_collect", { n = Util.formatNumber(core.PerClick) })
-		settingsBtn.Text = L.t("hud.settings", { lang = string.upper(L.lang()) })
 		autoBtn.Visible = core.Passes.AUTO_COLLECT == true
-		autoBtn.Text = if core.AutoCollect then L.t("hud.auto_on") else L.t("hud.auto_off")
+		local cap = autoBtn:FindFirstChild("Caption")
+		if cap then
+			L.bind(cap, "Text", L.k(if core.AutoCollect then "hud.auto_on" else "hud.auto_off"))
+		end
 		autoBtn.BackgroundColor3 = if core.AutoCollect then Theme.Green else Theme.Disabled
-		dots.Daily.Visible = core.Daily.CanClaim
-		dots.Talents.Visible = core.TalentPoints > 0
 		local readyQuest = false
 		for id, e in pairs(core.Quests.Daily) do
 			local def = QuestData.DailyById[id]
@@ -359,7 +315,8 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 				readyQuest = true
 			end
 		end
-		dots.Quests.Visible = readyQuest
+		questDot.Visible = readyQuest
+		petsDot.Visible = (core.PetMail or 0) > 0
 		local bpReady = false
 		for lv = 1, core.BattlePass.Level do
 			if not core.BattlePass.Free[tostring(lv)] then
@@ -367,36 +324,12 @@ function Hud.init(gui: ScreenGui, openPanel: (string) -> ())
 				break
 			end
 		end
-		dots.Market.Visible = bpReady
+		moreDot.Visible = core.Daily.CanClaim or core.TalentPoints > 0 or bpReady
+		Hud.state = { Daily = core.Daily.CanClaim, Talents = core.TalentPoints > 0, Market = bpReady }
 	end)
 
-	-- Таймер буста удачи (обновляется каждый кадр "дёшево": только текст раз в 0.5с)
-	local acc = 0
-	RunService.Heartbeat:Connect(function(dt)
-		acc += dt
-		if acc < 0.5 then
-			return
-		end
-		acc = 0
-		local core = ClientState.Core
-		if not core then
-			return
-		end
-		local zone = ZoneData.ById[core.CurrentZone]
-		if zone then
-			zoneLabel.Text = if inHub()
-				then L.t("hud.zone_hub", { zone = zone.Name, n = zone.Multiplier })
-				else L.t("hud.zone", { zone = zone.Name, n = zone.Multiplier })
-		end
-		local left = core.LuckBoostEnds - ClientState.serverNow()
-		if core.LuckBoost > 1 and left > 0 then
-			buffLabel.Text = L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
-			buffLabel.TextColor3 = Theme.Green
-		else
-			buffLabel.Text = L.t("hud.luck", { x = string.format("%.2f", core.Luck) })
-			buffLabel.TextColor3 = Theme.TextDim
-		end
-	end)
+	Hud.buttons = buttons
+	return buttons
 end
 
 return Hud

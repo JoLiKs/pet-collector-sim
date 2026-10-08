@@ -32,9 +32,24 @@ function EggPanel.init(gui: ScreenGui)
 	local titleLabel = panel.Header:FindFirstChild("Title") :: TextLabel
 	L.unbind(titleLabel, "Text") -- заголовок — имя яйца (ставится в render)
 
+	-- v2.5: ряд яиц (кнопка «Яйца» на HUD открывает окно и вдали от яиц — смотреть шансы)
+	local tabs = Widgets.scroller(body, {
+		Name = "EggTabs",
+		Position = UDim2.fromOffset(10, 0),
+		Size = UDim2.new(1, -20, 0, 36),
+		AutomaticCanvasSize = Enum.AutomaticSize.X,
+		ScrollingDirection = Enum.ScrollingDirection.X,
+		ScrollBarThickness = 3,
+	})
+	Widgets.New("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		FillDirection = Enum.FillDirection.Horizontal,
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = tabs,
+	})
 	local sub = Widgets.label({
 		Size = UDim2.new(1, -24, 0, 24),
-		Position = UDim2.fromOffset(12, 2),
+		Position = UDim2.fromOffset(12, 40),
 		TextColor3 = Theme.TextDim,
 		ZIndex = 22,
 		Parent = body,
@@ -42,8 +57,8 @@ function EggPanel.init(gui: ScreenGui)
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 18, Parent = sub })
 
 	local list = Widgets.scroller(body, {
-		Position = UDim2.fromOffset(10, 30),
-		Size = UDim2.new(1, -20, 1, -112),
+		Position = UDim2.fromOffset(10, 68),
+		Size = UDim2.new(1, -20, 1, -164), -- снизу — сноска об удаче (2 строки) и кнопки
 	})
 	Widgets.New(
 		"UIListLayout",
@@ -60,6 +75,7 @@ function EggPanel.init(gui: ScreenGui)
 	Widgets.New("UITextSizeConstraint", { MaxTextSize = 13, MinTextSize = 8, Parent = note })
 
 	local currentEgg: string? = nil
+	local nearEgg = false -- игрок у этого яйца (иначе кнопки открытия подсказывают подойти)
 	local buttons = {}
 	for i, count in ipairs(Config.HATCH_COUNTS) do
 		local n = #Config.HATCH_COUNTS
@@ -84,9 +100,9 @@ function EggPanel.init(gui: ScreenGui)
 	local ticketBtn = Widgets.button({
 		Text = L.k("egg.use_ticket"),
 		Color = Theme.Purple,
-		Size = UDim2.fromOffset(150, 30),
+		Size = UDim2.fromOffset(150, 28),
 		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -12, 0, 0),
+		Position = UDim2.new(1, -12, 0, 38), -- строка цены (сверху — ряд яиц)
 		ZIndex = 23,
 		Visible = false,
 		OnClick = function()
@@ -111,10 +127,14 @@ function EggPanel.init(gui: ScreenGui)
 			have = Util.formatNumber(if egg.Currency == "Gems" then core.Gems else core.Coins),
 		})
 		for i, count in ipairs(Config.HATCH_COUNTS) do
-			buttons[i].Text = L.t("egg.hatch", { n = count, price = Util.formatNumber(egg.Price * count) })
+			buttons[i].Text = if nearEgg
+				then L.t("egg.hatch", { n = count, price = Util.formatNumber(egg.Price * count) })
+				else L.t("egg.go_closer")
+			Widgets.setEnabled(buttons[i], nearEgg, if i == 1 then Theme.Green else Theme.Blue)
 		end
 		local tickets = core.Items and core.Items["ticket_" .. egg.Id] or 0
 		ticketBtn.Visible = tickets > 0
+		sub.Size = UDim2.new(1, if tickets > 0 then -184 else -24, 0, 24)
 		ticketBtn.Text = L.t("egg.use_ticket_n", { n = tickets })
 		note.Text = L.t("egg.note", {
 			luck = string.format("%.2f", core.Luck),
@@ -156,15 +176,17 @@ function EggPanel.init(gui: ScreenGui)
 				Parent = row,
 			})
 			Widgets.corner(dot, 12)
-			Widgets.label({
+			local nameLabel = Widgets.label({
 				Text = L.n(def.Name),
-				Size = UDim2.new(0.38, 0, 1, -14),
-				Position = UDim2.fromOffset(40, 7),
+				Size = UDim2.new(0.44, -44, 1, -8),
+				Position = UDim2.fromOffset(40, 4),
 				TextXAlignment = Enum.TextXAlignment.Left,
 				TextColor3 = rarity.Color,
 				ZIndex = 23,
 				Parent = row,
 			})
+			-- одинаковый кегль у коротких и длинных имён (длинные переносятся)
+			Widgets.New("UITextSizeConstraint", { MaxTextSize = 17, Parent = nameLabel })
 			Widgets.label({
 				Text = L.n(def.Rarity),
 				Size = UDim2.new(0.18, 0, 1, -18),
@@ -219,17 +241,64 @@ function EggPanel.init(gui: ScreenGui)
 		end
 	end)
 
-	Remotes.getEvent("OpenEgg").OnClientEvent:Connect(function(eggId)
-		if type(eggId) ~= "string" or not PetData.EggsById[eggId] then
-			return
+	local function drawTabs()
+		Widgets.clear(tabs)
+		local core = ClientState.Core
+		for i, egg in ipairs(PetData.Eggs) do
+			local locked = core ~= nil and egg.Zone ~= "Hub" and not (core.Zones and core.Zones[egg.Zone])
+			local b = Widgets.button({
+				Name = "Tab_" .. egg.Id,
+				Text = (if locked then "🔒 " else "") .. L.n(egg.Name),
+				Color = if egg.Id == currentEgg then Theme.Orange else Theme.BgCard,
+				Size = UDim2.fromOffset(118, 32),
+				MaxTextSize = 15,
+				ZIndex = 23,
+				OnClick = function()
+					if egg.Id ~= currentEgg then
+						currentEgg = egg.Id
+						nearEgg = false
+						lastKey = ""
+						drawTabs()
+						render()
+					end
+				end,
+				Parent = tabs,
+			})
+			b.LayoutOrder = i
 		end
+	end
+
+	local function show(eggId: string, near: boolean)
 		currentEgg = eggId
+		nearEgg = near
 		lastKey = ""
+		drawTabs()
 		render()
 		if not panel.IsOpen() then
 			panel.Open()
 		end
+	end
+	Remotes.getEvent("OpenEgg").OnClientEvent:Connect(function(eggId)
+		if type(eggId) ~= "string" or not PetData.EggsById[eggId] then
+			return
+		end
+		show(eggId, true)
 	end)
+	-- v2.5: кнопка «Яйца» на HUD — ближайшее яйцо (если рядом) или яйцо текущего мира для просмотра шансов
+	function panel.Show(eggId: string?, near: boolean)
+		local id = eggId
+		if not id then
+			local core = ClientState.Core
+			for _, egg in ipairs(PetData.Eggs) do
+				if core and egg.Zone == core.CurrentZone then
+					id = egg.Id
+					break
+				end
+			end
+			id = id or currentEgg or PetData.Eggs[1].Id
+		end
+		show(id :: string, near and eggId ~= nil)
+	end
 
 	return panel
 end

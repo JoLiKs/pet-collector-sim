@@ -71,6 +71,22 @@ local function buildBattlePass(data: DataService.Data)
 	}
 end
 
+-- v2.5: «Индекс» — отмечаем открытыми всех питомцев в инвентаре (любой источник: яйцо, обмен, крафт, награда)
+local function syncIndex(data: DataService.Data): { [string]: boolean }
+	local index = data.Index
+	if type(index) ~= "table" then
+		index = {}
+		data.Index = index
+	end
+	for _, p in pairs(data.Pets) do
+		if type(p) == "table" and type(p.Id) == "string" and not index[p.Id] then
+			index[p.Id] = true
+		end
+	end
+	return index
+end
+State.syncIndex = syncIndex
+
 local function buildCore(player: Player, data: DataService.Data)
 	local session = Session.get(player)
 	local luckBoost, luckEnds = Economy.getLuckBoost(data)
@@ -126,6 +142,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		CoinMult = Economy.getCoinMultiplier(player, data),
 		TeamPower = Economy.getPetPower(data),
 		OfflinePending = data.OfflinePending or 0,
+		Index = syncIndex(data), -- v2.5
 	}
 end
 

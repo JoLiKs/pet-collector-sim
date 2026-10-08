@@ -27,10 +27,18 @@ def world_texts(page):
     return page.evaluate("""(()=>{const out=[];const walk=(n)=>{ if(n.attrs&&n.attrs.get('Loc_Text')!==undefined&&typeof n.props.Text==='string') out.push((()=>{try{return decodeURIComponent(escape(n.props.Text))}catch(e){return n.props.Text}})()); for(const c of n.children) walk(c); }; walk(R2W.ENV.workspace); return out;})()""")
 
 def menu_text(g, n):
+    # v2.5: подписи кнопок HUD (PetsBtn, ShopBtn, …) вместо старой сетки меню
     try:
-        return g.text('[data-n="Menu"] [data-n="%s"]' % n).strip().upper()
+        return g.text('[data-n="%sBtn"]' % n).strip().upper()
     except Exception:
         return ''
+
+def open_panel(g, n):
+    direct = {'Pets': 'PetsBtn', 'Quests': 'QuestsBtn', 'Shop': 'ShopBtn', 'Index': 'IndexBtn'}
+    if n in direct:
+        g.click('[data-n="%s"]' % direct[n]); return
+    g.click('[data-n="MoreBtn"]'); g.wait(lambda: g.vis('[data-n="MorePanel"] [data-n="%s"]' % n), what='more ' + n)
+    g.click('[data-n="MorePanel"] [data-n="%s"]' % n)
 
 def eventually(page, fn, timeout=12):
     t = time.time()
@@ -43,12 +51,12 @@ def eventually(page, fn, timeout=12):
     return False
 
 def menu_is(page, g, word):
-    return eventually(page, lambda: menu_text(g, 'Pets').startswith(word))
+    return eventually(page, lambda: word in menu_text(g, 'Pets'))
 
 def boot(page, url, query):
     page.goto(url + 'index.html?' + query)
     g = G(page); g.shots = SHOTS
-    g.wait(lambda: g.vis('[data-n="Menu"]'), what='menu')
+    g.wait(lambda: g.vis('[data-n="Hotbar"]'), timeout=120, what='hotbar')
     g.wait(lambda: lang_attr(page) in ('ru', 'en'), what='Lang attribute')
     page.wait_for_timeout(1200)
     return g
@@ -64,8 +72,9 @@ with serve('/tmp/gw_ui') as url, sync_playwright() as pw:
     check('RU: атрибут Lang = ru', lang_attr(page) == 'ru', lang_attr(page))
     check('RU: страна из ?country (geo.source=param)', page.evaluate('R2W.geo.country') == 'RU' and page.evaluate('R2W.geo.source') == 'param')
     check('RU: меню на русском (Питомцы)', menu_is(page, g, 'ПИТОМЦЫ'), menu_text(g, 'Pets'))
-    check('RU: кнопка удара «УДАР [Q]» (без ⚔)', g.text('[data-n="Attack"]').strip() == 'УДАР [Q]', g.text('[data-n="Attack"]'))
-    check('RU: кнопка настроек показывает RU', 'RU' in g.text('[data-n="Settings"]') and CYR.search(g.text('[data-n="Settings"]')) is not None, g.text('[data-n="Settings"]'))
+    check('RU: хотбар на русском (Меч/Магнит/Зелье)', all(w in g.text('[data-n="Hotbar"]') for w in ['Меч', 'Магнит', 'Зелье']), g.text('[data-n="Hotbar"]'))
+    check('RU: кнопки HUD на русском (Магазин/Индекс/Ещё/Яйца/Задания)', all(w in page.inner_text('body') for w in ['Магазин', 'Индекс', 'Ещё', 'Яйца', 'Задания']))
+    check('RU: кнопки «УДАР» больше нет', not g.vis('[data-n="Attack"]') and 'УДАР' not in page.inner_text('body'))
     check('RU: подписи демо (верхняя панель) на русском', page.inner_text('#r2w-btn-players') == 'Игроки' and page.evaluate('document.documentElement.lang') == 'ru')
     eventually(page, lambda: sum(1 for t in world_texts(page) if CYR.search(t)) > 10)
     wt = world_texts(page)
@@ -101,35 +110,35 @@ with serve('/tmp/gw_ui') as url, sync_playwright() as pw:
     g.cmd('tp:40,40'); page.wait_for_timeout(500)
     # подсказка ProximityPrompt рисуется поверх интерфейса — прячем её на скриншотах панелей
     page.add_style_tag(content='#r2w-prompt{visibility:hidden !important}')
-    g.click('[data-n="Menu"] [data-n="Talents"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Talents'); page.wait_for_timeout(800)
     tl_txt = g.text('[data-n="TalentsPanel"]')
     check('RU: таланты (Экономика/Бой/Природа)', all(w in tl_txt for w in ['Экономика', 'Бой', 'Природа']), tl_txt[:160])
     g.shot('22g_ru_talents')
     g.click('[data-n="TalentsPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Craft"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Craft'); page.wait_for_timeout(800)
     g.shot('22h_ru_craft')
     g.click('[data-n="CraftPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Pets"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Pets'); page.wait_for_timeout(800)
     pets_txt = g.text('[data-n="PetsPanel"]')
     check('RU: панель питомцев (Стихия: все, Питомцы N/M)', 'Стихия: все' in pets_txt and 'Питомцы' in pets_txt, pets_txt[:160])
     g.click('[data-n="PetsPanel"] [data-n="p1"]'); page.wait_for_timeout(500)
     g.shot('22b_ru_pets')
     g.click('[data-n="PetsPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Quests"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Quests'); page.wait_for_timeout(800)
     q_txt = g.text('[data-n="QuestsPanel"]')
     check('RU: журнал заданий на русском', CYR.search(q_txt) is not None, q_txt[:120])
     g.shot('22c_ru_quests')
     g.click('[data-n="QuestsPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Market"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Market'); page.wait_for_timeout(800)
     g.shot('22d_ru_market')
     g.click('[data-n="MarketPanel"] [data-n="Close"]')
-    g.click('[data-n="Menu"] [data-n="Trade"]'); page.wait_for_timeout(800)
+    open_panel(g, 'Trade'); page.wait_for_timeout(800)
     t_txt = g.text('[data-n="TradePanel"]')
     check('RU: торговля на русском (Торговец Том)', 'Торговец Том' in t_txt, t_txt[:160])
     g.shot('22e_ru_trade')
     g.click('[data-n="TradePanel"] [data-n="Close"]')
     # переключение на английский в настройках — всё перерисовывается без перезагрузки
-    g.click('[data-n="Settings"]')
+    open_panel(g, 'Settings')
     g.wait(lambda: g.vis('[data-n="SettingsPanel"]'), what='settings')
     g.click('[data-n="SettingsPanel"] [data-n="Lang_en"]')
     g.wait(lambda: lang_attr(page) == 'en', what='lang en'); page.wait_for_timeout(800)
@@ -150,10 +159,10 @@ with serve('/tmp/gw_ui') as url, sync_playwright() as pw:
     g = boot(page, url, 'seed=1&country=US')
     check('US: Lang = en (страна главнее ru-RU браузера)', lang_attr(page) == 'en', lang_attr(page))
     check('US: меню на английском', menu_is(page, g, 'PETS'))
-    check('US: удар «ATTACK [Q]»', g.text('[data-n="Attack"]').strip() == 'ATTACK [Q]', g.text('[data-n="Attack"]'))
+    check('US: хотбар на английском (Sword/Magnet/Potion)', all(w in g.text('[data-n="Hotbar"]') for w in ['Sword', 'Magnet', 'Potion']), g.text('[data-n="Hotbar"]'))
     check('US: LocaleId из navigator.language = ru-ru', page.evaluate("R2W.ENV.localPlayer.props.LocaleId") == 'ru-ru')
     check('US: подписи демо на английском', page.inner_text('#r2w-btn-players') == 'Players')
-    g.click('[data-n="Settings"]')
+    open_panel(g, 'Settings')
     g.wait(lambda: g.vis('[data-n="SettingsPanel"]'), what='settings')
     g.click('[data-n="SettingsPanel"] [data-n="Lang_ru"]')
     g.wait(lambda: lang_attr(page) == 'ru', what='manual ru'); page.wait_for_timeout(500)

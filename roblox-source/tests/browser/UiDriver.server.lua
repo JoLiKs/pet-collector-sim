@@ -113,6 +113,112 @@ function handlers.super(arg)
 		end
 	end
 end
+-- gallery:mobs | gallery:bosses — витрина рисовки врагов на отдельной площадке в небе (для скриншотов):
+-- «пустые» модели с хитбоксом Body и атрибутами, как у CombatService, без ИИ и урона.
+function handlers.gallery(arg)
+	local EnemyData = require(game:GetService("ReplicatedStorage").Shared.EnemyData)
+	local old = Workspace:FindFirstChild("Gallery")
+	if old then
+		old:Destroy()
+	end
+	local base = Vector3.new(0, 300, 600)
+	local stage = Instance.new("Part")
+	stage.Name = "Gallery"
+	stage.Anchored = true
+	stage.Size = Vector3.new(260, 2, 220) -- с запасом: «оператор» стоит далеко перед рядом боссов
+	stage.Position = base - Vector3.new(0, 1, -40)
+	stage.Color = Color3.fromRGB(120, 200, 110)
+	stage.Material = Enum.Material.Grass
+	stage.Parent = Workspace
+	local folder = Workspace:FindFirstChild("Enemies")
+	for _, m in ipairs(folder:GetChildren()) do
+		if string.sub(m.Name, 1, 8) == "Gallery_" then
+			m:Destroy()
+		end
+	end
+	local list = {}
+	if string.sub(arg, 1, 4) == "ids=" then -- gallery:ids=slimeling+boarlet — крупный план выбранных
+		for id in string.gmatch(string.sub(arg, 5), "[^+]+") do
+			table.insert(
+				list,
+				EnemyData.ById[id] or (if id == "moonling" then EnemyData.MOONLING else EnemyData.RAID_BOSS)
+			)
+		end
+	else
+		for _, d in ipairs(EnemyData.List) do
+			if (arg == "bosses") == (d.Boss == true) and d.Id ~= "stone_colossus" then
+				table.insert(list, d)
+			end
+		end
+		if arg == "bosses" then
+			table.insert(list, EnemyData.RAID_BOSS)
+		end
+	end
+	local function sizeOf(d): Vector3
+		local s = d.Size
+		return if d.Shape == "Tall"
+			then Vector3.new(s * 0.7, s * 1.5, s * 0.7)
+			elseif d.Shape == "Block" then Vector3.new(s, s * 0.8, s)
+			else Vector3.new(s, s, s)
+	end
+	-- боссы и крупный план — одним рядом, шаг по ширине фигур (имена/полоски не наезжают)
+	local row1 = arg == "bosses" or string.sub(arg, 1, 4) == "ids="
+	local xs, total, maxH = {}, 0, 0
+	for i, d in ipairs(list) do
+		local w = sizeOf(d).X * (if d.Boss then 3 else 1.6) + 2.5
+		xs[i] = total + w / 2
+		total += w
+		maxH = math.max(maxH, sizeOf(d).Y)
+	end
+	for i, d in ipairs(list) do
+		local size = sizeOf(d)
+		local pos
+		if row1 then
+			pos = base + Vector3.new(xs[i] - total / 2, size.Y / 2, 0)
+		else
+			local row, col = math.floor((i - 1) / 6), (i - 1) % 6
+			local inRow = math.min(6, #list - row * 6)
+			pos = base + Vector3.new((col - (inRow - 1) / 2) * 7.5, size.Y / 2, -row * 9)
+		end
+		local m = Instance.new("Model")
+		m.Name = "Gallery_" .. d.Id
+		local body = Instance.new("Part")
+		body.Name = "Body"
+		body.Size = size
+		body.Transparency = 1
+		body.Anchored = true
+		body.CanCollide = false
+		body.CFrame = CFrame.lookAt(pos, pos + Vector3.new(0, 0, 1))
+		body.Parent = m
+		m.PrimaryPart = body
+		m:SetAttribute("EnemyId", d.Id)
+		m:SetAttribute("IsBoss", d.Boss)
+		m:SetAttribute("EnemyName", d.Name)
+		m:SetAttribute("Hp", if d.Boss then 70 else 100)
+		m:SetAttribute("MaxHp", 100)
+		m:SetAttribute("Atk", 0)
+		m.Parent = folder
+	end
+	-- персонаж стоит на camZ, камера ~14 студов за ним: ряд шириной total должен влезть в кадр 16:9
+	local camZ = if row1 then math.max(4, math.max(total / 2.3, maxH * 1.7) - 12) else 5
+	-- персонаж-«оператор» невидим: камера смотрит на витрину, не на него
+	for _, d in ipairs(player.Character:GetDescendants()) do
+		if d:IsA("BasePart") or d:IsA("Decal") then
+			d.Transparency = 1
+		elseif d:IsA("BillboardGui") then
+			d.Enabled = false
+		end
+	end
+	AntiExploit.markTeleport(player)
+	player.Character:PivotTo(CFrame.lookAt(base + Vector3.new(0, 3, camZ), base + Vector3.new(0, 3, -10)))
+end
+-- hud:off | hud:on — спрятать интерфейс для чистых скриншотов
+function handlers.hud(arg)
+	local g = player.PlayerGui:FindFirstChild("PetCollectorGui")
+	if g then
+		g.Enabled = arg ~= "off"
+	end
+end
 function handlers.bpxp(arg)
 	Economy.addBpXp(player, tonumber(arg))
 end
