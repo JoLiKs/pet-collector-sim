@@ -1075,7 +1075,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "2.8.0"
+Config.VERSION = "2.9.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -3243,6 +3243,200 @@ return Formulas
 			</Item>
 			<Item class="ModuleScript" referent="RBX00000000000000000000000000000013">
 				<Properties>
+					<string name="Name">HotbarData</string>
+					<ProtectedString name="Source"><![CDATA[--!strict
+--[[
+	HotbarData (v2.9) — быстрые слоты 3, 4, 5 хотбара (слоты 1 и 2 — Меч и Магнит). Чистая логика: сервер, клиент, тесты.
+
+	Назначение хранится на сервере: data.Settings.Hotbar = { S3 = id, S4 = id, S5 = id } ("" — пусто).
+	  * В слот кладутся только предметы, которые применяются одним нажатием:
+	      зелье удачи и эликсир монет (UseItem: буст на 5 минут, повтор продлевает),
+	      билеты на яйца (у своего яйца — открыть сразу, иначе — окно этого яйца).
+	  * Не кладутся: угощение и катализатор (их применяют к питомцу или при слиянии в окне «Питомцы»),
+	    кирка и клинок (действуют постоянно), ресурсы.
+	  * Один предмет — не больше чем в одном слоте: при повторном назначении он переносится.
+	  * Новичкам и старым сохранениям: слот 3 — зелье удачи, слот 4 — эликсир монет, слот 5 — пустой.
+]]
+local RecipeData = require(script.Parent.RecipeData)
+
+local HotbarData = {}
+
+HotbarData.FIRST = 3
+HotbarData.LAST = 5
+HotbarData.DEFAULT = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" }
+-- базовая длительность бустов (полоса убывания: минимум полной шкалы)
+HotbarData.BASE_SPAN = 300
+
+-- Kind предмета -> как он применяется из слота
+local SLOT_KINDS = { BoostLuck = "Boost", BoostCoins = "Boost", Ticket = "Ticket" }
+-- Предметы, которые применяются в окне «Питомцы» (подсказка в инвентаре вместо кнопок слотов)
+local PET_KINDS = { PetXp = true, Catalyst = true }
+
+function HotbarData.key(slot: number): string
+	return "S" .. tostring(slot)
+end
+
+function HotbarData.isSlot(slot: any): boolean
+	return type(slot) == "number"
+		and slot == math.floor(slot)
+		and slot >= HotbarData.FIRST
+		and slot <= HotbarData.LAST
+end
+
+-- "Boost" | "Ticket" | nil — можно ли положить предмет в быстрый слот
+function HotbarData.useKind(id: any): string?
+	if type(id) ~= "string" then
+		return nil
+	end
+	local item = RecipeData.Items[id]
+	return item and SLOT_KINDS[item.Kind] or nil
+end
+
+function HotbarData.canAssign(id: any): boolean
+	return HotbarData.useKind(id) ~= nil
+end
+
+-- Применяется ли предмет к питомцу / при слиянии (окно «Питомцы»)
+function HotbarData.isPetItem(id: any): boolean
+	local item = type(id) == "string" and RecipeData.Items[id] or nil
+	return item ~= nil and PET_KINDS[item.Kind] == true
+end
+
+-- Какой буст даёт предмет: "Luck" | "Coins" | nil
+function HotbarData.boostOf(id: any): string?
+	local item = type(id) == "string" and RecipeData.Items[id] or nil
+	if not item then
+		return nil
+	end
+	if item.Kind == "BoostLuck" then
+		return "Luck"
+	elseif item.Kind == "BoostCoins" then
+		return "Coins"
+	end
+	return nil
+end
+
+-- Яйцо билета: ticket_MeadowEgg -> MeadowEgg
+function HotbarData.ticketEgg(id: string): string?
+	if HotbarData.useKind(id) ~= "Ticket" then
+		return nil
+	end
+	return string.match(id, "^ticket_(.+)$")
+end
+
+-- Чистит таблицу назначений (старые/битые сохранения): только слоты 3..5, только допустимые id, без повторов
+function HotbarData.normalize(t: any): { [string]: string }
+	local out = { S3 = "", S4 = "", S5 = "" }
+	if type(t) ~= "table" then
+		for k, v in pairs(HotbarData.DEFAULT) do
+			out[k] = v
+		end
+		return out
+	end
+	local used = {}
+	for slot = HotbarData.FIRST, HotbarData.LAST do
+		local k = HotbarData.key(slot)
+		local id = t[k]
+		if HotbarData.canAssign(id) and not used[id] then
+			out[k] = id
+			used[id] = true
+		end
+	end
+	return out
+end
+
+-- Назначить предмет в слот ("" — очистить). Возвращает новую таблицу или nil, код ошибки.
+-- Если предмет уже лежит в другом слоте — он переносится (старый слот становится пустым).
+function HotbarData.assign(hb: any, slot: any, id: any): ({ [string]: string }?, string?)
+	if not HotbarData.isSlot(slot) then
+		return nil, "err.bad_request"
+	end
+	if id ~= "" and not HotbarData.canAssign(id) then
+		return nil, "hotbar.cant_assign"
+	end
+	local out = HotbarData.normalize(hb)
+	if id ~= "" then
+		for s = HotbarData.FIRST, HotbarData.LAST do
+			local k = HotbarData.key(s)
+			if out[k] == id then
+				out[k] = ""
+			end
+		end
+	end
+	out[HotbarData.key(slot)] = id
+	return out, nil
+end
+
+-- В каком слоте лежит предмет (или nil)
+function HotbarData.slotOf(hb: any, id: string): number?
+	if type(hb) ~= "table" then
+		return nil
+	end
+	for s = HotbarData.FIRST, HotbarData.LAST do
+		if hb[HotbarData.key(s)] == id then
+			return s
+		end
+	end
+	return nil
+end
+
+-- Активные бусты из серверного состояния data.Boosts (unix-время окончания):
+-- { Luck = { Mult, Left, Ends } | nil, Coins = { Mult, Left, Ends } | nil }.
+-- Удача: действует старший буст (x5 раньше x2, x2 ждёт в очереди) — как Economy.getLuckBoost.
+function HotbarData.boosts(b: any, now: number): { [string]: { Mult: number, Left: number, Ends: number } }
+	local out = {}
+	if type(b) ~= "table" then
+		return out
+	end
+	local l5, l2, c2 = tonumber(b.Luck5) or 0, tonumber(b.Luck2) or 0, tonumber(b.Coins2) or 0
+	if l5 > now then
+		out.Luck = { Mult = 5, Left = l5 - now, Ends = l5 }
+	elseif l2 > now then
+		out.Luck = { Mult = 2, Left = l2 - now, Ends = l2 }
+	end
+	if c2 > now then
+		out.Coins = { Mult = 2, Left = c2 - now, Ends = c2 }
+	end
+	return out
+end
+
+-- Полная шкала полосы убывания: растёт при продлении (время прибавилось), не меньше BASE_SPAN.
+function HotbarData.span(prevSpan: number?, prevLeft: number?, left: number): number
+	if left <= 0 then
+		return HotbarData.BASE_SPAN
+	end
+	local span = prevSpan or HotbarData.BASE_SPAN
+	if prevLeft == nil or left > prevLeft + 1 then
+		span = math.max(HotbarData.BASE_SPAN, left)
+	end
+	return math.max(span, left)
+end
+
+-- Раскладка полосы хотбара шириной width (дизайнерские px) в свободном промежутке [left, right] экрана W:
+-- масштаб не больше base и не меньше 0.5, центр — как можно ближе к середине экрана
+function HotbarData.fit(W: number, left: number, right: number, base: number, width: number): (number, number)
+	local avail = math.max(1, right - left)
+	local s = math.clamp(math.min(base, avail / width), 0.5, 2)
+	local half = width * s / 2
+	local cx = math.clamp(W / 2, left + half, math.max(left + half, right - half))
+	return s, cx
+end
+
+-- «ММ:СС» (больше часа — «Ч:ММ:СС»)
+function HotbarData.mmss(seconds: number): string
+	local s = math.max(0, math.floor(seconds))
+	if s >= 3600 then
+		return string.format("%d:%02d:%02d", s // 3600, (s % 3600) // 60, s % 60)
+	end
+	return string.format("%02d:%02d", s // 60, s % 60)
+end
+
+return HotbarData
+]]></ProtectedString>
+				</Properties>
+			</Item>
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+				<Properties>
 					<string name="Name">Icons</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
@@ -3775,7 +3969,7 @@ return Icons
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000014">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
 				<Properties>
 					<string name="Name">InventoryData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -3920,7 +4114,7 @@ return InventoryData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000015">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
 				<Properties>
 					<string name="Name">Locale</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4336,7 +4530,7 @@ return Locale
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000016">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
 				<Properties>
 					<string name="Name">LocaleEn</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4396,7 +4590,7 @@ LocaleEn.Strings = {
 	["craft.locked"] = "Recipe locked",
 	["craft.done"] = "Crafted {n}x {item}",
 	["craft.no_item"] = "You don't have this item",
-	["craft.use_from_pets"] = "Use this item from the Pets or Fusion screen",
+	["craft.use_from_pets"] = "Use this item from the Pets screen",
 	["item.activated"] = "{item} activated!",
 	["bp.level_not_reached"] = "Level not reached yet",
 	["bp.need_pass"] = "Premium track needs the Battle Pass",
@@ -4621,8 +4815,21 @@ LocaleEn.Strings = {
 	["hud.more"] = "More",
 	["hotbar.sword"] = "Sword",
 	["hotbar.collect"] = "Magnet",
-	["hotbar.potion"] = "Potion",
-	["hotbar.no_potion"] = "No potions — brew them at the hub workbench or earn them from quests",
+	["hotbar.empty"] = "Empty",
+	["hotbar.short.luck_potion"] = "Luck",
+	["hotbar.short.coin_elixir"] = "Coins",
+	["hotbar.short.ticket"] = "Ticket",
+	["hotbar.pick_slot"] = "Choose an item for slot {n}",
+	["hotbar.none_boost"] = "No {item} left. Get more: hub workbench, quests, daily reward",
+	["hotbar.none_ticket"] = "No {item} left. Tickets drop from enemies and bosses and come in the daily reward",
+	["hotbar.go_to_egg"] = "Walk up to the {egg} to hatch it with a ticket",
+	["hotbar.cant_assign"] = "This item can't go in a quick slot",
+	["hotbar.assigned"] = "{item} is now in slot {n}",
+	["hotbar.cleared"] = "Slot {n} is now empty",
+	["inv.to_slot"] = "To slot {n}",
+	["inv.remove_slot"] = "Remove from slot {n}",
+	["inv.slot_pets"] = "Not for quick slots: use it from the Pets screen",
+	["hud.coin_boost"] = "Coins x{n}  {time}",
 	["egg.go_closer"] = "Walk to the egg",
 	["more.hint"] = "Many of these are also hub stations — just walk up to them",
 	["index.progress"] = "Pets discovered: {n} / {max}",
@@ -4918,7 +5125,7 @@ return LocaleEn
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000017">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
 				<Properties>
 					<string name="Name">LocaleRu</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -4978,7 +5185,7 @@ LocaleRu.Strings = {
 	["craft.locked"] = "Рецепт ещё закрыт",
 	["craft.done"] = "Создано: {item} ×{n}",
 	["craft.no_item"] = "У вас нет этого предмета",
-	["craft.use_from_pets"] = "Этот предмет применяется в окне питомцев или слияния",
+	["craft.use_from_pets"] = "Этот предмет применяется в окне «Питомцы»",
 	["item.activated"] = "«{item}» активировано!",
 	["bp.level_not_reached"] = "Этот уровень ещё не достигнут",
 	["bp.need_pass"] = "Для премиум-дорожки нужен боевой пропуск",
@@ -5203,8 +5410,21 @@ LocaleRu.Strings = {
 	["hud.more"] = "Ещё",
 	["hotbar.sword"] = "Меч",
 	["hotbar.collect"] = "Магнит",
-	["hotbar.potion"] = "Зелье",
-	["hotbar.no_potion"] = "Зелий нет — сварите на верстаке в хабе или получите за задания",
+	["hotbar.empty"] = "Пусто",
+	["hotbar.short.luck_potion"] = "Удача",
+	["hotbar.short.coin_elixir"] = "Монеты",
+	["hotbar.short.ticket"] = "Билет",
+	["hotbar.pick_slot"] = "Выберите предмет для слота {n}",
+	["hotbar.none_boost"] = "Нет предмета «{item}». Где взять: верстак в хабе, задания, ежедневная награда",
+	["hotbar.none_ticket"] = "Нет предмета «{item}». Билеты выпадают с врагов и боссов и бывают в ежедневной награде",
+	["hotbar.go_to_egg"] = "Подойдите к яйцу «{egg}», чтобы открыть его билетом",
+	["hotbar.cant_assign"] = "Этот предмет нельзя положить в быстрый слот",
+	["hotbar.assigned"] = "«{item}» — в слоте {n}",
+	["hotbar.cleared"] = "Слот {n} теперь пуст",
+	["inv.to_slot"] = "В слот {n}",
+	["inv.remove_slot"] = "Убрать из слота {n}",
+	["inv.slot_pets"] = "В быстрый слот не кладётся: применяется в окне «Питомцы»",
+	["hud.coin_boost"] = "Монеты x{n}  {time}",
 	["egg.go_closer"] = "Подойдите к яйцу",
 	["more.hint"] = "Многое из этого есть и на станциях в хабе — просто подойдите к ним",
 	["index.progress"] = "Открыто питомцев: {n} / {max}",
@@ -5880,7 +6100,7 @@ return LocaleRu
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000018">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
 				<Properties>
 					<string name="Name">Logo</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -5996,7 +6216,7 @@ return Logo
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000019">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
 				<Properties>
 					<string name="Name">PetData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6505,7 +6725,7 @@ return PetData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
 				<Properties>
 					<string name="Name">PetMeta</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -6846,7 +7066,7 @@ return PetMeta
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
 				<Properties>
 					<string name="Name">PetModel</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7160,7 +7380,7 @@ return PetModel
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
 				<Properties>
 					<string name="Name">Prices</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7257,7 +7477,7 @@ return Prices
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
 				<Properties>
 					<string name="Name">QuestData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7543,7 +7763,7 @@ return QuestData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
 				<Properties>
 					<string name="Name">RecipeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7693,7 +7913,7 @@ return RecipeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000001F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
 				<Properties>
 					<string name="Name">Remotes</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7775,7 +7995,7 @@ return Remotes
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000020">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
 				<Properties>
 					<string name="Name">ResourceData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -7877,7 +8097,7 @@ return ResourceData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000021">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
 				<Properties>
 					<string name="Name">ShopData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8045,7 +8265,7 @@ return ShopData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000022">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
 				<Properties>
 					<string name="Name">SuperFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8319,7 +8539,7 @@ return SuperFx
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000023">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
 				<Properties>
 					<string name="Name">SuperpowerLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8587,7 +8807,7 @@ return SuperpowerLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000024">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
 				<Properties>
 					<string name="Name">TalentData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8800,7 +9020,7 @@ return TalentData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000025">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
 				<Properties>
 					<string name="Name">TradeLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -8954,7 +9174,7 @@ return TradeLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000026">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
 				<Properties>
 					<string name="Name">TutorialData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9008,7 +9228,7 @@ return TutorialData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000027">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
 				<Properties>
 					<string name="Name">UpgradeData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9089,7 +9309,7 @@ return UpgradeData
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000028">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
 				<Properties>
 					<string name="Name">Util</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9216,7 +9436,7 @@ return Util
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000029">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002A">
 				<Properties>
 					<string name="Name">ZoneData</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9357,11 +9577,11 @@ return ZoneData
 			</Item>
 		</Item>
 	</Item>
-	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000002A">
+	<Item class="ServerScriptService" referent="RBX0000000000000000000000000000002B">
 		<Properties>
 			<string name="Name">ServerScriptService</string>
 		</Properties>
-		<Item class="Script" referent="RBX0000000000000000000000000000002B">
+		<Item class="Script" referent="RBX0000000000000000000000000000002C">
 			<Properties>
 				<string name="Name">Main</string>
 				<token name="RunContext">0</token>
@@ -9416,11 +9636,11 @@ print("[PetCollector] Server started. JobId:", game.JobId)
 ]]></ProtectedString>
 			</Properties>
 		</Item>
-		<Item class="Folder" referent="RBX0000000000000000000000000000002C">
+		<Item class="Folder" referent="RBX0000000000000000000000000000002D">
 			<Properties>
 				<string name="Name">Server</string>
 			</Properties>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
 				<Properties>
 					<string name="Name">AntiExploit</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9561,7 +9781,7 @@ return AntiExploit
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
 				<Properties>
 					<string name="Name">Badges</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9626,7 +9846,7 @@ return Badges
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000002F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
 				<Properties>
 					<string name="Name">BattlePassService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9727,7 +9947,7 @@ return BattlePassService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000030">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
 				<Properties>
 					<string name="Name">ClickService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -9810,7 +10030,7 @@ return ClickService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000031">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
 				<Properties>
 					<string name="Name">CombatService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10694,14 +10914,15 @@ return CombatService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000032">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
 				<Properties>
 					<string name="Name">CraftService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
--- Крафт на верстаке в хабе и применение предметов (зелья, угощения).
+-- Крафт на верстаке в хабе, применение предметов (зелья, эликсиры) и назначение быстрых слотов хотбара (v2.9).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local HotbarData = require(Shared.HotbarData)
 local Locale = require(Shared.Locale)
 local RecipeData = require(Shared.RecipeData)
 local Util = require(Shared.Util)
@@ -10711,6 +10932,7 @@ local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
 local Progress = require(script.Parent.Progress)
 local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
 local Stations = require(script.Parent.Stations)
 
 local CraftService = {}
@@ -10786,16 +11008,34 @@ local function use(player: Player, itemId: any): (boolean, any)
 	return true, nil
 end
 
+-- v2.9: быстрые слоты 3..5 — какой предмет лежит в слоте (id или "" — очистить).
+-- Валидация в HotbarData.assign: номер слота, только предметы «одним нажатием», без повторов (перенос).
+local function setHotbar(player: Player, slot: any, itemId: any): (boolean, any)
+	local data = DataService.get(player)
+	if not data then
+		return false, "err.bad_request"
+	end
+	local hb, err = HotbarData.assign(data.Settings.Hotbar, slot, itemId)
+	if not hb then
+		return false, err
+	end
+	data.Settings.Hotbar = hb
+	State.markCore(player)
+	return true, nil
+end
+CraftService.setHotbar = setHotbar
+
 function CraftService.init()
 	Router.register("Craft", 4, 4, craft)
 	Router.register("UseItem", 4, 4, use)
+	Router.register("SetHotbar", 4, 8, setHotbar)
 end
 
 return CraftService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000033">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
 				<Properties>
 					<string name="Name">Dailies</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10828,7 +11068,7 @@ return Dailies
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000034">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
 				<Properties>
 					<string name="Name">DailyService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -10966,7 +11206,7 @@ return DailyService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000035">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
 				<Properties>
 					<string name="Name">DataService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11043,7 +11283,8 @@ local function makeTemplate(): Data
 		LastSeen = os.time(),
 		OfflinePending = 0,
 		AutoCollect = true,
-		Settings = { Lang = "auto" }, -- "auto" | "en" | "ru" (см. LanguageService)
+		-- Lang: "auto" | "en" | "ru" (см. LanguageService); Hotbar (v2.9): быстрые слоты 3..5 (HotbarData)
+		Settings = { Lang = "auto", Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" } },
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено
@@ -11454,7 +11695,7 @@ return DataService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000036">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
 				<Properties>
 					<string name="Name">Economy</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -11944,7 +12185,7 @@ return Economy
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000037">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
 				<Properties>
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12200,7 +12441,7 @@ return EventService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000038">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
 				<Properties>
 					<string name="Name">EventState</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12249,7 +12490,7 @@ return EventState
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000039">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
 				<Properties>
 					<string name="Name">Knockback</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12330,7 +12571,7 @@ return Knockback
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
 				<Properties>
 					<string name="Name">LanguageService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12423,7 +12664,7 @@ return LanguageService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
 				<Properties>
 					<string name="Name">LeaderboardService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12593,13 +12834,14 @@ return LeaderboardService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
 				<Properties>
 					<string name="Name">Migrations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 -- Миграции данных игрока между версиями шаблона. Чистая функция над таблицей — покрыта тестами.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DailyData = require(ReplicatedStorage.Shared.DailyData)
+local HotbarData = require(ReplicatedStorage.Shared.HotbarData)
 
 local Migrations = {}
 
@@ -12660,6 +12902,14 @@ function Migrations.run(data: { [string]: any }): boolean
 		data.Daily = DailyData.normalize(data.Daily)
 		changed = true
 	end
+	-- v2.9: быстрые слоты хотбара 3..5. Старые профили: слот 3 — зелье удачи, 4 — эликсир монет, 5 — пусто;
+	-- битые назначения чистятся (только предметы «одним нажатием», без повторов)
+	local hb = data.Settings.Hotbar
+	local fixed = HotbarData.normalize(hb)
+	if type(hb) ~= "table" or hb.S3 ~= fixed.S3 or hb.S4 ~= fixed.S4 or hb.S5 ~= fixed.S5 then
+		data.Settings.Hotbar = fixed
+		changed = true
+	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)
 	local function bad(v: any): boolean
 		return type(v) ~= "number" or v ~= v or v < 0 or v == math.huge
@@ -12692,7 +12942,7 @@ return Migrations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
 				<Properties>
 					<string name="Name">Monetization</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -12985,7 +13235,7 @@ return Monetization
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
 				<Properties>
 					<string name="Name">Notify</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13009,7 +13259,7 @@ return Notify
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000003F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
 				<Properties>
 					<string name="Name">OfflineService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13084,7 +13334,7 @@ return OfflineService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000040">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
 				<Properties>
 					<string name="Name">PetService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13497,7 +13747,7 @@ return PetService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000041">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
 				<Properties>
 					<string name="Name">PlayerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13808,7 +14058,7 @@ return PlayerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000042">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
 				<Properties>
 					<string name="Name">Progress</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -13945,7 +14195,7 @@ return Progress
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000043">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
 				<Properties>
 					<string name="Name">QuestService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14134,7 +14384,7 @@ return QuestService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000044">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
 				<Properties>
 					<string name="Name">RebirthService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14242,7 +14492,7 @@ return RebirthService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000045">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
 				<Properties>
 					<string name="Name">ResourceService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14629,7 +14879,7 @@ return ResourceService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000046">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
 				<Properties>
 					<string name="Name">Router</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14716,7 +14966,7 @@ return Router
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000047">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
 				<Properties>
 					<string name="Name">Session</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14799,7 +15049,7 @@ return Session
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000048">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
 				<Properties>
 					<string name="Name">ShopLogic</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14843,7 +15093,7 @@ return ShopLogic
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000049">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
 				<Properties>
 					<string name="Name">ShopService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -14904,7 +15154,7 @@ return ShopService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004A">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
 				<Properties>
 					<string name="Name">State</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15026,6 +15276,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		CurrentZone = data.CurrentZone,
 		AutoCollect = data.AutoCollect,
 		LangSetting = data.Settings and data.Settings.Lang or "auto",
+		Hotbar = data.Settings and data.Settings.Hotbar, -- v2.9: быстрые слоты 3..5
 		Passes = passes,
 		Premium = session ~= nil and session.Premium,
 		PaidRandomRestricted = session == nil or session.PaidRandomRestricted,
@@ -15152,7 +15403,7 @@ return State
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004B">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
 				<Properties>
 					<string name="Name">StationService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15212,7 +15463,7 @@ return StationService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004C">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
 				<Properties>
 					<string name="Name">Stations</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15241,7 +15492,7 @@ return Stations
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004D">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
 				<Properties>
 					<string name="Name">SuperBots</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -15536,7 +15787,7 @@ return SuperBots
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004E">
+			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
 				<Properties>
 					<string name="Name">SuperpowerService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16395,7 +16646,7 @@ return SuperpowerService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX0000000000000000000000000000004F">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
 				<Properties>
 					<string name="Name">ToolService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -16558,7 +16809,7 @@ return ToolService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000050">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
 				<Properties>
 					<string name="Name">TradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17091,7 +17342,7 @@ return TradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000051">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
 				<Properties>
 					<string name="Name">TutorialService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17168,7 +17419,7 @@ return TutorialService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000052">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
 				<Properties>
 					<string name="Name">UpgradeService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -17225,7 +17476,7 @@ return UpgradeService
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000053">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
 				<Properties>
 					<string name="Name">WorldBuilder</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18425,7 +18676,7 @@ return WorldBuilder
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="ModuleScript" referent="RBX00000000000000000000000000000054">
+			<Item class="ModuleScript" referent="RBX00000000000000000000000000000055">
 				<Properties>
 					<string name="Name">ZoneService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18525,15 +18776,15 @@ return ZoneService
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000055">
+	<Item class="StarterPlayer" referent="RBX00000000000000000000000000000056">
 		<Properties>
 			<string name="Name">StarterPlayer</string>
 		</Properties>
-		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000056">
+		<Item class="StarterPlayerScripts" referent="RBX00000000000000000000000000000057">
 			<Properties>
 				<string name="Name">StarterPlayerScripts</string>
 			</Properties>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000057">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000058">
 				<Properties>
 					<string name="Name">CombatFx</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -18591,7 +18842,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000058">
+			<Item class="LocalScript" referent="RBX00000000000000000000000000000059">
 				<Properties>
 					<string name="Name">EnemyVisuals</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -19091,7 +19342,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX00000000000000000000000000000059">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000005A">
 				<Properties>
 					<string name="Name">PetFollower</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -19227,7 +19478,7 @@ end)
 ]]></ProtectedString>
 				</Properties>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000005A">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000005B">
 				<Properties>
 					<string name="Name">WorldLocalizer</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
@@ -19334,22 +19585,22 @@ end)
 			</Item>
 		</Item>
 	</Item>
-	<Item class="StarterGui" referent="RBX0000000000000000000000000000005B">
+	<Item class="StarterGui" referent="RBX0000000000000000000000000000005C">
 		<Properties>
 			<string name="Name">StarterGui</string>
 		</Properties>
-		<Item class="ScreenGui" referent="RBX0000000000000000000000000000005C">
+		<Item class="ScreenGui" referent="RBX0000000000000000000000000000005D">
 			<Properties>
 				<string name="Name">PetCollectorGui</string>
 				<bool name="ResetOnSpawn">false</bool>
 				<token name="ZIndexBehavior">1</token>
 				<double name="DisplayOrder">50</double>
 			</Properties>
-			<Item class="Folder" referent="RBX0000000000000000000000000000005D">
+			<Item class="Folder" referent="RBX0000000000000000000000000000005E">
 				<Properties>
 					<string name="Name">Modules</string>
 				</Properties>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005E">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
 					<Properties>
 						<string name="Name">Actions</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19382,7 +19633,7 @@ return Actions
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000005F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
 					<Properties>
 						<string name="Name">BoardsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19481,7 +19732,7 @@ return BoardsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000060">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
 					<Properties>
 						<string name="Name">ClientState</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19586,7 +19837,7 @@ return ClientState
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000061">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
 					<Properties>
 						<string name="Name">CraftPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -19843,7 +20094,7 @@ return CraftPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000062">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
 					<Properties>
 						<string name="Name">DailyPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20696,7 +20947,7 @@ return DailyPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000063">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
 					<Properties>
 						<string name="Name">DialogPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -20883,7 +21134,7 @@ return DialogPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000064">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
 					<Properties>
 						<string name="Name">EggPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21195,7 +21446,7 @@ return EggPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000065">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
 					<Properties>
 						<string name="Name">Fx</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21206,6 +21457,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local L = require(Shared:WaitForChild("Locale"))
 
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -21368,8 +21620,26 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	local bossBar = UiKit.bar(bossBox, UDim2.fromOffset(8, 26), UDim2.new(1, -16, 0, 14), Theme.Red)
 	bossBar.Back.ZIndex = 7
 
+	-- бусты (v2.9): таймер виден на быстром слоте с зельем; здесь — только если такого предмета нет в слотах
+	-- (например, буст куплен донатом LUCK_2X_15M / LUCK_5X_10M, а зелье удачи убрано из хотбара)
 	local luckChip, luckText = chip("LuckChip", 80, Theme.Green)
 	luckChip.Visible = false
+	local coinChip, coinText = chip("CoinChip", 81, Theme.Gold)
+	coinChip.Visible = false
+	local function boostChips(core)
+		local b = HotbarData.boosts(core.Boosts, ClientState.serverNow())
+		local hb = core.Hotbar
+		local luckSlot = HotbarData.slotOf(hb, "luck_potion") ~= nil
+		local coinSlot = HotbarData.slotOf(hb, "coin_elixir") ~= nil
+		luckChip.Visible = b.Luck ~= nil and not luckSlot
+		coinChip.Visible = b.Coins ~= nil and not coinSlot
+		if b.Luck then
+			luckText.Text = L.t("hud.luck_boost", { n = b.Luck.Mult, time = Util.formatTime(b.Luck.Left) })
+		end
+		if b.Coins then
+			coinText.Text = L.t("hud.coin_boost", { n = b.Coins.Mult, time = Util.formatTime(b.Coins.Left) })
+		end
+	end
 
 	-- события: одна строка на событие «⏱ Имя 1:45»; описание — в баннере при старте
 	local huntCard = HuntHud.init(gui, timer)
@@ -21515,8 +21785,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		elseif core.OfflinePending == 0 then
 			offline.Visible = false
 		end
-		local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
-		luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
+		boostChips(core)
 	end)
 
 	-- ---------- станции хаба ----------
@@ -21579,12 +21848,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		timer.Size = UDim2.fromOffset(timer.Size.X.Offset, math.max(1, hgt))
 		local core = ClientState.Core
 		if core then
-			local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
-			luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
-			if luckChip.Visible then
-				luckText.Text = "🍀 "
-					.. L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
-			end
+			boostChips(core)
 		end
 	end)
 end
@@ -21593,7 +21857,7 @@ return Fx
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000066">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
 					<Properties>
 						<string name="Name">HatchPopup</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -21791,26 +22055,35 @@ return HatchPopup
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000067">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
 					<Properties>
 						<string name="Name">Hotbar</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
 --[[
-	Hotbar (v2.5) — хотбар инструментов снизу по центру вместо кнопок «УДАР» и «СОБРАТЬ».
+	Hotbar (v2.5, v2.9) — хотбар снизу по центру: 2 инструмента и 3 настраиваемых быстрых слота.
 	  1 — Меч (Tool "Sword"): выбран → клик/тап по миру = удар (AttackFx + действие Attack). Q бьёт всегда
 	      (и сам берёт меч в руку). Удар в воздухе и по суперигроку — то же действие Attack, что и раньше.
 	  2 — Магнит (Tool "Collector"): удержание клика/тапа = сбор монет (remote Click, 10 раз/с); F — один сбор.
-	  3 — Зелье: не инструмент, а быстрый слот: тап выпивает лучшее зелье из инвентаря (UseItem).
-	Стандартный Backpack Roblox скрыт (свой хотбар), клавиши 1–3 выбирают слот, повторный выбор убирает инструмент.
+	  3, 4, 5 — быстрые слоты предметов (v2.9, HotbarData): что в них лежит, игрок выбирает в «Инвентаре»
+	      (кнопки «В слот 3/4/5»), назначение хранится на сервере (Settings.Hotbar, действие SetHotbar).
+	      Зелье удачи / эликсир монет — тап выпивает (UseItem), на слоте таймер действия буста (ММ:СС + полоса);
+	      билет — у своего яйца открывает его сразу, иначе открывает окно этого яйца.
+	      Нет предметов — слот тусклый (назначение сохраняется), тап подсказывает, где взять; пустой слот — «+»,
+	      тап открывает инвентарь с подсказкой «Выберите предмет для слота N».
+	Стандартный Backpack Roblox скрыт (свой хотбар), клавиши 1–5 выбирают слот, повторный выбор убирает инструмент.
 ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local AttackFx = require(Shared:WaitForChild("AttackFx"))
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local L = require(Shared:WaitForChild("Locale"))
+local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
 
@@ -21823,31 +22096,47 @@ local Widgets = require(script.Parent.Widgets)
 
 local Hotbar = {}
 
+local KEYS = { Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four, Enum.KeyCode.Five }
 Hotbar.SLOTS = {
-	{
-		Tool = "Sword",
-		IconKind = "Sword",
-		Text = "hotbar.sword",
-		Color = Color3.fromRGB(235, 80, 80),
-		Key = Enum.KeyCode.One,
-	},
+	{ Tool = "Sword", IconKind = "Sword", Text = "hotbar.sword", Color = Color3.fromRGB(235, 80, 80) },
 	{
 		Tool = "Collector",
 		IconKind = "Magnet",
 		Text = "hotbar.collect",
 		Color = Color3.fromRGB(255, 190, 40),
-		Key = Enum.KeyCode.Two,
 	},
-	{
-		Tool = nil,
-		IconKind = "Potion",
-		Text = "hotbar.potion",
-		Color = Color3.fromRGB(170, 100, 255),
-		Key = Enum.KeyCode.Three,
-	},
+	{ Item = 3 },
+	{ Item = 4 },
+	{ Item = 5 },
 }
--- порядок выбора зелья для быстрого слота
-Hotbar.POTIONS = { "luck_potion", "coin_elixir", "xp_treat" }
+Hotbar.SIZE = 72
+Hotbar.GAP = 8
+Hotbar.WIDTH = #Hotbar.SLOTS * Hotbar.SIZE + (#Hotbar.SLOTS - 1) * Hotbar.GAP
+-- цвета бустов на слоте
+local BOOST_COLOR = { Luck = Color3.fromRGB(90, 220, 110), Coins = Color3.fromRGB(255, 200, 50) }
+local IDLE = Color3.fromRGB(40, 44, 62)
+
+-- Что лежит в быстром слоте n (по серверному состоянию) и сколько этого предмета
+function Hotbar.itemIn(core, n: number): (string, number)
+	local hb = core and core.Hotbar or HotbarData.DEFAULT
+	local id = hb[HotbarData.key(n)] or ""
+	if id == "" or not HotbarData.canAssign(id) then
+		return "", 0
+	end
+	local items = core and core.Items or {}
+	return id, items[id] or 0
+end
+
+-- Подпись слота: короткое имя предмета («Удача», «Монеты», «Билет»)
+function Hotbar.caption(id: string): string
+	if id == "" then
+		return L.t("hotbar.empty")
+	end
+	if HotbarData.useKind(id) == "Ticket" then
+		return L.t("hotbar.short.ticket")
+	end
+	return L.t("hotbar.short." .. id)
+end
 
 local player = Players.LocalPlayer
 local lastAttack = 0
@@ -21901,32 +22190,19 @@ function Hotbar.attack()
 	Actions.call("Attack")
 end
 
-function Hotbar.bestPotion(): (string?, number)
-	local core = ClientState.Core
-	local items = core and core.Items or {}
-	local total = 0
-	for _, id in ipairs(Hotbar.POTIONS) do
-		total += items[id] or 0
-	end
-	for _, id in ipairs(Hotbar.POTIONS) do
-		if (items[id] or 0) > 0 then
-			return id, total
-		end
-	end
-	return nil, 0
-end
-
-function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
+function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [string]: any }?)
+	local hk = hooks or {}
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	end)
 	local clickRemote = Remotes.getEvent("Click")
+	local SIZE, GAP = Hotbar.SIZE, Hotbar.GAP
 
 	local bar = Widgets.New("Frame", {
 		Name = "Hotbar",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -12),
-		Size = UDim2.fromOffset(3 * 72 + 2 * 10, 72),
+		Size = UDim2.fromOffset(Hotbar.WIDTH, SIZE),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -21951,19 +22227,40 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		end)
 	end
 
-	local function usePotion()
-		local id = Hotbar.bestPotion()
-		if not id then
-			Toasts.show("hotbar.no_potion", "info")
+	-- быстрый слот n: применить предмет, подсказать, где взять, или открыть инвентарь для выбора
+	local function useItemSlot(n: number)
+		local core = ClientState.Core
+		local id, count = Hotbar.itemIn(core, n)
+		if id == "" then
+			if hk.OpenInventoryForSlot then
+				hk.OpenInventoryForSlot(n)
+			end
 			return
 		end
-		Actions.call("UseItem", id)
+		local item = RecipeData.Items[id]
+		local name = L.n(item and item.Name or id)
+		local kind = HotbarData.useKind(id)
+		if count <= 0 then
+			Toasts.show(
+				L.m(if kind == "Ticket" then "hotbar.none_ticket" else "hotbar.none_boost", { item = name }),
+				"info"
+			)
+			return
+		end
+		if kind == "Ticket" then
+			if hk.UseTicket then
+				hk.UseTicket(id)
+			end
+		else
+			Actions.call("UseItem", id)
+		end
 	end
+	Hotbar.useSlot = useItemSlot
 
 	local function selectSlot(i: number)
 		local s = Hotbar.SLOTS[i]
-		if not s.Tool then
-			usePotion()
+		if s.Item then
+			useItemSlot(s.Item)
 			return
 		end
 		local hum = humanoid()
@@ -21982,15 +22279,15 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 	for i, s in ipairs(Hotbar.SLOTS) do
 		local b = Widgets.hudButton({
 			Name = "Slot" .. i,
-			Color = Color3.fromRGB(40, 44, 62),
+			Color = IDLE,
 			IconKind = s.IconKind,
-			Text = L.k(s.Text),
+			Text = L.k(s.Text or "hotbar.empty"),
 			Layout = "column",
 			MaxTextSize = 15,
-			MinTextSize = 9,
+			MinTextSize = 8,
 			TextStroke = 2,
-			Size = UDim2.fromOffset(72, 72),
-			Position = UDim2.fromOffset((i - 1) * 82, 0),
+			Size = UDim2.fromOffset(SIZE, SIZE),
+			Position = UDim2.fromOffset((i - 1) * (SIZE + GAP), 0),
 			StrokeSize = 3,
 			OnClick = function()
 				selectSlot(i)
@@ -22005,45 +22302,174 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 			MaxTextSize = 15,
 			Stroke = 2,
 			TextColor3 = Theme.Gold,
-			ZIndex = 8,
+			ZIndex = 9,
 			Parent = b,
 		})
 		local count = Widgets.bold({
 			Name = "Count",
 			Text = "",
 			AnchorPoint = Vector2.new(1, 0),
-			Size = UDim2.fromOffset(34, 18),
+			Size = UDim2.fromOffset(40, 18),
 			Position = UDim2.new(1, -4, 0, 2),
 			TextXAlignment = Enum.TextXAlignment.Right,
 			MaxTextSize = 15,
 			Stroke = 2,
-			ZIndex = 8,
+			ZIndex = 9,
 			Parent = b,
 		})
-		slots[i] =
-			{ Button = b, Key = key, Count = count, Def = s, Stroke = b:FindFirstChildOfClass("UIStroke") }
+		local sl = {
+			Button = b,
+			Key = key,
+			Count = count,
+			Def = s,
+			Stroke = b:FindFirstChildOfClass("UIStroke"),
+			Caption = b:FindFirstChild("Caption"),
+		}
+		if s.Item then
+			L.unbind(sl.Caption, "Text")
+			-- «+» пустого слота
+			sl.Plus = Widgets.bold({
+				Name = "Plus",
+				Text = "+",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.02),
+				Size = UDim2.fromScale(0.62, 0.62),
+				MaxTextSize = 48,
+				TextColor3 = Color3.fromRGB(170, 176, 210),
+				Stroke = 2,
+				ZIndex = 8,
+				Visible = false,
+				Parent = b,
+			})
+			-- затемнение, когда предмета 0 (назначение остаётся)
+			sl.Dim = Widgets.New("Frame", {
+				Name = "Dim",
+				BackgroundColor3 = Color3.fromRGB(20, 22, 34),
+				BackgroundTransparency = 0.4,
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = 8,
+				Visible = false,
+				Parent = b,
+			})
+			Widgets.corner(sl.Dim, 12)
+			-- полоса убывания буста (снизу внутри слота)
+			sl.BarBack = Widgets.New("Frame", {
+				Name = "BoostBar",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -3),
+				Size = UDim2.new(1, -10, 0, 5),
+				BackgroundColor3 = Color3.fromRGB(14, 16, 26),
+				ZIndex = 9,
+				Visible = false,
+				Parent = b,
+			})
+			Widgets.corner(sl.BarBack, 3)
+			sl.BarFill = Widgets.New("Frame", {
+				Name = "Fill",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundColor3 = BOOST_COLOR.Luck,
+				ZIndex = 10,
+				Parent = sl.BarBack,
+			})
+			Widgets.corner(sl.BarFill, 3)
+			sl.ItemId = nil
+			sl.Span, sl.PrevLeft = nil, nil
+		end
+		slots[i] = sl
+	end
+
+	-- иконка предмета в быстром слоте (пересоздаётся только при смене предмета)
+	local function setItemIcon(sl, id: string)
+		if sl.ItemId == id then
+			return
+		end
+		sl.ItemId = id
+		local old = sl.Button:FindFirstChild("Icon")
+		if old then
+			old:Destroy()
+		end
+		if id ~= "" then
+			Icons.make(id, {
+				Name = "Icon",
+				Px = 44,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.06),
+				Size = UDim2.fromScale(0.62, 0.62),
+				ZIndex = 6,
+				Parent = sl.Button,
+			})
+		end
+		sl.Span, sl.PrevLeft = nil, nil
+	end
+
+	-- таймер буста на слоте: «x2 04:59» вместо подписи + полоса убывания (время — из серверного core.Boosts)
+	local function paintBoost(sl, id: string, core)
+		local kind = HotbarData.boostOf(id)
+		local b = kind and HotbarData.boosts(core and core.Boosts, ClientState.serverNow())[kind]
+		sl.Button:SetAttribute("BoostLeft", if b then math.floor(b.Left) else 0)
+		if not b then
+			sl.BarBack.Visible = false
+			sl.Span, sl.PrevLeft = nil, nil
+			return false
+		end
+		sl.Span = HotbarData.span(sl.Span, sl.PrevLeft, b.Left)
+		sl.PrevLeft = b.Left
+		sl.BarBack.Visible = true
+		sl.BarFill.BackgroundColor3 = BOOST_COLOR[kind]
+		sl.BarFill.Size = UDim2.fromScale(math.clamp(b.Left / sl.Span, 0, 1), 1)
+		sl.Caption.Text = "x" .. b.Mult .. " " .. HotbarData.mmss(b.Left)
+		sl.Caption.TextColor3 = BOOST_COLOR[kind]
+		return true
 	end
 
 	local function paint()
 		local eq = Hotbar.equipped()
-		local _, potions = Hotbar.bestPotion()
+		local core = ClientState.Core
 		for _, sl in ipairs(slots) do
-			local on = sl.Def.Tool ~= nil and sl.Def.Tool == eq
-			sl.Button.BackgroundColor3 = if on then sl.Def.Color else Color3.fromRGB(40, 44, 62)
-			if sl.Stroke then
-				sl.Stroke.Color = if on then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
-				sl.Stroke.Thickness = if on then 4 else 3
-			end
-			sl.Button:SetAttribute("Selected", on)
-			if not sl.Def.Tool then
-				sl.Count.Text = if potions > 0 then "×" .. Util.formatNumber(potions) else ""
-				sl.Button.BackgroundColor3 = if potions > 0
-					then Color3.fromRGB(70, 50, 110)
-					else Color3.fromRGB(40, 44, 62)
+			if sl.Def.Item then
+				local id, n = Hotbar.itemIn(core, sl.Def.Item)
+				setItemIcon(sl, id)
+				sl.Button:SetAttribute("ItemId", id)
+				sl.Plus.Visible = id == ""
+				sl.Dim.Visible = id ~= "" and n <= 0
+				sl.Count.Text = if id ~= "" then "×" .. Util.formatNumber(n) else ""
+				sl.Count.TextColor3 = if n > 0 then Theme.Text else Theme.TextDim
+				sl.Caption.TextColor3 = if id ~= "" and n > 0 then Theme.Text else Theme.TextDim
+				local active = id ~= "" and paintBoost(sl, id, core)
+				if not active then
+					sl.Caption.Text = Hotbar.caption(id)
+				end
+				sl.Button.BackgroundColor3 = if active
+					then Color3.fromRGB(46, 70, 60)
+					elseif id ~= "" and n > 0 then Color3.fromRGB(70, 50, 110)
+					else IDLE
+				if sl.Stroke then
+					local kind = HotbarData.boostOf(id)
+					sl.Stroke.Color = if active and kind then BOOST_COLOR[kind] else Color3.new(0, 0, 0)
+					sl.Stroke.Thickness = if active then 3.5 else 3
+				end
+			else
+				local on = sl.Def.Tool == eq
+				sl.Button.BackgroundColor3 = if on then sl.Def.Color else IDLE
+				if sl.Stroke then
+					sl.Stroke.Color = if on then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
+					sl.Stroke.Thickness = if on then 4 else 3
+				end
+				sl.Button:SetAttribute("Selected", on)
 			end
 		end
 	end
 	ClientState.onCore(paint)
+	L.onChanged(paint)
+	-- таймеры бустов тикают раз в 0.5 с
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc >= 0.5 then
+			acc = 0
+			paint()
+		end
+	end)
 
 	-- инструменты: подписываемся на Activated/Deactivated каждого нового экземпляра (Backpack заполняется заново при респавне)
 	local bound = setmetatable({}, { __mode = "k" })
@@ -22116,8 +22542,8 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		elseif input.KeyCode == Enum.KeyCode.F then
 			collectOnce()
 		else
-			for i, s in ipairs(Hotbar.SLOTS) do
-				if input.KeyCode == s.Key then
+			for i = 1, #Hotbar.SLOTS do
+				if input.KeyCode == KEYS[i] then
 					selectSlot(i)
 				end
 			end
@@ -22132,17 +22558,56 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		end
 	end)
 
-	Layout.onChanged(function(lay)
+	-- раскладка: 5 слотов между кошельком (слева снизу) и таймерами (справа снизу), не под кнопкой прыжка;
+	-- если места мало — слоты уменьшаются (Hotbar.fit), полоса сдвигается в свободный промежуток
+	local lastFit = ""
+	local function relayout()
+		local lay = Layout.get()
+		local bottom = if lay.Mode == "wide" then 12 else 8
+		local base = Hotbar.scaleFor(lay)
+		local function rectOf(name: string)
+			local f = gui:FindFirstChild(name)
+			if not (f and f:IsA("GuiObject") and f.Visible) then
+				return nil
+			end
+			local p, z = f.AbsolutePosition - gui.AbsolutePosition, f.AbsoluteSize
+			return p.X, p.Y, p.X + z.X, p.Y + z.Y
+		end
+		local barTop = lay.H - bottom - SIZE * base
+		local left, right = 8, lay.W - 8
+		if lay.Touch then
+			right = lay.W - 104 -- кнопка прыжка
+		end
+		local cx0, _, cx1, cy1 = rectOf("Currency")
+		if cx0 and cy1 > barTop + 2 and cx1 < lay.W / 2 then
+			left = math.max(left, cx1 + 8)
+		end
+		local tx0, _, _, ty1 = rectOf("Timer")
+		if tx0 and ty1 > barTop + 2 and tx0 > lay.W / 2 then
+			right = math.min(right, tx0 - 8)
+		end
+		local s, cx = HotbarData.fit(lay.W, left, right, base, Hotbar.WIDTH)
+		local sig = string.format("%d/%d/%.3f/%.1f", lay.W, lay.H, s, cx)
+		if sig == lastFit then
+			return
+		end
+		lastFit = sig
+		scale.Scale = s
+		bar.Position = UDim2.new(0, cx, 1, -bottom)
 		for _, sl in ipairs(slots) do
 			sl.Key.Visible = not lay.Touch
 		end
-		scale.Scale = Hotbar.scaleFor(lay)
-		-- на телефоне в портрете хотбар не заходит под кнопку прыжка (справа внизу)
-		local dx = 0
-		if lay.Touch and lay.Mode == "portrait" then
-			dx = math.min(0, (lay.W - 104) - (lay.W / 2 + 118 * scale.Scale))
+	end
+	Layout.onChanged(function()
+		task.defer(relayout)
+	end)
+	local lacc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		lacc += dt
+		if lacc >= 0.5 then
+			lacc = 0
+			relayout()
 		end
-		bar.Position = UDim2.new(0.5, dx, 1, if lay.Mode == "wide" then -12 else -8)
 	end)
 	paint()
 	return bar
@@ -22162,7 +22627,7 @@ return Hotbar
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000068">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
 					<Properties>
 						<string name="Name">Hud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22191,12 +22656,15 @@ local Icons = require(Shared:WaitForChild("Icons"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Hotbar = require(script.Parent.Hotbar)
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
 
 local Hud = {}
 Hud.eggPanel = nil :: any -- панель яйца (UIController): кнопка «Яйца» вызывает eggPanel.Show
+Hud.invPanel = nil :: any -- v2.9: «Инвентарь» (UIController): пустой быстрый слот открывает его для выбора предмета
 Hud.state = nil :: any -- флаги «есть что забрать» для листа «Ещё»
 Hud.buttons = nil :: any
 
@@ -22449,7 +22917,34 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 			l:Destroy()
 		end)
 	end
-	hotbar = Hotbar.init(gui, popup)
+	hotbar = Hotbar.init(gui, popup, {
+		-- v2.9: пустой быстрый слот — инвентарь с подсказкой «Выберите предмет для слота N»
+		OpenInventoryForSlot = function(n: number)
+			openPanel("Inventory", true)
+			local inv = Hud.invPanel
+			if inv and inv.ForSlot then
+				inv.ForSlot(n)
+			end
+		end,
+		-- билет: у своего яйца — открыть сразу (сервер всё равно проверит дистанцию), иначе — окно этого яйца
+		UseTicket = function(itemId: string)
+			local eggId = HotbarData.ticketEgg(itemId)
+			local egg = eggId and PetData.EggsById[eggId]
+			if not egg then
+				return
+			end
+			local near, dist = Hud.nearestEgg()
+			if near == eggId and dist <= Config.EGG_MAX_DISTANCE then
+				Actions.call("Hatch", eggId, 1, true)
+				return
+			end
+			openPanel("Egg", true)
+			if Hud.eggPanel and Hud.eggPanel.Show then
+				Hud.eggPanel.Show(eggId, false)
+			end
+			Toasts.show(L.m("hotbar.go_to_egg", { egg = L.n(egg.Name) }), "info")
+		end,
+	})
 
 	-- ---------- раскладка (Layout): якоря + UIScale ----------
 	Layout.onChanged(function(lay)
@@ -22511,7 +23006,7 @@ return Hud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000069">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
 					<Properties>
 						<string name="Name">HuntHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -22964,7 +23459,7 @@ return HuntHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
 					<Properties>
 						<string name="Name">IndexPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23166,7 +23661,7 @@ return IndexPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
 					<Properties>
 						<string name="Name">InventoryPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23175,20 +23670,26 @@ return IndexPanel
 	Слева сетка: все ресурсы ResourceData и предметы RecipeData (лут, крафт); в ячейке — своя иконка (Icons.lua,
 	без эмодзи), название и количество; чего нет — приглушено. Справа (на телефоне в портрете — снизу) карточка
 	выбранного: описание, где добыть (миры, сундуки, враги, верстак) и для чего нужно (рецепты). Данные — InventoryData.
+	v2.9: у предметов «одним нажатием» (зелье удачи, эликсир монет, билеты) в карточке кнопки «В слот 3 / 4 / 5»
+	(у уже назначенного — «Убрать из слота N»), действие SetHotbar; у угощения и катализатора — пояснение,
+	что они применяются в окне «Питомцы». Пустой быстрый слот открывает окно с подсказкой «Выберите предмет для слота N».
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local Icons = require(Shared:WaitForChild("Icons"))
 local InventoryData = require(Shared:WaitForChild("InventoryData"))
 local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local ResourceData = require(Shared:WaitForChild("ResourceData"))
 local Util = require(Shared:WaitForChild("Util"))
 
+local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
@@ -23281,18 +23782,37 @@ function InventoryPanel.init(gui: ScreenGui)
 
 	local selected: string? = nil
 	local cells = {}
+	local pendingSlot: number? = nil -- v2.9: окно открыто из пустого быстрого слота
+	local refreshAll: () -> () = function() end
+
+	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом, состояние придёт с сервера
+	local function assign(slot: number, id: string)
+		local item = RecipeData.Items[id]
+		if Actions.call("SetHotbar", slot, id) then
+			pendingSlot = nil
+			if id == "" then
+				Toasts.show(L.m("hotbar.cleared", { n = slot }), "info")
+			else
+				Toasts.show(
+					L.m("hotbar.assigned", { item = L.n(item and item.Name or id), n = slot }),
+					"success"
+				)
+			end
+		end
+	end
 
 	local function showInfo(id: string?)
 		Widgets.clear(info)
 		local core = ClientState.Core
 		if not id then
-			UiKit.text(
+			local hint = UiKit.text(
 				info,
-				L.t("inv.hint"),
+				if pendingSlot then L.t("hotbar.pick_slot", { n = pendingSlot }) else L.t("inv.hint"),
 				UDim2.fromOffset(12, 12),
 				UDim2.new(1, -24, 0, 60),
-				{ TextColor3 = Theme.TextDim, MaxSize = 16 }
+				{ TextColor3 = if pendingSlot then Theme.Gold else Theme.TextDim, MaxSize = 16 }
 			)
+			hint.Name = "Hint"
 			return
 		end
 		local kind = InventoryData.kindOf(id)
@@ -23320,10 +23840,57 @@ function InventoryPanel.init(gui: ScreenGui)
 			{ TextColor3 = Theme.Gold, Font = Theme.Font, MaxSize = 17 }
 		)
 		have.Name = "Have"
+		-- v2.9: быстрые слоты хотбара
+		local listTop = 76
+		if HotbarData.canAssign(id) then
+			local row = Widgets.New("Frame", {
+				Name = "SlotRow",
+				Position = UDim2.fromOffset(8, 74),
+				Size = UDim2.new(1, -16, 0, 32),
+				BackgroundTransparency = 1,
+				ZIndex = 23,
+				Parent = info,
+			})
+			local hb = core and core.Hotbar
+			local inSlot = HotbarData.slotOf(hb, id)
+			if inSlot then
+				local rm = Widgets.button({
+					Text = L.t("inv.remove_slot", { n = inSlot }),
+					Color = Theme.Red,
+					Size = UDim2.fromScale(1, 1),
+					ZIndex = 24,
+					MaxTextSize = 15,
+					OnClick = function()
+						assign(inSlot, "")
+					end,
+					Parent = row,
+				})
+				rm.Name = "RemoveSlot"
+			else
+				local n = HotbarData.LAST - HotbarData.FIRST + 1
+				for i = 0, n - 1 do
+					local slot = HotbarData.FIRST + i
+					local b = Widgets.button({
+						Text = L.t("inv.to_slot", { n = slot }),
+						Color = if pendingSlot == slot then Theme.Gold else Theme.Purple,
+						Size = UDim2.new(1 / n, -4, 1, 0),
+						Position = UDim2.new(i / n, 2, 0, 0),
+						ZIndex = 24,
+						MaxTextSize = 15,
+						OnClick = function()
+							assign(slot, id)
+						end,
+						Parent = row,
+					})
+					b.Name = "ToSlot" .. slot
+				end
+			end
+			listTop = 112
+		end
 		local list = Widgets.scroller(info, {
 			Name = "Lines",
-			Position = UDim2.fromOffset(8, 76),
-			Size = UDim2.new(1, -16, 1, -82),
+			Position = UDim2.fromOffset(8, listTop),
+			Size = UDim2.new(1, -16, 1, -(listTop + 6)),
 			ZIndex = 23,
 		})
 		UiKit.list(list, 4)
@@ -23346,6 +23913,9 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 		local desc = if kind == "Res" then L.t("inv.desc." .. id) else L.n((RecipeData.Items[id] :: any).Desc)
 		line(desc, { Color = Theme.TextDim, Name = "Desc" })
+		if HotbarData.isPetItem(id) then
+			line(L.t("inv.slot_pets"), { Color = Theme.Gold, Name = "SlotNote" })
+		end
 		line(
 			L.t("inv.where"),
 			{ Font = Theme.Font, Color = Theme.Gem, Max = 16, H = 22, Name = "WhereTitle" }
@@ -23457,6 +24027,7 @@ function InventoryPanel.init(gui: ScreenGui)
 		paintSelection()
 		showInfo(selected)
 	end
+	refreshAll = panel.Refresh
 
 	build()
 	local sig = ""
@@ -23464,10 +24035,12 @@ function InventoryPanel.init(gui: ScreenGui)
 		if not panel.IsOpen() then
 			return
 		end
-		local parts = {}
+		local parts: { any } = {}
 		for _, e in ipairs(InventoryData.list()) do
 			table.insert(parts, InventoryData.count(core, e.Id))
 		end
+		local hb = core.Hotbar or {}
+		table.insert(parts, tostring(hb.S3) .. tostring(hb.S4) .. tostring(hb.S5))
 		local s = table.concat(parts, ",")
 		if s ~= sig then
 			sig = s
@@ -23482,7 +24055,13 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 	end)
 	local open = panel.Open
+	local close = panel.Close
+	panel.Close = function()
+		pendingSlot = nil
+		close()
+	end
 	panel.Open = function()
+		pendingSlot = nil
 		open()
 		if not selected then
 			-- по умолчанию — первый ресурс, который уже есть (или дерево)
@@ -23499,6 +24078,16 @@ function InventoryPanel.init(gui: ScreenGui)
 		panel.Refresh()
 	end
 	panel.select = selectId
+	-- v2.9: открыть для выбора предмета в пустой быстрый слот n
+	function panel.ForSlot(n: number)
+		pendingSlot = n
+		selected = nil
+		if not panel.IsOpen() then
+			open()
+		end
+		sig = ""
+		refreshAll()
+	end
 	return panel
 end
 
@@ -23506,7 +24095,7 @@ return InventoryPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
 					<Properties>
 						<string name="Name">Layout</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23624,7 +24213,7 @@ return Layout
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006D">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
 					<Properties>
 						<string name="Name">MarketPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -23949,7 +24538,7 @@ return MarketPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006E">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
 					<Properties>
 						<string name="Name">MorePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24090,7 +24679,7 @@ return MorePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000006F">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
 					<Properties>
 						<string name="Name">PetsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -24845,7 +25434,7 @@ return PetsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000070">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
 					<Properties>
 						<string name="Name">QuestsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25103,7 +25692,7 @@ return QuestsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000071">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
 					<Properties>
 						<string name="Name">RebirthPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25222,7 +25811,7 @@ return RebirthPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000072">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
 					<Properties>
 						<string name="Name">SettingsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25329,7 +25918,7 @@ return SettingsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000073">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
 					<Properties>
 						<string name="Name">ShopPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25562,7 +26151,7 @@ return ShopPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000074">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
 					<Properties>
 						<string name="Name">TalentsPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25744,7 +26333,7 @@ return TalentsPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000075">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
 					<Properties>
 						<string name="Name">Theme</string>
 						<ProtectedString name="Source"><![CDATA[--!strict
@@ -25772,7 +26361,7 @@ return Theme
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000076">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
 					<Properties>
 						<string name="Name">Toasts</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -25932,7 +26521,7 @@ return Toasts
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000077">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
 					<Properties>
 						<string name="Name">TradePanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26438,7 +27027,7 @@ return TradePanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000078">
+				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
 					<Properties>
 						<string name="Name">TutorialHud</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26583,7 +27172,7 @@ return TutorialHud
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX00000000000000000000000000000079">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
 					<Properties>
 						<string name="Name">UiKit</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26841,7 +27430,7 @@ return UiKit
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007A">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
 					<Properties>
 						<string name="Name">UpgradesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -26946,7 +27535,7 @@ return UpgradesPanel
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007B">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
 					<Properties>
 						<string name="Name">Widgets</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27395,7 +27984,7 @@ return Widgets
 ]]></ProtectedString>
 					</Properties>
 				</Item>
-				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007C">
+				<Item class="ModuleScript" referent="RBX0000000000000000000000000000007D">
 					<Properties>
 						<string name="Name">ZonesPanel</string>
 						<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27527,7 +28116,7 @@ return ZonesPanel
 					</Properties>
 				</Item>
 			</Item>
-			<Item class="LocalScript" referent="RBX0000000000000000000000000000007D">
+			<Item class="LocalScript" referent="RBX0000000000000000000000000000007E">
 				<Properties>
 					<string name="Name">UIController</string>
 					<ProtectedString name="Source"><![CDATA[--!nonstrict
@@ -27602,6 +28191,7 @@ panels.More = require(Modules:WaitForChild("MorePanel")).init(gui, openPanel, fu
 	return Hud.state or {}
 end)
 Hud.eggPanel = panels.Egg
+Hud.invPanel = panels.Inventory
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)

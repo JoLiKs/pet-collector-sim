@@ -265,6 +265,16 @@ function handlers.icons(arg)
 	end
 	g.Parent = player.PlayerGui
 end
+-- item:luck_potion=3 — выдать предметы (v2.9: быстрые слоты); boost:Luck5=600 — буст как от доната
+function handlers.item(arg)
+	local id, n = string.match(arg, "^([%w_]+)=?(%d*)$")
+	Economy.addItem(player, id, tonumber(n) or 1)
+end
+function handlers.boost(arg)
+	local kind, sec = string.match(arg, "^(%w+)=(%d+)$")
+	Economy.addLuckBoost(DataService.get(player), kind, tonumber(sec))
+	State.markCore(player)
+end
 function handlers.bpxp(arg)
 	Economy.addBpXp(player, tonumber(arg))
 end

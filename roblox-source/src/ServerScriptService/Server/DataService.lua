@@ -72,7 +72,8 @@ local function makeTemplate(): Data
 		LastSeen = os.time(),
 		OfflinePending = 0,
 		AutoCollect = true,
-		Settings = { Lang = "auto" }, -- "auto" | "en" | "ru" (см. LanguageService)
+		-- Lang: "auto" | "en" | "ru" (см. LanguageService); Hotbar (v2.9): быстрые слоты 3..5 (HotbarData)
+		Settings = { Lang = "auto", Hotbar = { S3 = "luck_potion", S4 = "coin_elixir", S5 = "" } },
 		Receipts = {}, -- [tostring(PurchaseId)] = unix-время (идемпотентность ProcessReceipt)
 		EventGems = { Day = 0, Gems = 0 }, -- гемы из «Суперсилы» за UTC-сутки (дневной потолок)
 		Tutorial = { Step = 1, P = 0 }, -- v2.4: обучение первой сессии (TutorialData); Step > шагов — пройдено

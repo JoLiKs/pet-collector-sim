@@ -6,6 +6,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local L = require(Shared:WaitForChild("Locale"))
 
 local Remotes = require(Shared:WaitForChild("Remotes"))
@@ -168,8 +169,26 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 	local bossBar = UiKit.bar(bossBox, UDim2.fromOffset(8, 26), UDim2.new(1, -16, 0, 14), Theme.Red)
 	bossBar.Back.ZIndex = 7
 
+	-- бусты (v2.9): таймер виден на быстром слоте с зельем; здесь — только если такого предмета нет в слотах
+	-- (например, буст куплен донатом LUCK_2X_15M / LUCK_5X_10M, а зелье удачи убрано из хотбара)
 	local luckChip, luckText = chip("LuckChip", 80, Theme.Green)
 	luckChip.Visible = false
+	local coinChip, coinText = chip("CoinChip", 81, Theme.Gold)
+	coinChip.Visible = false
+	local function boostChips(core)
+		local b = HotbarData.boosts(core.Boosts, ClientState.serverNow())
+		local hb = core.Hotbar
+		local luckSlot = HotbarData.slotOf(hb, "luck_potion") ~= nil
+		local coinSlot = HotbarData.slotOf(hb, "coin_elixir") ~= nil
+		luckChip.Visible = b.Luck ~= nil and not luckSlot
+		coinChip.Visible = b.Coins ~= nil and not coinSlot
+		if b.Luck then
+			luckText.Text = L.t("hud.luck_boost", { n = b.Luck.Mult, time = Util.formatTime(b.Luck.Left) })
+		end
+		if b.Coins then
+			coinText.Text = L.t("hud.coin_boost", { n = b.Coins.Mult, time = Util.formatTime(b.Coins.Left) })
+		end
+	end
 
 	-- события: одна строка на событие «⏱ Имя 1:45»; описание — в баннере при старте
 	local huntCard = HuntHud.init(gui, timer)
@@ -315,8 +334,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		elseif core.OfflinePending == 0 then
 			offline.Visible = false
 		end
-		local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
-		luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
+		boostChips(core)
 	end)
 
 	-- ---------- станции хаба ----------
@@ -379,12 +397,7 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 		timer.Size = UDim2.fromOffset(timer.Size.X.Offset, math.max(1, hgt))
 		local core = ClientState.Core
 		if core then
-			local left = (core.LuckBoostEnds or 0) - ClientState.serverNow()
-			luckChip.Visible = (core.LuckBoost or 1) > 1 and left > 0
-			if luckChip.Visible then
-				luckText.Text = "🍀 "
-					.. L.t("hud.luck_boost", { n = core.LuckBoost, time = Util.formatTime(left) })
-			end
+			boostChips(core)
 		end
 	end)
 end

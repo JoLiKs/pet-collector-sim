@@ -2,6 +2,7 @@
 -- Миграции данных игрока между версиями шаблона. Чистая функция над таблицей — покрыта тестами.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DailyData = require(ReplicatedStorage.Shared.DailyData)
+local HotbarData = require(ReplicatedStorage.Shared.HotbarData)
 
 local Migrations = {}
 
@@ -60,6 +61,14 @@ function Migrations.run(data: { [string]: any }): boolean
 	-- переводится в позицию цикла (Cycle), добавляется Popup (день последнего автопоказа окна)
 	if type(data.Daily) ~= "table" or data.Daily.Cycle == nil or data.Daily.Popup == nil then
 		data.Daily = DailyData.normalize(data.Daily)
+		changed = true
+	end
+	-- v2.9: быстрые слоты хотбара 3..5. Старые профили: слот 3 — зелье удачи, 4 — эликсир монет, 5 — пусто;
+	-- битые назначения чистятся (только предметы «одним нажатием», без повторов)
+	local hb = data.Settings.Hotbar
+	local fixed = HotbarData.normalize(hb)
+	if type(hb) ~= "table" or hb.S3 ~= fixed.S3 or hb.S4 ~= fixed.S4 or hb.S5 ~= fixed.S5 then
+		data.Settings.Hotbar = fixed
 		changed = true
 	end
 	-- защита от мусора в числовых полях (v2.4, аудит В2: ещё и ±inf, ресурсы, предметы, XP пропуска)

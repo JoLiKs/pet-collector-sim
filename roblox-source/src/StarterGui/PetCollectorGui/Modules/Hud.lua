@@ -24,12 +24,15 @@ local Icons = require(Shared:WaitForChild("Icons"))
 local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Hotbar = require(script.Parent.Hotbar)
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local Widgets = require(script.Parent.Widgets)
 
 local Hud = {}
 Hud.eggPanel = nil :: any -- панель яйца (UIController): кнопка «Яйца» вызывает eggPanel.Show
+Hud.invPanel = nil :: any -- v2.9: «Инвентарь» (UIController): пустой быстрый слот открывает его для выбора предмета
 Hud.state = nil :: any -- флаги «есть что забрать» для листа «Ещё»
 Hud.buttons = nil :: any
 
@@ -282,7 +285,34 @@ function Hud.init(gui: ScreenGui, openPanel: (string, boolean?) -> ())
 			l:Destroy()
 		end)
 	end
-	hotbar = Hotbar.init(gui, popup)
+	hotbar = Hotbar.init(gui, popup, {
+		-- v2.9: пустой быстрый слот — инвентарь с подсказкой «Выберите предмет для слота N»
+		OpenInventoryForSlot = function(n: number)
+			openPanel("Inventory", true)
+			local inv = Hud.invPanel
+			if inv and inv.ForSlot then
+				inv.ForSlot(n)
+			end
+		end,
+		-- билет: у своего яйца — открыть сразу (сервер всё равно проверит дистанцию), иначе — окно этого яйца
+		UseTicket = function(itemId: string)
+			local eggId = HotbarData.ticketEgg(itemId)
+			local egg = eggId and PetData.EggsById[eggId]
+			if not egg then
+				return
+			end
+			local near, dist = Hud.nearestEgg()
+			if near == eggId and dist <= Config.EGG_MAX_DISTANCE then
+				Actions.call("Hatch", eggId, 1, true)
+				return
+			end
+			openPanel("Egg", true)
+			if Hud.eggPanel and Hud.eggPanel.Show then
+				Hud.eggPanel.Show(eggId, false)
+			end
+			Toasts.show(L.m("hotbar.go_to_egg", { egg = L.n(egg.Name) }), "info")
+		end,
+	})
 
 	-- ---------- раскладка (Layout): якоря + UIScale ----------
 	Layout.onChanged(function(lay)

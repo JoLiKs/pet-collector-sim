@@ -1,20 +1,29 @@
 --!nonstrict
 --[[
-	Hotbar (v2.5) — хотбар инструментов снизу по центру вместо кнопок «УДАР» и «СОБРАТЬ».
+	Hotbar (v2.5, v2.9) — хотбар снизу по центру: 2 инструмента и 3 настраиваемых быстрых слота.
 	  1 — Меч (Tool "Sword"): выбран → клик/тап по миру = удар (AttackFx + действие Attack). Q бьёт всегда
 	      (и сам берёт меч в руку). Удар в воздухе и по суперигроку — то же действие Attack, что и раньше.
 	  2 — Магнит (Tool "Collector"): удержание клика/тапа = сбор монет (remote Click, 10 раз/с); F — один сбор.
-	  3 — Зелье: не инструмент, а быстрый слот: тап выпивает лучшее зелье из инвентаря (UseItem).
-	Стандартный Backpack Roblox скрыт (свой хотбар), клавиши 1–3 выбирают слот, повторный выбор убирает инструмент.
+	  3, 4, 5 — быстрые слоты предметов (v2.9, HotbarData): что в них лежит, игрок выбирает в «Инвентаре»
+	      (кнопки «В слот 3/4/5»), назначение хранится на сервере (Settings.Hotbar, действие SetHotbar).
+	      Зелье удачи / эликсир монет — тап выпивает (UseItem), на слоте таймер действия буста (ММ:СС + полоса);
+	      билет — у своего яйца открывает его сразу, иначе открывает окно этого яйца.
+	      Нет предметов — слот тусклый (назначение сохраняется), тап подсказывает, где взять; пустой слот — «+»,
+	      тап открывает инвентарь с подсказкой «Выберите предмет для слота N».
+	Стандартный Backpack Roblox скрыт (свой хотбар), клавиши 1–5 выбирают слот, повторный выбор убирает инструмент.
 ]]
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
 local UserInputService = game:GetService("UserInputService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local AttackFx = require(Shared:WaitForChild("AttackFx"))
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
+local Icons = require(Shared:WaitForChild("Icons"))
 local L = require(Shared:WaitForChild("Locale"))
+local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local Remotes = require(Shared:WaitForChild("Remotes"))
 local Util = require(Shared:WaitForChild("Util"))
 
@@ -27,31 +36,47 @@ local Widgets = require(script.Parent.Widgets)
 
 local Hotbar = {}
 
+local KEYS = { Enum.KeyCode.One, Enum.KeyCode.Two, Enum.KeyCode.Three, Enum.KeyCode.Four, Enum.KeyCode.Five }
 Hotbar.SLOTS = {
-	{
-		Tool = "Sword",
-		IconKind = "Sword",
-		Text = "hotbar.sword",
-		Color = Color3.fromRGB(235, 80, 80),
-		Key = Enum.KeyCode.One,
-	},
+	{ Tool = "Sword", IconKind = "Sword", Text = "hotbar.sword", Color = Color3.fromRGB(235, 80, 80) },
 	{
 		Tool = "Collector",
 		IconKind = "Magnet",
 		Text = "hotbar.collect",
 		Color = Color3.fromRGB(255, 190, 40),
-		Key = Enum.KeyCode.Two,
 	},
-	{
-		Tool = nil,
-		IconKind = "Potion",
-		Text = "hotbar.potion",
-		Color = Color3.fromRGB(170, 100, 255),
-		Key = Enum.KeyCode.Three,
-	},
+	{ Item = 3 },
+	{ Item = 4 },
+	{ Item = 5 },
 }
--- порядок выбора зелья для быстрого слота
-Hotbar.POTIONS = { "luck_potion", "coin_elixir", "xp_treat" }
+Hotbar.SIZE = 72
+Hotbar.GAP = 8
+Hotbar.WIDTH = #Hotbar.SLOTS * Hotbar.SIZE + (#Hotbar.SLOTS - 1) * Hotbar.GAP
+-- цвета бустов на слоте
+local BOOST_COLOR = { Luck = Color3.fromRGB(90, 220, 110), Coins = Color3.fromRGB(255, 200, 50) }
+local IDLE = Color3.fromRGB(40, 44, 62)
+
+-- Что лежит в быстром слоте n (по серверному состоянию) и сколько этого предмета
+function Hotbar.itemIn(core, n: number): (string, number)
+	local hb = core and core.Hotbar or HotbarData.DEFAULT
+	local id = hb[HotbarData.key(n)] or ""
+	if id == "" or not HotbarData.canAssign(id) then
+		return "", 0
+	end
+	local items = core and core.Items or {}
+	return id, items[id] or 0
+end
+
+-- Подпись слота: короткое имя предмета («Удача», «Монеты», «Билет»)
+function Hotbar.caption(id: string): string
+	if id == "" then
+		return L.t("hotbar.empty")
+	end
+	if HotbarData.useKind(id) == "Ticket" then
+		return L.t("hotbar.short.ticket")
+	end
+	return L.t("hotbar.short." .. id)
+end
 
 local player = Players.LocalPlayer
 local lastAttack = 0
@@ -105,32 +130,19 @@ function Hotbar.attack()
 	Actions.call("Attack")
 end
 
-function Hotbar.bestPotion(): (string?, number)
-	local core = ClientState.Core
-	local items = core and core.Items or {}
-	local total = 0
-	for _, id in ipairs(Hotbar.POTIONS) do
-		total += items[id] or 0
-	end
-	for _, id in ipairs(Hotbar.POTIONS) do
-		if (items[id] or 0) > 0 then
-			return id, total
-		end
-	end
-	return nil, 0
-end
-
-function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
+function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> (), hooks: { [string]: any }?)
+	local hk = hooks or {}
 	pcall(function()
 		StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.Backpack, false)
 	end)
 	local clickRemote = Remotes.getEvent("Click")
+	local SIZE, GAP = Hotbar.SIZE, Hotbar.GAP
 
 	local bar = Widgets.New("Frame", {
 		Name = "Hotbar",
 		AnchorPoint = Vector2.new(0.5, 1),
 		Position = UDim2.new(0.5, 0, 1, -12),
-		Size = UDim2.fromOffset(3 * 72 + 2 * 10, 72),
+		Size = UDim2.fromOffset(Hotbar.WIDTH, SIZE),
 		BackgroundTransparency = 1,
 		ZIndex = 4,
 		Parent = gui,
@@ -155,19 +167,40 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		end)
 	end
 
-	local function usePotion()
-		local id = Hotbar.bestPotion()
-		if not id then
-			Toasts.show("hotbar.no_potion", "info")
+	-- быстрый слот n: применить предмет, подсказать, где взять, или открыть инвентарь для выбора
+	local function useItemSlot(n: number)
+		local core = ClientState.Core
+		local id, count = Hotbar.itemIn(core, n)
+		if id == "" then
+			if hk.OpenInventoryForSlot then
+				hk.OpenInventoryForSlot(n)
+			end
 			return
 		end
-		Actions.call("UseItem", id)
+		local item = RecipeData.Items[id]
+		local name = L.n(item and item.Name or id)
+		local kind = HotbarData.useKind(id)
+		if count <= 0 then
+			Toasts.show(
+				L.m(if kind == "Ticket" then "hotbar.none_ticket" else "hotbar.none_boost", { item = name }),
+				"info"
+			)
+			return
+		end
+		if kind == "Ticket" then
+			if hk.UseTicket then
+				hk.UseTicket(id)
+			end
+		else
+			Actions.call("UseItem", id)
+		end
 	end
+	Hotbar.useSlot = useItemSlot
 
 	local function selectSlot(i: number)
 		local s = Hotbar.SLOTS[i]
-		if not s.Tool then
-			usePotion()
+		if s.Item then
+			useItemSlot(s.Item)
 			return
 		end
 		local hum = humanoid()
@@ -186,15 +219,15 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 	for i, s in ipairs(Hotbar.SLOTS) do
 		local b = Widgets.hudButton({
 			Name = "Slot" .. i,
-			Color = Color3.fromRGB(40, 44, 62),
+			Color = IDLE,
 			IconKind = s.IconKind,
-			Text = L.k(s.Text),
+			Text = L.k(s.Text or "hotbar.empty"),
 			Layout = "column",
 			MaxTextSize = 15,
-			MinTextSize = 9,
+			MinTextSize = 8,
 			TextStroke = 2,
-			Size = UDim2.fromOffset(72, 72),
-			Position = UDim2.fromOffset((i - 1) * 82, 0),
+			Size = UDim2.fromOffset(SIZE, SIZE),
+			Position = UDim2.fromOffset((i - 1) * (SIZE + GAP), 0),
 			StrokeSize = 3,
 			OnClick = function()
 				selectSlot(i)
@@ -209,45 +242,174 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 			MaxTextSize = 15,
 			Stroke = 2,
 			TextColor3 = Theme.Gold,
-			ZIndex = 8,
+			ZIndex = 9,
 			Parent = b,
 		})
 		local count = Widgets.bold({
 			Name = "Count",
 			Text = "",
 			AnchorPoint = Vector2.new(1, 0),
-			Size = UDim2.fromOffset(34, 18),
+			Size = UDim2.fromOffset(40, 18),
 			Position = UDim2.new(1, -4, 0, 2),
 			TextXAlignment = Enum.TextXAlignment.Right,
 			MaxTextSize = 15,
 			Stroke = 2,
-			ZIndex = 8,
+			ZIndex = 9,
 			Parent = b,
 		})
-		slots[i] =
-			{ Button = b, Key = key, Count = count, Def = s, Stroke = b:FindFirstChildOfClass("UIStroke") }
+		local sl = {
+			Button = b,
+			Key = key,
+			Count = count,
+			Def = s,
+			Stroke = b:FindFirstChildOfClass("UIStroke"),
+			Caption = b:FindFirstChild("Caption"),
+		}
+		if s.Item then
+			L.unbind(sl.Caption, "Text")
+			-- «+» пустого слота
+			sl.Plus = Widgets.bold({
+				Name = "Plus",
+				Text = "+",
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.02),
+				Size = UDim2.fromScale(0.62, 0.62),
+				MaxTextSize = 48,
+				TextColor3 = Color3.fromRGB(170, 176, 210),
+				Stroke = 2,
+				ZIndex = 8,
+				Visible = false,
+				Parent = b,
+			})
+			-- затемнение, когда предмета 0 (назначение остаётся)
+			sl.Dim = Widgets.New("Frame", {
+				Name = "Dim",
+				BackgroundColor3 = Color3.fromRGB(20, 22, 34),
+				BackgroundTransparency = 0.4,
+				Size = UDim2.fromScale(1, 1),
+				ZIndex = 8,
+				Visible = false,
+				Parent = b,
+			})
+			Widgets.corner(sl.Dim, 12)
+			-- полоса убывания буста (снизу внутри слота)
+			sl.BarBack = Widgets.New("Frame", {
+				Name = "BoostBar",
+				AnchorPoint = Vector2.new(0.5, 1),
+				Position = UDim2.new(0.5, 0, 1, -3),
+				Size = UDim2.new(1, -10, 0, 5),
+				BackgroundColor3 = Color3.fromRGB(14, 16, 26),
+				ZIndex = 9,
+				Visible = false,
+				Parent = b,
+			})
+			Widgets.corner(sl.BarBack, 3)
+			sl.BarFill = Widgets.New("Frame", {
+				Name = "Fill",
+				Size = UDim2.fromScale(1, 1),
+				BackgroundColor3 = BOOST_COLOR.Luck,
+				ZIndex = 10,
+				Parent = sl.BarBack,
+			})
+			Widgets.corner(sl.BarFill, 3)
+			sl.ItemId = nil
+			sl.Span, sl.PrevLeft = nil, nil
+		end
+		slots[i] = sl
+	end
+
+	-- иконка предмета в быстром слоте (пересоздаётся только при смене предмета)
+	local function setItemIcon(sl, id: string)
+		if sl.ItemId == id then
+			return
+		end
+		sl.ItemId = id
+		local old = sl.Button:FindFirstChild("Icon")
+		if old then
+			old:Destroy()
+		end
+		if id ~= "" then
+			Icons.make(id, {
+				Name = "Icon",
+				Px = 44,
+				AnchorPoint = Vector2.new(0.5, 0),
+				Position = UDim2.fromScale(0.5, 0.06),
+				Size = UDim2.fromScale(0.62, 0.62),
+				ZIndex = 6,
+				Parent = sl.Button,
+			})
+		end
+		sl.Span, sl.PrevLeft = nil, nil
+	end
+
+	-- таймер буста на слоте: «x2 04:59» вместо подписи + полоса убывания (время — из серверного core.Boosts)
+	local function paintBoost(sl, id: string, core)
+		local kind = HotbarData.boostOf(id)
+		local b = kind and HotbarData.boosts(core and core.Boosts, ClientState.serverNow())[kind]
+		sl.Button:SetAttribute("BoostLeft", if b then math.floor(b.Left) else 0)
+		if not b then
+			sl.BarBack.Visible = false
+			sl.Span, sl.PrevLeft = nil, nil
+			return false
+		end
+		sl.Span = HotbarData.span(sl.Span, sl.PrevLeft, b.Left)
+		sl.PrevLeft = b.Left
+		sl.BarBack.Visible = true
+		sl.BarFill.BackgroundColor3 = BOOST_COLOR[kind]
+		sl.BarFill.Size = UDim2.fromScale(math.clamp(b.Left / sl.Span, 0, 1), 1)
+		sl.Caption.Text = "x" .. b.Mult .. " " .. HotbarData.mmss(b.Left)
+		sl.Caption.TextColor3 = BOOST_COLOR[kind]
+		return true
 	end
 
 	local function paint()
 		local eq = Hotbar.equipped()
-		local _, potions = Hotbar.bestPotion()
+		local core = ClientState.Core
 		for _, sl in ipairs(slots) do
-			local on = sl.Def.Tool ~= nil and sl.Def.Tool == eq
-			sl.Button.BackgroundColor3 = if on then sl.Def.Color else Color3.fromRGB(40, 44, 62)
-			if sl.Stroke then
-				sl.Stroke.Color = if on then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
-				sl.Stroke.Thickness = if on then 4 else 3
-			end
-			sl.Button:SetAttribute("Selected", on)
-			if not sl.Def.Tool then
-				sl.Count.Text = if potions > 0 then "×" .. Util.formatNumber(potions) else ""
-				sl.Button.BackgroundColor3 = if potions > 0
-					then Color3.fromRGB(70, 50, 110)
-					else Color3.fromRGB(40, 44, 62)
+			if sl.Def.Item then
+				local id, n = Hotbar.itemIn(core, sl.Def.Item)
+				setItemIcon(sl, id)
+				sl.Button:SetAttribute("ItemId", id)
+				sl.Plus.Visible = id == ""
+				sl.Dim.Visible = id ~= "" and n <= 0
+				sl.Count.Text = if id ~= "" then "×" .. Util.formatNumber(n) else ""
+				sl.Count.TextColor3 = if n > 0 then Theme.Text else Theme.TextDim
+				sl.Caption.TextColor3 = if id ~= "" and n > 0 then Theme.Text else Theme.TextDim
+				local active = id ~= "" and paintBoost(sl, id, core)
+				if not active then
+					sl.Caption.Text = Hotbar.caption(id)
+				end
+				sl.Button.BackgroundColor3 = if active
+					then Color3.fromRGB(46, 70, 60)
+					elseif id ~= "" and n > 0 then Color3.fromRGB(70, 50, 110)
+					else IDLE
+				if sl.Stroke then
+					local kind = HotbarData.boostOf(id)
+					sl.Stroke.Color = if active and kind then BOOST_COLOR[kind] else Color3.new(0, 0, 0)
+					sl.Stroke.Thickness = if active then 3.5 else 3
+				end
+			else
+				local on = sl.Def.Tool == eq
+				sl.Button.BackgroundColor3 = if on then sl.Def.Color else IDLE
+				if sl.Stroke then
+					sl.Stroke.Color = if on then Color3.new(1, 1, 1) else Color3.new(0, 0, 0)
+					sl.Stroke.Thickness = if on then 4 else 3
+				end
+				sl.Button:SetAttribute("Selected", on)
 			end
 		end
 	end
 	ClientState.onCore(paint)
+	L.onChanged(paint)
+	-- таймеры бустов тикают раз в 0.5 с
+	local acc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		acc += dt
+		if acc >= 0.5 then
+			acc = 0
+			paint()
+		end
+	end)
 
 	-- инструменты: подписываемся на Activated/Deactivated каждого нового экземпляра (Backpack заполняется заново при респавне)
 	local bound = setmetatable({}, { __mode = "k" })
@@ -320,8 +482,8 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		elseif input.KeyCode == Enum.KeyCode.F then
 			collectOnce()
 		else
-			for i, s in ipairs(Hotbar.SLOTS) do
-				if input.KeyCode == s.Key then
+			for i = 1, #Hotbar.SLOTS do
+				if input.KeyCode == KEYS[i] then
 					selectSlot(i)
 				end
 			end
@@ -336,17 +498,56 @@ function Hotbar.init(gui: ScreenGui, onCollect: (number?) -> ())
 		end
 	end)
 
-	Layout.onChanged(function(lay)
+	-- раскладка: 5 слотов между кошельком (слева снизу) и таймерами (справа снизу), не под кнопкой прыжка;
+	-- если места мало — слоты уменьшаются (Hotbar.fit), полоса сдвигается в свободный промежуток
+	local lastFit = ""
+	local function relayout()
+		local lay = Layout.get()
+		local bottom = if lay.Mode == "wide" then 12 else 8
+		local base = Hotbar.scaleFor(lay)
+		local function rectOf(name: string)
+			local f = gui:FindFirstChild(name)
+			if not (f and f:IsA("GuiObject") and f.Visible) then
+				return nil
+			end
+			local p, z = f.AbsolutePosition - gui.AbsolutePosition, f.AbsoluteSize
+			return p.X, p.Y, p.X + z.X, p.Y + z.Y
+		end
+		local barTop = lay.H - bottom - SIZE * base
+		local left, right = 8, lay.W - 8
+		if lay.Touch then
+			right = lay.W - 104 -- кнопка прыжка
+		end
+		local cx0, _, cx1, cy1 = rectOf("Currency")
+		if cx0 and cy1 > barTop + 2 and cx1 < lay.W / 2 then
+			left = math.max(left, cx1 + 8)
+		end
+		local tx0, _, _, ty1 = rectOf("Timer")
+		if tx0 and ty1 > barTop + 2 and tx0 > lay.W / 2 then
+			right = math.min(right, tx0 - 8)
+		end
+		local s, cx = HotbarData.fit(lay.W, left, right, base, Hotbar.WIDTH)
+		local sig = string.format("%d/%d/%.3f/%.1f", lay.W, lay.H, s, cx)
+		if sig == lastFit then
+			return
+		end
+		lastFit = sig
+		scale.Scale = s
+		bar.Position = UDim2.new(0, cx, 1, -bottom)
 		for _, sl in ipairs(slots) do
 			sl.Key.Visible = not lay.Touch
 		end
-		scale.Scale = Hotbar.scaleFor(lay)
-		-- на телефоне в портрете хотбар не заходит под кнопку прыжка (справа внизу)
-		local dx = 0
-		if lay.Touch and lay.Mode == "portrait" then
-			dx = math.min(0, (lay.W - 104) - (lay.W / 2 + 118 * scale.Scale))
+	end
+	Layout.onChanged(function()
+		task.defer(relayout)
+	end)
+	local lacc = 0
+	RunService.Heartbeat:Connect(function(dt)
+		lacc += dt
+		if lacc >= 0.5 then
+			lacc = 0
+			relayout()
 		end
-		bar.Position = UDim2.new(0.5, dx, 1, if lay.Mode == "wide" then -12 else -8)
 	end)
 	paint()
 	return bar

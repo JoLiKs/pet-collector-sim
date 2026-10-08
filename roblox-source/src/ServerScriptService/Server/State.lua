@@ -117,6 +117,7 @@ local function buildCore(player: Player, data: DataService.Data)
 		CurrentZone = data.CurrentZone,
 		AutoCollect = data.AutoCollect,
 		LangSetting = data.Settings and data.Settings.Lang or "auto",
+		Hotbar = data.Settings and data.Settings.Hotbar, -- v2.9: быстрые слоты 3..5
 		Passes = passes,
 		Premium = session ~= nil and session.Premium,
 		PaidRandomRestricted = session == nil or session.PaidRandomRestricted,

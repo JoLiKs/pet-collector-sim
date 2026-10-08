@@ -1,8 +1,9 @@
 --!strict
--- Крафт на верстаке в хабе и применение предметов (зелья, угощения).
+-- Крафт на верстаке в хабе, применение предметов (зелья, эликсиры) и назначение быстрых слотов хотбара (v2.9).
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage.Shared
 
+local HotbarData = require(Shared.HotbarData)
 local Locale = require(Shared.Locale)
 local RecipeData = require(Shared.RecipeData)
 local Util = require(Shared.Util)
@@ -12,6 +13,7 @@ local Economy = require(script.Parent.Economy)
 local Notify = require(script.Parent.Notify)
 local Progress = require(script.Parent.Progress)
 local Router = require(script.Parent.Router)
+local State = require(script.Parent.State)
 local Stations = require(script.Parent.Stations)
 
 local CraftService = {}
@@ -87,9 +89,27 @@ local function use(player: Player, itemId: any): (boolean, any)
 	return true, nil
 end
 
+-- v2.9: быстрые слоты 3..5 — какой предмет лежит в слоте (id или "" — очистить).
+-- Валидация в HotbarData.assign: номер слота, только предметы «одним нажатием», без повторов (перенос).
+local function setHotbar(player: Player, slot: any, itemId: any): (boolean, any)
+	local data = DataService.get(player)
+	if not data then
+		return false, "err.bad_request"
+	end
+	local hb, err = HotbarData.assign(data.Settings.Hotbar, slot, itemId)
+	if not hb then
+		return false, err
+	end
+	data.Settings.Hotbar = hb
+	State.markCore(player)
+	return true, nil
+end
+CraftService.setHotbar = setHotbar
+
 function CraftService.init()
 	Router.register("Craft", 4, 4, craft)
 	Router.register("UseItem", 4, 4, use)
+	Router.register("SetHotbar", 4, 8, setHotbar)
 end
 
 return CraftService

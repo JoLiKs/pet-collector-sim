@@ -5,10 +5,10 @@
     "kind": "rojo"
   },
   "scripts": {
-    "total": 112,
-    "transpiled": 112,
+    "total": 113,
+    "transpiled": 113,
     "failed": [],
-    "lines": 26983
+    "lines": 27568
   },
   "globals": {
     "used": 34,
@@ -198,6 +198,8 @@
       "InfoType.Product",
       "KeyCode.E",
       "KeyCode.F",
+      "KeyCode.Five",
+      "KeyCode.Four",
       "KeyCode.One",
       "KeyCode.Q",
       "KeyCode.Three",

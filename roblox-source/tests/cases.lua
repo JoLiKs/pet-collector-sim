@@ -4048,6 +4048,273 @@ test(
 	end
 )
 
+-- v2.9: быстрые слоты хотбара 3..5 (HotbarData, SetHotbar, UseItem, миграция)
+test(
+	"v2.9 Хотбар: какие предметы можно положить в слот, назначение и перенос",
+	function()
+		local S = boot("A29a")
+		local H = S.U.require("ReplicatedStorage/Shared/HotbarData")
+		for _, id in ipairs({
+			"luck_potion",
+			"coin_elixir",
+			"ticket_MeadowEgg",
+			"ticket_ForestEgg",
+			"ticket_FrostEgg",
+		}) do
+			check(H.canAssign(id), "можно в слот: " .. id)
+		end
+		for _, id in ipairs({ "xp_treat", "catalyst", "pickaxe", "blade", "Wood", "Crystal", "", 5, nil }) do
+			check(not H.canAssign(id), "нельзя в слот: " .. tostring(id))
+		end
+		check(
+			H.isPetItem("xp_treat") and H.isPetItem("catalyst"),
+			"угощение и катализатор — окно «Питомцы»"
+		)
+		check(
+			H.useKind("luck_potion") == "Boost" and H.useKind("ticket_FrostEgg") == "Ticket",
+			"вид применения"
+		)
+		check(
+			H.boostOf("luck_potion") == "Luck" and H.boostOf("coin_elixir") == "Coins",
+			"какой буст"
+		)
+		check(
+			H.ticketEgg("ticket_ForestEgg") == "ForestEgg" and H.ticketEgg("luck_potion") == nil,
+			"яйцо билета"
+		)
+		-- по умолчанию: 3 — удача, 4 — монеты, 5 — пусто; xp_treat в слотах нет
+		local d = H.normalize(nil)
+		check(
+			d.S3 == "luck_potion" and d.S4 == "coin_elixir" and d.S5 == "",
+			"новичок: 3 удача, 4 монеты, 5 пусто"
+		)
+		for _, v in pairs(H.DEFAULT) do
+			check(v ~= "xp_treat", "xp_treat не в слотах по умолчанию")
+		end
+		-- назначение
+		local hb, err = H.assign(d, 5, "ticket_MeadowEgg")
+		check(
+			hb and hb.S5 == "ticket_MeadowEgg" and hb.S3 == "luck_potion" and err == nil,
+			"билет в слот 5"
+		)
+		hb = H.assign(hb, 3, "coin_elixir")
+		check(
+			hb.S3 == "coin_elixir" and hb.S4 == "",
+			"повтор переносит: монеты из 4 в 3, слот 4 пуст"
+		)
+		check(H.slotOf(hb, "coin_elixir") == 3 and H.slotOf(hb, "luck_potion") == nil, "slotOf")
+		hb = H.assign(hb, 3, "")
+		check(hb.S3 == "", "очистка слота")
+		-- валидация
+		for _, bad in ipairs({ 1, 2, 6, 0, 3.5, "3", -1, 0 / 0 }) do
+			check(H.assign(d, bad, "luck_potion") == nil, "неверный слот: " .. tostring(bad))
+		end
+		local r, e = H.assign(d, 4, "xp_treat")
+		check(r == nil and e == "hotbar.cant_assign", "xp_treat нельзя назначить")
+		check(
+			H.assign(d, 4, "catalyst") == nil and H.assign(d, 4, "pickaxe") == nil,
+			"катализатор и кирка — нельзя"
+		)
+		check(H.assign(d, 4, { 1 }) == nil and H.assign(d, 4, nil) == nil, "мусор вместо id")
+		check(
+			d.S3 == "luck_potion" and d.S4 == "coin_elixir",
+			"исходная таблица не меняется"
+		)
+	end
+)
+
+test(
+	"v2.9 Хотбар: бусты для таймера на слоте, полоса убывания, раскладка",
+	function()
+		local S = boot("A29b")
+		local H = S.U.require("ReplicatedStorage/Shared/HotbarData")
+		local now = 1000000
+		local b = H.boosts({ Luck2 = now + 120, Luck5 = 0, Coins2 = now + 30 }, now)
+		check(b.Luck.Mult == 2 and b.Luck.Left == 120 and b.Coins.Left == 30, "оба буста видны")
+		b = H.boosts({ Luck2 = now + 900, Luck5 = now + 600, Coins2 = now - 1 }, now)
+		check(
+			b.Luck.Mult == 5 and b.Luck.Left == 600 and b.Coins == nil,
+			"x5 (донат) важнее x2, x2 ждёт"
+		)
+		check(next(H.boosts(nil, now)) == nil and next(H.boosts({}, now)) == nil, "нет бустов")
+		check(H.span(nil, nil, 120) == 300, "после перезахода: шкала 5 минут")
+		check(H.span(300, 250, 549) == 549, "продление — шкала растёт")
+		check(H.span(549, 549, 548) == 549, "тикает — шкала прежняя")
+		check(H.span(nil, nil, 900) == 900, "донат 15 минут")
+		check(H.mmss(299) == "04:59" and H.mmss(5) == "00:05" and H.mmss(3700) == "1:01:40", "ММ:СС")
+		-- 5 слотов: 390x844 (тач, правее — кнопка прыжка) и 844x390 (между кошельком и таймерами)
+		local w = 5 * 72 + 4 * 8
+		local s, cx = H.fit(390, 8, 390 - 104, 0.83, w)
+		check(
+			s * w <= 278 + 0.01 and cx - s * w / 2 >= 8 and cx + s * w / 2 <= 286 + 0.01,
+			"портрет: влезает"
+		)
+		check(s * 72 >= 36, "портрет: слот не меньше 36 px")
+		s, cx = H.fit(844, 171, 518, 0.78, w)
+		check(
+			cx - s * w / 2 >= 171 - 0.01 and cx + s * w / 2 <= 518 + 0.01 and s * 72 >= 36,
+			"ландшафт: влезает"
+		)
+		s, cx = H.fit(1280, 196, 1006, 1, w)
+		check(s == 1 and cx == 640, "ПК: по центру, полный размер")
+	end
+)
+
+test(
+	"v2.9 Хотбар: сервер — SetHotbar, UseItem продлевает буст, донаты в той же системе, спам",
+	function()
+		BACKEND.Stores = {}
+		local S = boot("A29s")
+		S.U.require("ServerScriptService/Server/CraftService").init()
+		local data, _, p = S.join(2901, "Slotty")
+		check(
+			data.Settings.Hotbar.S3 == "luck_potion"
+				and data.Settings.Hotbar.S4 == "coin_elixir"
+				and data.Settings.Hotbar.S5 == "",
+			"новичок: слоты по умолчанию"
+		)
+		local function call(...)
+			ADVANCE(2)
+			return S.invoke(p, ...)
+		end
+		check(
+			call("SetHotbar", 5, "ticket_FrostEgg").ok and data.Settings.Hotbar.S5 == "ticket_FrostEgg",
+			"билет в 5"
+		)
+		check(call("SetHotbar", 3, "ticket_FrostEgg").ok, "перенос")
+		check(
+			data.Settings.Hotbar.S3 == "ticket_FrostEgg" and data.Settings.Hotbar.S5 == "",
+			"билет перенесён 5 -> 3"
+		)
+		check(
+			not call("SetHotbar", 4, "xp_treat").ok and data.Settings.Hotbar.S4 == "coin_elixir",
+			"xp_treat отклонён"
+		)
+		check(not call("SetHotbar", 2, "luck_potion").ok, "слот 2 — меч/магнит, нельзя")
+		check(not call("SetHotbar", 6, "luck_potion").ok, "слота 6 нет")
+		check(not call("SetHotbar", 3, "Wood").ok, "ресурс нельзя")
+		check(not call("SetHotbar", "3", "luck_potion").ok, "номер строкой — нельзя")
+		check(call("SetHotbar", 3, "").ok and data.Settings.Hotbar.S3 == "", "очистка")
+		check(call("SetHotbar", 3, "luck_potion").ok, "обратно удача в 3")
+		-- спам: лимит Router
+		local okN = 0
+		for _ = 1, 30 do
+			if S.invoke(p, "SetHotbar", 5, "").ok then
+				okN += 1
+			end
+		end
+		check(okN <= 9, "спам SetHotbar ограничен: " .. okN)
+		-- зелья: тап по слоту = UseItem; повтор продлевает
+		S.Economy.addItem(p, "luck_potion", 2)
+		S.Economy.addItem(p, "coin_elixir", 1)
+		local H = S.U.require("ReplicatedStorage/Shared/HotbarData")
+		ADVANCE(3)
+		check(call("UseItem", "luck_potion").ok, "выпил зелье удачи")
+		local t0 = os.time()
+		local b = H.boosts(data.Boosts, t0)
+		check(
+			b.Luck and b.Luck.Mult == 2 and b.Luck.Left >= 298 and b.Luck.Left <= 300,
+			"удача x2 ~5:00"
+		)
+		check(call("UseItem", "luck_potion").ok, "второе зелье")
+		b = H.boosts(data.Boosts, os.time())
+		check(
+			b.Luck.Left >= 590 and b.Luck.Left <= 600,
+			"повтор продлевает до ~10:00: " .. b.Luck.Left
+		)
+		check(
+			(data.Items.luck_potion or 0) == 0 and not call("UseItem", "luck_potion").ok,
+			"зелий 0 — отказ"
+		)
+		check(call("UseItem", "coin_elixir").ok, "эликсир монет")
+		b = H.boosts(data.Boosts, os.time())
+		check(
+			b.Coins and b.Coins.Left >= 290 and b.Luck ~= nil,
+			"оба буста активны одновременно"
+		)
+		check(
+			not call("UseItem", "xp_treat").ok,
+			"угощение из слота не применяется"
+		)
+		-- донат LUCK_5X_10M идёт через ту же систему бустов (Economy.addLuckBoost) — таймер покажет x5
+		S.Economy.addLuckBoost(data, "Luck5", 600)
+		b = H.boosts(data.Boosts, os.time())
+		check(b.Luck.Mult == 5 and b.Luck.Left >= 595, "донат x5 виден на таймере")
+		check(data.Boosts.Luck2 - os.time() > 1100, "x2 ждёт за x5 и не сгорает")
+		-- в снимок клиента уходят назначения и бусты
+		S.State.markCore(p)
+		check(
+			S.Data.get(p).Settings.Hotbar.S3 == "luck_potion",
+			"назначение в данных игрока"
+		)
+	end
+)
+
+test("v2.9 Хотбар: миграция старых сохранений и мусора", function()
+	BACKEND.Stores = {}
+	local S = boot("A29m")
+	local function mig(settings)
+		local data = {
+			Version = 2,
+			Settings = settings,
+			Tutorial = { Step = 99, P = 0 },
+			Index = {},
+			Daily = { LastDay = 0, Streak = 0, Cycle = 0, Popup = 0 },
+		}
+		local changed = S.Migrations.run(data)
+		return data.Settings, changed
+	end
+	local st, ch = mig({ Lang = "ru" })
+	check(
+		ch
+			and st.Lang == "ru"
+			and st.Hotbar.S3 == "luck_potion"
+			and st.Hotbar.S4 == "coin_elixir"
+			and st.Hotbar.S5 == "",
+		"старый профиль (v2.8): 3 удача, 4 монеты, 5 пусто, язык сохранён"
+	)
+	st = mig(nil)
+	check(st.Lang == "auto" and st.Hotbar.S3 == "luck_potion", "нет Settings")
+	st = mig({ Lang = "en", Hotbar = { S3 = "xp_treat", S4 = "coin_elixir", S5 = "coin_elixir" } })
+	check(
+		st.Hotbar.S3 == "" and st.Hotbar.S4 == "coin_elixir" and st.Hotbar.S5 == "",
+		"мусор чистится, без повторов"
+	)
+	st = mig({ Lang = "en", Hotbar = "broken" })
+	check(st.Hotbar.S3 == "luck_potion", "битая таблица -> по умолчанию")
+	local ok = { Lang = "en", Hotbar = { S3 = "", S4 = "ticket_ForestEgg", S5 = "luck_potion" } }
+	local st2, ch2 = mig(ok)
+	check(
+		st2.Hotbar.S4 == "ticket_ForestEgg" and st2.Hotbar.S5 == "luck_potion" and st2.Hotbar.S3 == "",
+		"свой выбор не трогаем"
+	)
+	-- повторный прогон по тем же данным ничего не меняет
+	local again = {
+		Version = 2,
+		Settings = { Lang = "en", Hotbar = { S3 = "", S4 = "ticket_ForestEgg", S5 = "luck_potion" } },
+		Tutorial = { Step = 99, P = 0 },
+		Index = {},
+		Daily = { LastDay = 0, Streak = 0, Cycle = 0, Popup = 0 },
+	}
+	S.Migrations.run(again)
+	local hb1 = again.Settings.Hotbar
+	check(
+		S.Migrations.run(again) == false and again.Settings.Hotbar == hb1,
+		"миграция идемпотентна"
+	)
+	local _ = ch2
+	-- полная загрузка профиля v2.8 через DataService
+	local old = S.Data.makeTemplate()
+	old.Settings = { Lang = "ru" }
+	BACKEND.Stores[S.Config.DATASTORE_NAME] = BACKEND.Stores[S.Config.DATASTORE_NAME] or {}
+	BACKEND.Stores[S.Config.DATASTORE_NAME].Player_2902 = { Data = old }
+	local data = S.join(2902, "Oldie29")
+	check(
+		data and data.Settings.Lang == "ru" and data.Settings.Hotbar.S3 == "luck_potion",
+		"профиль v2.8 загружен, слоты по умолчанию"
+	)
+end)
+
 -- итог — строго в конце файла (раньше два теста стояли после него и не учитывались)
 print(("\nRESULT: %d passed, %d failed"):format(passed, failed))
 if failed > 0 or (TEST_ERRORS or 0) > 0 then

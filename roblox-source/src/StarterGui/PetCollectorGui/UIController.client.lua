@@ -70,6 +70,7 @@ panels.More = require(Modules:WaitForChild("MorePanel")).init(gui, openPanel, fu
 	return Hud.state or {}
 end)
 Hud.eggPanel = panels.Egg
+Hud.invPanel = panels.Inventory
 Hud.init(gui, openPanel)
 require(Modules:WaitForChild("TutorialHud")).init(gui) -- v2.4 (Г3): обучение первой сессии
 require(Modules:WaitForChild("SettingsPanel")).init(gui, panels)

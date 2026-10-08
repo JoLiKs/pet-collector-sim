@@ -4,20 +4,26 @@
 	Слева сетка: все ресурсы ResourceData и предметы RecipeData (лут, крафт); в ячейке — своя иконка (Icons.lua,
 	без эмодзи), название и количество; чего нет — приглушено. Справа (на телефоне в портрете — снизу) карточка
 	выбранного: описание, где добыть (миры, сундуки, враги, верстак) и для чего нужно (рецепты). Данные — InventoryData.
+	v2.9: у предметов «одним нажатием» (зелье удачи, эликсир монет, билеты) в карточке кнопки «В слот 3 / 4 / 5»
+	(у уже назначенного — «Убрать из слота N»), действие SetHotbar; у угощения и катализатора — пояснение,
+	что они применяются в окне «Питомцы». Пустой быстрый слот открывает окно с подсказкой «Выберите предмет для слота N».
 ]]
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local L = require(Shared:WaitForChild("Locale"))
 
+local HotbarData = require(Shared:WaitForChild("HotbarData"))
 local Icons = require(Shared:WaitForChild("Icons"))
 local InventoryData = require(Shared:WaitForChild("InventoryData"))
 local RecipeData = require(Shared:WaitForChild("RecipeData"))
 local ResourceData = require(Shared:WaitForChild("ResourceData"))
 local Util = require(Shared:WaitForChild("Util"))
 
+local Actions = require(script.Parent.Actions)
 local ClientState = require(script.Parent.ClientState)
 local Layout = require(script.Parent.Layout)
 local Theme = require(script.Parent.Theme)
+local Toasts = require(script.Parent.Toasts)
 local UiKit = require(script.Parent.UiKit)
 local Widgets = require(script.Parent.Widgets)
 
@@ -110,18 +116,37 @@ function InventoryPanel.init(gui: ScreenGui)
 
 	local selected: string? = nil
 	local cells = {}
+	local pendingSlot: number? = nil -- v2.9: окно открыто из пустого быстрого слота
+	local refreshAll: () -> () = function() end
+
+	-- назначить предмет в быстрый слот ("" — убрать); подтверждение — тостом, состояние придёт с сервера
+	local function assign(slot: number, id: string)
+		local item = RecipeData.Items[id]
+		if Actions.call("SetHotbar", slot, id) then
+			pendingSlot = nil
+			if id == "" then
+				Toasts.show(L.m("hotbar.cleared", { n = slot }), "info")
+			else
+				Toasts.show(
+					L.m("hotbar.assigned", { item = L.n(item and item.Name or id), n = slot }),
+					"success"
+				)
+			end
+		end
+	end
 
 	local function showInfo(id: string?)
 		Widgets.clear(info)
 		local core = ClientState.Core
 		if not id then
-			UiKit.text(
+			local hint = UiKit.text(
 				info,
-				L.t("inv.hint"),
+				if pendingSlot then L.t("hotbar.pick_slot", { n = pendingSlot }) else L.t("inv.hint"),
 				UDim2.fromOffset(12, 12),
 				UDim2.new(1, -24, 0, 60),
-				{ TextColor3 = Theme.TextDim, MaxSize = 16 }
+				{ TextColor3 = if pendingSlot then Theme.Gold else Theme.TextDim, MaxSize = 16 }
 			)
+			hint.Name = "Hint"
 			return
 		end
 		local kind = InventoryData.kindOf(id)
@@ -149,10 +174,57 @@ function InventoryPanel.init(gui: ScreenGui)
 			{ TextColor3 = Theme.Gold, Font = Theme.Font, MaxSize = 17 }
 		)
 		have.Name = "Have"
+		-- v2.9: быстрые слоты хотбара
+		local listTop = 76
+		if HotbarData.canAssign(id) then
+			local row = Widgets.New("Frame", {
+				Name = "SlotRow",
+				Position = UDim2.fromOffset(8, 74),
+				Size = UDim2.new(1, -16, 0, 32),
+				BackgroundTransparency = 1,
+				ZIndex = 23,
+				Parent = info,
+			})
+			local hb = core and core.Hotbar
+			local inSlot = HotbarData.slotOf(hb, id)
+			if inSlot then
+				local rm = Widgets.button({
+					Text = L.t("inv.remove_slot", { n = inSlot }),
+					Color = Theme.Red,
+					Size = UDim2.fromScale(1, 1),
+					ZIndex = 24,
+					MaxTextSize = 15,
+					OnClick = function()
+						assign(inSlot, "")
+					end,
+					Parent = row,
+				})
+				rm.Name = "RemoveSlot"
+			else
+				local n = HotbarData.LAST - HotbarData.FIRST + 1
+				for i = 0, n - 1 do
+					local slot = HotbarData.FIRST + i
+					local b = Widgets.button({
+						Text = L.t("inv.to_slot", { n = slot }),
+						Color = if pendingSlot == slot then Theme.Gold else Theme.Purple,
+						Size = UDim2.new(1 / n, -4, 1, 0),
+						Position = UDim2.new(i / n, 2, 0, 0),
+						ZIndex = 24,
+						MaxTextSize = 15,
+						OnClick = function()
+							assign(slot, id)
+						end,
+						Parent = row,
+					})
+					b.Name = "ToSlot" .. slot
+				end
+			end
+			listTop = 112
+		end
 		local list = Widgets.scroller(info, {
 			Name = "Lines",
-			Position = UDim2.fromOffset(8, 76),
-			Size = UDim2.new(1, -16, 1, -82),
+			Position = UDim2.fromOffset(8, listTop),
+			Size = UDim2.new(1, -16, 1, -(listTop + 6)),
 			ZIndex = 23,
 		})
 		UiKit.list(list, 4)
@@ -175,6 +247,9 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 		local desc = if kind == "Res" then L.t("inv.desc." .. id) else L.n((RecipeData.Items[id] :: any).Desc)
 		line(desc, { Color = Theme.TextDim, Name = "Desc" })
+		if HotbarData.isPetItem(id) then
+			line(L.t("inv.slot_pets"), { Color = Theme.Gold, Name = "SlotNote" })
+		end
 		line(
 			L.t("inv.where"),
 			{ Font = Theme.Font, Color = Theme.Gem, Max = 16, H = 22, Name = "WhereTitle" }
@@ -286,6 +361,7 @@ function InventoryPanel.init(gui: ScreenGui)
 		paintSelection()
 		showInfo(selected)
 	end
+	refreshAll = panel.Refresh
 
 	build()
 	local sig = ""
@@ -293,10 +369,12 @@ function InventoryPanel.init(gui: ScreenGui)
 		if not panel.IsOpen() then
 			return
 		end
-		local parts = {}
+		local parts: { any } = {}
 		for _, e in ipairs(InventoryData.list()) do
 			table.insert(parts, InventoryData.count(core, e.Id))
 		end
+		local hb = core.Hotbar or {}
+		table.insert(parts, tostring(hb.S3) .. tostring(hb.S4) .. tostring(hb.S5))
 		local s = table.concat(parts, ",")
 		if s ~= sig then
 			sig = s
@@ -311,7 +389,13 @@ function InventoryPanel.init(gui: ScreenGui)
 		end
 	end)
 	local open = panel.Open
+	local close = panel.Close
+	panel.Close = function()
+		pendingSlot = nil
+		close()
+	end
 	panel.Open = function()
+		pendingSlot = nil
 		open()
 		if not selected then
 			-- по умолчанию — первый ресурс, который уже есть (или дерево)
@@ -328,6 +412,16 @@ function InventoryPanel.init(gui: ScreenGui)
 		panel.Refresh()
 	end
 	panel.select = selectId
+	-- v2.9: открыть для выбора предмета в пустой быстрый слот n
+	function panel.ForSlot(n: number)
+		pendingSlot = n
+		selected = nil
+		if not panel.IsOpen() then
+			open()
+		end
+		sig = ""
+		refreshAll()
+	end
 	return panel
 end
 

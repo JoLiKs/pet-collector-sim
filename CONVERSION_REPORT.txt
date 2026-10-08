@@ -1,6 +1,6 @@
 roblox2web 2.4.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Скрипты: 112/112 транспилированы в JS, 26983 строк Luau
+Скрипты: 113/113 транспилированы в JS, 27568 строк Luau
 
 === Покрытие API (статический анализ исходников) ===
 Глобальные API — поддержаны: CFrame, Color3, ColorSequence, ColorSequenceKeypoint, Enum, Instance, Random, RaycastParams, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, game, ipairs, math, next, os, pairs, pcall, print, require, select, setmetatable, string, table, task, tonumber, tostring, type, typeof, utf8, warn
