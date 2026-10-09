@@ -5386,6 +5386,55 @@ test(
 	end
 )
 
+-- v3.2.2: TimedOut при первой загрузке не убивает трек; Failure — сломан только после нескольких попыток
+test(
+	"v3.2.2 Звук: TimedOut — повтор с паузой, Failure — сломан после MAX_FAILURES; строка состояния",
+	function()
+		local S = boot("A322")
+		local A = S.U.require("ReplicatedStorage/Shared/AudioData")
+		local h = A.newHealth()
+		local r1, d1 = A.loadResult(h, "MUSIC_CALM", "TimedOut")
+		check(r1 == "retry" and d1 == A.BACKOFF[1], "TimedOut — повтор, а не поломка")
+		for _ = 1, 20 do
+			A.loadResult(h, "MUSIC_CALM", "TimedOut")
+		end
+		local r2, d2 = A.loadResult(h, "MUSIC_CALM", "TimedOut")
+		check(
+			r2 == "retry" and d2 == A.BACKOFF[#A.BACKOFF],
+			"много TimedOut подряд — всё ещё повтор, пауза не больше максимальной"
+		)
+		check(not A.isFailed(h, "MUSIC_CALM"), "TimedOut не помечает трек сломанным")
+		check(A.loadResult(h, "MUSIC_CALM", "Success") == "ok", "загрузился — ok")
+		for i = 1, A.MAX_FAILURES - 1 do
+			check(
+				A.loadResult(h, "MUSIC_EPIC", "Failure") == "retry",
+				"Failure №" .. i .. " — ещё повтор"
+			)
+		end
+		check(
+			A.loadResult(h, "MUSIC_EPIC", "Failure") == "broken",
+			"Failure MAX_FAILURES раз — сломан"
+		)
+		check(A.loadResult(h, "CHEST_OPEN", "Failure") == "retry", "счётчик по ключу")
+		A.loadResult(h, "CHEST_OPEN", "Success")
+		check(
+			A.loadResult(h, "CHEST_OPEN", "Failure") == "retry",
+			"успех сбрасывает счётчик ошибок"
+		)
+		check(A.musicStatus(false, true, true, true, nil) == "off", "музыка выключена — off")
+		check(
+			A.musicStatus(true, true, true, true, nil) == "playing",
+			"загружен и играет — playing"
+		)
+		check(
+			A.musicStatus(true, true, false, true, nil) == "loading",
+			"Play до загрузки — loading"
+		)
+		local st, code = A.musicStatus(true, false, false, false, "Failure")
+		check(st == "error" and code == "Failure", "трека нет — error с кодом")
+	end
+)
+
 -- v3.2: недоступный звуковой ассет — одна запись в лог, без повторов Play
 test(
 	"v3.2 Звук: сломанный ассет логируется один раз и пропускается",

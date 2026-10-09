@@ -90,10 +90,69 @@ end
 -- ---------------------------------------------------------------------------
 AudioData.RETRY = 3
 
-export type Health = { Failed: { [string]: string }, Tries: { [string]: number } }
+export type Health = {
+	Failed: { [string]: string },
+	Tries: { [string]: number },
+	Fails: { [string]: number },
+	Waits: { [string]: number },
+}
 
 function AudioData.newHealth(): Health
-	return { Failed = {}, Tries = {} }
+	return { Failed = {}, Tries = {}, Fails = {}, Waits = {} }
+end
+
+-- ---------------------------------------------------------------------------
+-- v3.2.2: результат загрузки ассета (ContentProvider.PreloadAsync). Первая загрузка большого трека в Roblox
+-- нередко отдаёт TimedOut — это НЕ поломка: повторяем с нарастающей паузой бесконечно. Сломанным ассет
+-- считается только после MAX_FAILURES подряд статусов Failure.
+-- Возвращает "ok" | "retry" | "broken" и паузу до повтора (для "retry").
+-- ---------------------------------------------------------------------------
+AudioData.MAX_FAILURES = 3
+AudioData.BACKOFF = { 2, 4, 8, 15, 30 }
+
+function AudioData.retryDelay(n: number): number
+	local b = AudioData.BACKOFF
+	return b[math.clamp(n, 1, #b)]
+end
+
+function AudioData.loadResult(h: Health, key: string, status: string): (string, number?)
+	if status == "Success" then
+		h.Fails[key] = 0
+		h.Waits[key] = 0
+		return "ok", nil
+	end
+	if status == "Failure" then
+		local n = (h.Fails[key] or 0) + 1
+		h.Fails[key] = n
+		if n >= AudioData.MAX_FAILURES then
+			return "broken", nil
+		end
+		return "retry", AudioData.retryDelay(n)
+	end
+	-- TimedOut и прочее (None, Loading) — только повтор, никогда не «сломан»
+	local w = (h.Waits[key] or 0) + 1
+	h.Waits[key] = w
+	return "retry", AudioData.retryDelay(w)
+end
+
+-- строка состояния музыки для окна настроек: "off" | "playing" | "loading" | "error" (+ код ошибки)
+function AudioData.musicStatus(
+	enabled: boolean,
+	hasTrack: boolean,
+	loaded: boolean,
+	playing: boolean,
+	err: string?
+): (string, string?)
+	if not enabled then
+		return "off", nil
+	end
+	if not hasTrack then
+		return "error", err or "no track" -- l10n-ok
+	end
+	if loaded and playing then
+		return "playing", nil
+	end
+	return "loading", nil
 end
 
 -- true — это первая ошибка по ключу (её нужно записать в лог); повторные — false

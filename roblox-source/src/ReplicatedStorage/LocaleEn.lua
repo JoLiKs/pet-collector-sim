@@ -343,6 +343,10 @@ LocaleEn.Strings = {
 	["settings.sfx_off"] = "Sounds: off",
 	["settings.music_volume"] = "Music volume",
 	["settings.music_missing"] = "Music will play once the audio files are added to the game (Config.SOUNDS).",
+	["settings.music_status_playing"] = "Music: playing",
+	["settings.music_status_loading"] = "Music: loading…",
+	["settings.music_status_error"] = "Music: error {code}",
+	["settings.music_status_off"] = "Music: off",
 	-- market
 	["hatch.title"] = "You hatched!",
 	["hatch.ok"] = "Awesome!",

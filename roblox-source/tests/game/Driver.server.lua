@@ -464,8 +464,14 @@ check("daily claim", res.ok and data.Quests.Daily.Items[dailyId].C == true, res.
 res = call("DailyQuestClaim", dailyId)
 check("daily double claim rejected", res.ok == false)
 local gemsA = data.Gems
+-- ежедневное задание дня может само оказаться «убийства» (выбор зависит от даты) — тогда достижение уже выдано
+local hadKills = data.Achievements.kills_1 == true
 Progress.addStat(player, "Kills", 30)
-check("achievement kills_1", data.Achievements.kills_1 == true and data.Gems > gemsA)
+check(
+	"achievement kills_1",
+	data.Achievements.kills_1 == true and (hadKills or data.Gems > gemsA),
+	("had=%s kind=%s"):format(tostring(hadKills), tostring(def.Obj.Kind))
+)
 
 -- ===== 7. Батл-пасс =======================================================
 Economy.addBpXp(player, 1000)

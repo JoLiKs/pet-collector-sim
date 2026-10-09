@@ -147,8 +147,28 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 	-- ID треков ещё не вписаны в Config.SOUNDS — честно говорим, что музыки пока нет
 	local missing = AudioData.soundId(Config.SOUNDS.MUSIC_CALM) == nil
 		and AudioData.soundId(Config.SOUNDS.MUSIC_EPIC) == nil
+	-- v3.2.2: строка состояния музыки (для диагностики в настоящей игре): играет / загружается / ошибка <код>
+	local statusText = UiKit.text(body, "", UDim2.fromOffset(0, 286), UDim2.new(1, 0, 0, 22), {
+		TextColor3 = Theme.TextDim,
+		MaxSize = 15,
+	})
+	statusText.Name = "MusicStatus"
+	local function renderStatus()
+		local st = gui:GetAttribute("MusicStatus")
+		local line = if type(st) == "string" then st else ""
+		local kind, code = string.match(line, "^(%a+)%s?(.*)$")
+		if kind == "playing" or kind == "loading" or kind == "off" then
+			statusText.Text = L.t("settings.music_status_" .. kind)
+		elseif kind == "error" then
+			statusText.Text = L.t("settings.music_status_error", { code = code or "" })
+		else
+			statusText.Text = L.t("settings.music_status_loading")
+		end
+	end
+	gui:GetAttributeChangedSignal("MusicStatus"):Connect(renderStatus)
+	renderStatus()
 	local missingText =
-		UiKit.text(body, L.k("settings.music_missing"), UDim2.fromOffset(0, 286), UDim2.new(1, 0, 0, 36), {
+		UiKit.text(body, L.k("settings.music_missing"), UDim2.fromOffset(0, 312), UDim2.new(1, 0, 0, 36), {
 			TextColor3 = Theme.TextDim,
 			TextYAlignment = Enum.TextYAlignment.Top,
 			MaxSize = 15,
@@ -159,7 +179,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 	UiKit.text(
 		body,
 		L.k("settings.hint"),
-		UDim2.fromOffset(0, if missing then 330 else 290),
+		UDim2.fromOffset(0, if missing then 356 else 316),
 		UDim2.new(1, 0, 0, 60),
 		{
 			TextColor3 = Theme.TextDim,
@@ -188,6 +208,7 @@ function SettingsPanel.init(gui: ScreenGui, panels: { [string]: any }?)
 		volText.Text = string.format("%d%%", math.floor(a.MusicVol * 100 + 0.5))
 		volDown.Active = a.MusicVol > 0
 		volUp.Active = a.MusicVol < 1
+		renderStatus()
 	end
 	ClientState.onCore(render)
 	L.onChanged(render)

@@ -8,7 +8,7 @@
     "total": 126,
     "transpiled": 126,
     "failed": [],
-    "lines": 32743
+    "lines": 32971
   },
   "globals": {
     "used": 38,
@@ -180,6 +180,7 @@
       "RemoteFunction",
       "ScreenGui",
       "Sound",
+      "SoundGroup",
       "SpawnLocation",
       "StringValue",
       "SurfaceGui",
@@ -273,6 +274,7 @@
     ],
     "unsupported": [
       "AssetFetchStatus.Failure",
+      "AssetFetchStatus.Success",
       "AssetFetchStatus.TimedOut",
       "BulkMoveMode.FireCFrameChanged",
       "ScrollBarInset.ScrollBar"

@@ -324,6 +324,17 @@ function handlers.chest(arg)
 end
 -- v3.2 (аудит): relabel — вынуть подпись-табличку (LabelKind=Sign) из Workspace и вернуть; имя родителя —
 -- в атрибуте Workspace.RelabelPart (тест: размер подписи после возврата тот же)
+-- v3.2.2: звук «шагов» в персонаже (как RbxCharacterSounds) — клиент должен отправить его в группу SFX
+function handlers.charsound()
+	local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
+	if hrp then
+		local s = Instance.new("Sound")
+		s.Name = "PcsTestRunning"
+		s.Looped = true
+		s.Parent = hrp
+	end
+end
+
 function handlers.relabel()
 	for _, d in ipairs(Workspace:GetDescendants()) do
 		if

@@ -343,6 +343,10 @@ LocaleRu.Strings = {
 	["settings.sfx_off"] = "Звуки: выкл",
 	["settings.music_volume"] = "Громкость музыки",
 	["settings.music_missing"] = "Музыка появится, когда в игру будут добавлены звуковые файлы (Config.SOUNDS).",
+	["settings.music_status_playing"] = "Музыка: играет",
+	["settings.music_status_loading"] = "Музыка: загружается…",
+	["settings.music_status_error"] = "Музыка: ошибка {code}",
+	["settings.music_status_off"] = "Музыка: выключена",
 	-- market
 	["hatch.title"] = "Из яйца вылупился:",
 	["hatch.ok"] = "Класс!",

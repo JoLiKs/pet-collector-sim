@@ -1,6 +1,6 @@
 roblox2web 2.4.0 — отчёт о конвертации
 Проект: PetCollectorSimulator (rojo)
-Скрипты: 126/126 транспилированы в JS, 32743 строк Luau
+Скрипты: 126/126 транспилированы в JS, 32971 строк Luau
 
 === Покрытие API (статический анализ исходников) ===
 Глобальные API — поддержаны: CFrame, Color3, ColorSequence, ColorSequenceKeypoint, Enum, Instance, NumberRange, NumberSequence, OverlapParams, Random, RaycastParams, TweenInfo, UDim, UDim2, Vector2, Vector3, assert, error, game, ipairs, math, next, os, pairs, pcall, print, require, select, setmetatable, string, table, task, tonumber, tostring, type, typeof, utf8, warn
@@ -9,9 +9,9 @@ roblox2web 2.4.0 — отчёт о конвертации
 Сервисы — поддержаны: BadgeService, ContentProvider, DataStoreService, Debris, GuiService, HttpService, Lighting, LocalizationService, MarketplaceService, Players, PolicyService, ReplicatedFirst, ReplicatedStorage, RunService, ServerStorage, SoundService, StarterGui, StarterPack, TweenService, UserInputService, Workspace
 Сервисы — НЕ поддержаны: UserService
 Сервисы-заглушки (вызовы логируются, функциональность урезана): LocalizationService
-Instance.new — поддержаны: Animation, Animator, Atmosphere, Attachment, BillboardGui, Camera, Folder, Frame, Humanoid, HumanoidDescription, ImageLabel, IntValue, Model, Motor6D, Part, ParticleEmitter, PointLight, ProximityPrompt, RemoteEvent, RemoteFunction, ScreenGui, Sound, SpawnLocation, StringValue, SurfaceGui, TextLabel, Tool, UICorner, UIGradient, UIScale, UIStroke, UITextSizeConstraint, WedgePart, WeldConstraint
+Instance.new — поддержаны: Animation, Animator, Atmosphere, Attachment, BillboardGui, Camera, Folder, Frame, Humanoid, HumanoidDescription, ImageLabel, IntValue, Model, Motor6D, Part, ParticleEmitter, PointLight, ProximityPrompt, RemoteEvent, RemoteFunction, ScreenGui, Sound, SoundGroup, SpawnLocation, StringValue, SurfaceGui, TextLabel, Tool, UICorner, UIGradient, UIScale, UIStroke, UITextSizeConstraint, WedgePart, WeldConstraint
 Instance.new — НЕ поддержаны: —
-Enum — НЕ поддержаны: AssetFetchStatus.Failure, AssetFetchStatus.TimedOut, BulkMoveMode.FireCFrameChanged, ScrollBarInset.ScrollBar
+Enum — НЕ поддержаны: AssetFetchStatus.Failure, AssetFetchStatus.Success, AssetFetchStatus.TimedOut, BulkMoveMode.FireCFrameChanged, ScrollBarInset.ScrollBar
 Методы вызываются, но не найдены ни в эмуляторе, ни в проекте: CreateHumanoidModelFromDescription, GetUserInfosByUserIdsAsync, Normal
 
 Предупреждения:
