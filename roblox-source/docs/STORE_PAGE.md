@@ -18,7 +18,7 @@ Hatch adorable pets, gather resources, battle bosses and explore a hub and five 
 ★ Pets fight for you: elements, roles, levels, evolution
 ★ Merge 3 pets into 1 to get Golden, Rainbow and Shiny variants
 ★ Craft potions and tools, take quests from NPCs, unlock achievements
-★ Defeat bosses and join world events like Golden Rain and the Stone Colossus raid
+★ Defeat bosses and join world events like Coin Rain and the Stone Colossus raid
 ★ Trade with other players, follow the Battle Pass, rebirth and grow your talent tree
 ★ Claim daily rewards and offline earnings
 

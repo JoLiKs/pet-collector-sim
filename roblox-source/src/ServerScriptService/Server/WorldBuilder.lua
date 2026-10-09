@@ -7,7 +7,6 @@ local Shared = ReplicatedStorage.Shared
 
 local LabelLayout = require(Shared.LabelLayout)
 local Locale = require(Shared.Locale)
-local Logo = require(Shared.Logo)
 local PetData = require(Shared.PetData)
 local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
@@ -545,42 +544,6 @@ local function buildNpc(
 	stationPositions[id] = pos
 end
 
--- v2.6: табличка с логотипом игры за фонтаном (над табло и яйцами хаба): две стойки, рамка, на ней BillboardGui с Logo
--- (картинка Config.ASSETS.LOGO или логотип из примитивов). SurfaceGui не используем — billboard виден и в веб-демо.
-local function buildLogoSign(parent: Instance, base: Vector3)
-	local m = Instance.new("Model")
-	m.Name = "LogoSign"
-	m.Parent = parent
-	local wood = Color3.fromRGB(120, 78, 45)
-	block(m, "PostL", Vector3.new(1.4, 22, 1.4), base + Vector3.new(-9.5, 11, 0), wood, Enum.Material.Wood)
-	block(m, "PostR", Vector3.new(1.4, 22, 1.4), base + Vector3.new(9.5, 11, 0), wood, Enum.Material.Wood)
-	local frame = block(
-		m,
-		"Frame",
-		Vector3.new(19, 19, 0.8),
-		base + Vector3.new(0, 19, 0),
-		Color3.fromRGB(255, 200, 60),
-		Enum.Material.Neon
-	)
-	local board = block(
-		m,
-		"Board",
-		Vector3.new(17.6, 17.6, 1),
-		base + Vector3.new(0, 19, 0.1),
-		Color3.fromRGB(30, 34, 70),
-		Enum.Material.SmoothPlastic
-	)
-	local _ = frame
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "LogoGui"
-	gui.Size = UDim2.fromScale(16, 16) -- в студах
-	gui.LightInfluence = 0
-	gui.MaxDistance = 260
-	gui.Parent = board
-	Logo.make({ Name = "Logo", Px = 256, Size = UDim2.fromScale(1, 1), Parent = gui })
-	return m
-end
-
 local function buildHub(world: Folder)
 	local hub = Instance.new("Folder")
 	hub.Name = "Hub"
@@ -1032,7 +995,6 @@ local function buildHub(world: Folder)
 	for k, egg in ipairs(hubEggs) do
 		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
 	end
-	buildLogoSign(hub, Vector3.new(0, 0, -50))
 	local boardModel = buildBoard(hub, Vector3.new(0, 0, -98))
 	local boardPart = boardModel and boardModel:FindFirstChild("Board")
 	if boardPart and boardPart:IsA("BasePart") then

@@ -6,6 +6,9 @@
                    пульс-лид, треугольный бас и тихий «струнный» пэд; ре мажор, 84 BPM, 24 такта (~69 с);
   * epic_surge   — эпичная тема для «Суперсилы»: ля минор, 150 BPM, 40 тактов (~64 с), ударные из шума,
                    октавный бас, «медный» лид с терцией и быстрые арпеджио.
+  * coin_rain    — (v3.3) весёлая тема события «Дождь монет»: соль мажор, 120 BPM, 24 такта (48 с), тот же
+                   «классика + 8-бит»: альбертиев бас, прыгучий бас квинтами, лёгкие ударные, яркий пульс-лид с
+                   секвенциями и звонкие «монетки» (колокольчики) на слабых долях.
 Хвосты нот и эхо заворачиваются в начало, поэтому стык цикла не слышен (Looped = true в Roblox).
 
 Плюс короткие звуки морского сундука: chest_spawn (тихий сигнал появления) и chest_open (открытие).
@@ -338,6 +341,85 @@ def chest_open():
     return tr.finish(-4.0)
 
 
+# ---------------------------------------------------------------- v3.3: «Дождь монет»
+def coin_rain():
+    r = np.random.default_rng(33)  # свой генератор: не меняет остальные треки
+    bpm = 120
+    beat = 60 / bpm
+    bars = 24
+    tr = Track(bars * 4 * beat)
+    A = ["G", "D", "Em", "C", "G", "D", "C", "D"]
+    B = ["C", "D", "Bm", "Em", "Am", "D", "G", "G"]
+    prog = (A + A + B)[:bars]
+    chords = {"G": ["G2", "B2", "D3"], "D": ["D3", "F#3", "A3"], "Em": ["E2", "G2", "B2"], "C": ["C3", "E3", "G3"],
+              "Bm": ["B2", "D3", "F#3"], "Am": ["A2", "C3", "E3"]}
+    chord_pc = {k: [n(x) % 12 for x in v] for k, v in chords.items()}
+    scale = [n(x) for x in ["G4", "A4", "B4", "C5", "D5", "E5", "F#5", "G5", "A5", "B5", "C6", "D6"]]
+    t = np.arange(int(0.2 * SR)) / SR
+    kick = np.sin(2 * np.pi * np.cumsum(60 + 110 * np.exp(-t * 40)) / SR) * np.exp(-t * 14)
+    th = np.arange(int(0.04 * SR)) / SR
+    hat = np.diff(r.standard_normal(len(th) + 1)) * np.exp(-th * 90) * 0.5
+    tn = np.arange(int(0.15 * SR)) / SR
+    clap = (r.standard_normal(len(tn)) * 0.6) * np.exp(-tn * 25)
+    motifs = {}
+    idx = 4
+    for bar, ch in enumerate(prog):
+        t0 = bar * 4 * beat
+        lo, mid, hi = (n(x) for x in chords[ch])
+        # ударные — лёгкие: бочка на 1 и 3, хлопок на 2 и 4, хэт на слабых восьмых
+        for k in range(4):
+            if k in (0, 2):
+                tr.add(t0 + k * beat, kick, gain=0.35)
+            else:
+                tr.add(t0 + k * beat, clap, gain=0.12, pan=0.1)
+            tr.add(t0 + k * beat + beat / 2, hat, gain=0.12, pan=0.35)
+        # прыгучий бас: корень — квинта — октава — квинта, стаккато
+        for e, m in enumerate([lo - 12, hi - 12, lo, hi - 12]):
+            tr.add(t0 + e * beat, note_sig("tri", m, beat * 0.4, (0.003, 0.06, 0.6, 0.06)), gain=0.32)
+        # альбертиев бас шестнадцатыми в среднем регистре (классика), узкий пульс (8-бит)
+        for e, m in enumerate([lo + 12, hi + 12, mid + 12, hi + 12] * 4):
+            sig = mix(note_sig("square", m, beat * 0.18, (0.002, 0.05, 0.3, 0.04), duty=0.125),
+                      note_sig("tri", m, beat * 0.2, (0.002, 0.06, 0.4, 0.05)), 0.6)
+            tr.add(t0 + e * beat / 4, sig, pan=-0.3, gain=0.07)
+        # лид: мотив из 2 тактов, во второй половине такта — секвенция (тот же рисунок на ступень выше)
+        mkey = (bar % 8, ch)
+        if mkey in motifs and bar < 16:
+            notes = motifs[mkey]
+        else:
+            rh = [[0.5, 0.5, 1, 0.5, 0.5, 1], [1, 0.5, 0.5, 2], [0.5, 0.5, 0.5, 0.5, 1, 1], [1.5, 0.5, 1, 1]][bar % 4]
+            if bar % 8 == 7:
+                rh = [1, 1, 2]
+            notes = []
+            pos = 0.0
+            for d in rh:
+                cands = [i for i in range(len(scale)) if abs(i - idx) <= 2]
+                if pos in (0.0, 2.0):
+                    cands = [i for i in cands if scale[i] % 12 in chord_pc[ch]] or cands
+                # бодрое движение вверх чуть вероятнее
+                w = np.array([1.0 / (1 + abs(i - 5) * 0.3) * (1.4 if i > idx else 1.0) for i in cands])
+                idx = int(r.choice(cands, p=w / w.sum()))
+                notes.append((pos, d, scale[idx]))
+                pos += d
+            if bar == bars - 1:
+                notes[-1] = (notes[-1][0], notes[-1][1], n("G5"))
+            motifs[mkey] = notes
+        for pos, d, m in notes:
+            s = note_sig("square", m, d * beat * 0.85, (0.006, 0.08, 0.6, 0.1), duty=0.25, vib=0.004, vib_rate=6)
+            tr.add(t0 + pos * beat, lowpass(s, 0.3), gain=0.12, pan=0.1)
+            if bar >= 16:  # B-часть: «флейта» октавой выше
+                tr.add(t0 + pos * beat, note_sig("sine", m + 12, d * beat * 0.8, (0.02, 0.1, 0.7, 0.15), vib=0.005),
+                       gain=0.05, pan=-0.25)
+        # «монетки»: звонкие колокольчики звуками аккорда на слабых долях
+        for e in range(8):
+            if e % 2 == 1 and r.random() < 0.55:
+                m = [lo, mid, hi][int(r.integers(3))] + 36
+                bell = mix(note_sig("sine", m, 0.03, (0.001, 0.35, 0.0, 0.35)),
+                           note_sig("sine", m + 19, 0.03, (0.001, 0.2, 0.0, 0.2)), 0.25)
+                tr.add(t0 + e * beat / 2, bell, gain=0.07, pan=float(r.uniform(-0.6, 0.6)))
+    tr.echo(beat * 0.75, 0.3, 0.25)
+    return tr.finish(-3.0)
+
+
 def write(path_noext, x):
     import wave
 
@@ -356,7 +438,8 @@ if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else "assets/audio"
     os.makedirs(out, exist_ok=True)
     only = sys.argv[2:]
-    for name, fn in (("calm_meadow", calm), ("epic_surge", epic), ("chest_spawn", chest_spawn), ("chest_open", chest_open)):
+    for name, fn in (("calm_meadow", calm), ("epic_surge", epic), ("chest_spawn", chest_spawn), ("chest_open", chest_open),
+                     ("coin_rain", coin_rain)):
         if only and name not in only:
             continue
         secs = write(os.path.join(out, name), fn())

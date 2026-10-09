@@ -65,11 +65,13 @@ Config.SOUNDS = {
 	MUSIC_CALM = 125236318818944, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
 	MUSIC_EPIC = 81894939449988, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
 	CHEST_SPAWN = 102022045018776, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
-	CHEST_OPEN = 121756761410700, -- assets/audio/chest_open.ogg — открытие сундука
+	CHEST_OPEN = 121756761410700,
+	MUSIC_RAIN = 133055317816585, -- v3.3: assets/audio/coin_rain.ogg — весёлая тема события «Дождь монет» -- assets/audio/chest_open.ogg — открытие сундука
 }
 Config.MUSIC = {
 	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
 	EPIC_VOLUME = 0.45,
+	RAIN_VOLUME = 0.4,
 	FADE = 2.5, -- секунд кроссфейда между темами
 	SFX_VOLUME = 0.5,
 	CHEST_SPAWN_VOLUME = 0.25, -- сигнал сундука намеренно тихий (слышен рядом)
@@ -266,7 +268,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.2.2"
+Config.VERSION = "3.3.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3

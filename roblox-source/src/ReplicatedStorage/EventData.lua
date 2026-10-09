@@ -19,7 +19,7 @@ export type Event = {
 EventData.List = {
 	{
 		Id = "GoldenRain",
-		Name = "Golden Rain",
+		Name = "Coin Rain",
 		Period = 480,
 		Duration = 60,
 		Offset = 180, -- первое появление ~3 мин после старта сервера

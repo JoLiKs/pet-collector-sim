@@ -1,7 +1,7 @@
 --!strict
 -- Текущее состояние событий (расписание EventData + принудительное включение для тестов/демо/админов).
 -- По умолчанию «часы» событий отсчитываются от старта сервера (epoch), чтобы новая сессия
--- не попадала сразу в середину Golden Rain / рейда. force() по-прежнему перекрывает расписание.
+-- не попадала сразу в середину Coin Rain / рейда. force() по-прежнему перекрывает расписание.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local EventData = require(ReplicatedStorage.Shared.EventData)
 

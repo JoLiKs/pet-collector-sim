@@ -270,6 +270,14 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			seenActive[e.Id] = e.Active == true
 		end
 		eventList = list
+		-- v3.3: музыка «Дождя монет» (Music) — только пока событие идёт
+		local rainOn = false
+		for _, e in ipairs(list) do
+			if e.Id == "GoldenRain" and e.Active == true then
+				rainOn = true
+			end
+		end
+		gui:SetAttribute("RainActive", rainOn)
 		drawEvents()
 	end)
 	local _ = huntCard

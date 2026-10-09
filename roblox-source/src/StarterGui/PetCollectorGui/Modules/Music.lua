@@ -34,6 +34,7 @@ type Track = { Sound: Sound, Mix: number, Base: number, Key: string, Loaded: boo
 local tracks: { [string]: Track } = {}
 local settings = AudioData.normalize(nil)
 local hunt = false
+local rain = false -- v3.3: идёт «Дождь монет» (атрибут gui RainActive от Hud/Fx)
 local health = AudioData.newHealth()
 local guiRef: ScreenGui? = nil
 local musicGroup: SoundGroup? = nil
@@ -45,7 +46,9 @@ local function publish()
 	if g then
 		g:SetAttribute(
 			"MusicTracks",
-			(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
+			(if tracks.Calm then "Calm" else "")
+				.. (if tracks.Epic then "Epic" else "")
+				.. (if tracks.Rain then "Rain" else "")
 		)
 		g:SetAttribute("AudioFailed", AudioData.failedList(health))
 	end
@@ -162,14 +165,14 @@ function Music.target(): string?
 	if not settings.Music then
 		return nil
 	end
-	return AudioData.musicTarget(hunt, usable("Calm"), usable("Epic"))
+	return AudioData.musicTarget(hunt, usable("Calm"), usable("Epic"), rain, usable("Rain"))
 end
 
 -- состояние музыки для окна настроек: "off" | "playing" | "loading" | "error", код ошибки
 function Music.status(): (string, string?)
 	local target = Music.target()
 	local t = if target then tracks[target] else nil
-	local err = health.Failed.MUSIC_CALM or health.Failed.MUSIC_EPIC
+	local err = health.Failed.MUSIC_CALM or health.Failed.MUSIC_EPIC or health.Failed.MUSIC_RAIN
 	return AudioData.musicStatus(
 		settings.Music,
 		t ~= nil,
@@ -184,7 +187,7 @@ local function startTrack(name: string, t: Track)
 	if s.IsPaused and name == "Calm" then
 		s:Resume() -- спокойная тема продолжает с того же места
 	else
-		s.TimePosition = 0 -- эпичная — каждый раз с начала
+		s.TimePosition = 0 -- эпичная и «дождь» — каждый раз с начала
 		s:Play()
 	end
 end
@@ -236,7 +239,7 @@ function Music.init(gui: ScreenGui)
 	local folder = Instance.new("Folder")
 	folder.Name = "PcsMusic"
 	folder.Parent = SoundService
-	for name, key in pairs({ Calm = "MUSIC_CALM", Epic = "MUSIC_EPIC" }) do
+	for name, key in pairs({ Calm = "MUSIC_CALM", Epic = "MUSIC_EPIC", Rain = "MUSIC_RAIN" }) do
 		local id = AudioData.soundId(Config.SOUNDS[key])
 		if id then
 			local s = Instance.new("Sound")
@@ -249,7 +252,10 @@ function Music.init(gui: ScreenGui)
 			local t: Track = {
 				Sound = s,
 				Mix = 0,
-				Base = if name == "Epic" then Config.MUSIC.EPIC_VOLUME else Config.MUSIC.CALM_VOLUME,
+				Base = if name == "Epic"
+					then Config.MUSIC.EPIC_VOLUME
+					elseif name == "Rain" then Config.MUSIC.RAIN_VOLUME
+					else Config.MUSIC.CALM_VOLUME,
 				Key = key,
 				Loaded = false,
 			}
@@ -281,6 +287,10 @@ function Music.init(gui: ScreenGui)
 		Music.route(d)
 	end
 	Workspace.DescendantAdded:Connect(Music.route)
+	gui:GetAttributeChangedSignal("RainActive"):Connect(function()
+		rain = gui:GetAttribute("RainActive") == true
+	end)
+	rain = gui:GetAttribute("RainActive") == true
 	gui:GetAttributeChangedSignal("HuntActive"):Connect(function()
 		hunt = gui:GetAttribute("HuntActive") == true
 	end)

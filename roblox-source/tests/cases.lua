@@ -5386,6 +5386,88 @@ test(
 	end
 )
 
+-- v3.3: «Дождь монет» — своя тема; приоритет Суперсила > Дождь монет > спокойная; переименование события
+test(
+	"v3.3 Музыка «Дождь монет»: приоритет треков и название события",
+	function()
+		local S = boot("A33")
+		local A = S.U.require("ReplicatedStorage/Shared/AudioData")
+		local Config = S.U.require("ReplicatedStorage/Shared/Config")
+		check(
+			A.musicTarget(false, true, true, true, true) == "Rain",
+			"идёт дождь — тема дождя"
+		)
+		check(
+			A.musicTarget(true, true, true, true, true) == "Epic",
+			"Суперсила важнее дождя"
+		)
+		check(
+			A.musicTarget(false, true, true, false, true) == "Calm",
+			"дождя нет — спокойная (тема дождя не играет)"
+		)
+		check(
+			A.musicTarget(false, true, true, true, false) == "Calm",
+			"трек дождя недоступен — спокойная"
+		)
+		check(
+			A.musicTarget(true, true, false, true, true) == "Rain",
+			"Суперсила без эпичной темы, но дождь — тема дождя"
+		)
+		check(
+			A.musicTarget(false, true, true) == "Calm",
+			"старый вызов (без дождя) работает как раньше"
+		)
+		check(
+			A.musicTarget(false, false, false, false, true) == "Rain",
+			"только трек дождя — запасной"
+		)
+		check(
+			A.soundId(Config.SOUNDS.MUSIC_RAIN) ~= nil,
+			"ID темы дождя задан в Config.SOUNDS"
+		)
+		check(
+			type(Config.MUSIC.RAIN_VOLUME) == "number" and Config.MUSIC.RAIN_VOLUME > 0,
+			"громкость темы дождя"
+		)
+		local EventData = S.U.require("ReplicatedStorage/Shared/EventData")
+		local rainDef
+		for _, e in ipairs(EventData.List) do
+			if e.Id == "GoldenRain" then
+				rainDef = e
+			end
+		end
+		check(rainDef and rainDef.Name == "Coin Rain", "EN: «Coin Rain»", rainDef and rainDef.Name)
+		local L = S.U.require("ReplicatedStorage/Shared/Locale")
+		local Ru = S.U.require("ReplicatedStorage/Shared/LocaleRu")
+		check(Ru.Names["Coin Rain"] == "Дождь монет", "RU: «Дождь монет»")
+		check(
+			Ru.Names["Golden Rain"] == nil and Ru.Strings["Golden Rain"] == nil,
+			"старого названия в локали нет"
+		)
+		local found = false
+		local all = {}
+		for _, v in pairs(Ru.Names) do
+			table.insert(all, v)
+		end
+		for _, v in pairs(Ru.Strings) do
+			table.insert(all, v)
+		end
+		for _, v in ipairs(all) do
+			if
+				type(v) == "string"
+				and (
+					v:find("Золотой дождь", 1, true)
+					or v:find("Золотого дождя", 1, true)
+				)
+			then
+				found = true
+			end
+		end
+		check(not found, "«Золотой дождь» нигде в русских строках")
+		local _ = L
+	end
+)
+
 -- v3.2.2: TimedOut при первой загрузке не убивает трек; Failure — сломан только после нескольких попыток
 test(
 	"v3.2.2 Звук: TimedOut — повтор с паузой, Failure — сломан после MAX_FAILURES; строка состояния",

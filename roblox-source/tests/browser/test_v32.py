@@ -130,6 +130,13 @@ with serve('/tmp/gw_ui') as url:
         g.wait(lambda: g.vis('[data-n="Event_GoldenRain"]'), what='event chip')
         ic = page.evaluate(RECT, '[data-n="Event_GoldenRain"] [data-n="Icon"]')
         check('плашка активного события: значок часов из примитивов', ic and ic['w'] > 4, ic)
+        # v3.3: «Дождь монет» — название на плашке и своя музыка, пока событие идёт
+        GA = """(k)=>{const pg=R2W.ENV.localPlayer.children.find(c=>c.className==='PlayerGui'); const g=pg&&pg.children.find(c=>c.props.Name==='PetCollectorGui'); return g&&g.attrs? g.attrs.get(k): undefined}"""
+        chip_t = g.text('[data-n="Event_GoldenRain"]')
+        check('плашка: «Дождь монет» (не «Золотой дождь»)', 'Дождь монет' in chip_t and 'Золот' not in chip_t, chip_t)
+        g.wait(lambda: page.evaluate(GA, 'RainActive') is True, what='RainActive')
+        g.wait(lambda: page.evaluate(GA, 'MusicTarget') == 'Rain', what='rain music')
+        check('во время дождя играет тема «Дождь монет» (MusicTarget = Rain)', True)
         hud_text = page.evaluate("()=>document.querySelector('[data-gui=\"PetCollectorGui\"]').innerText")
         check('в HUD нет эмодзи (🌙, ⏱ и др.)', not EMOJI.search(hud_text), EMOJI.findall(hud_text)[:5])
         shot(page, '95_hud_event_icons.png')

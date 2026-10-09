@@ -26,7 +26,7 @@ def check(name, cond, info=''):
 S = lambda n: '[data-n="Hotbar"] [data-n="Slot%d"]' % n
 INV = '[data-n="InventoryPanel"]'
 def cap(g, n): return g.text(S(n) + ' > [data-n="Caption"]').strip()
-def toasts(page): return page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
+def toasts(page): return page.evaluate("()=>{const L=R2W.ENV.gui; if(L&&L.roots&&L.syncRoot) for(const r of L.roots.keys()) L.syncRoot(r)}") or page.evaluate("(()=>{const t=document.querySelector('[data-n=Toasts]'); return t? t.innerText: ''})()")
 def shot(page, name):
     p = os.path.join(SHOTS, name); page.screenshot(path=p); print('shot', p)
 WATTR = "(k)=>{const a=R2W.ENV.workspace.attrs; return a? a.get(k): undefined}"
@@ -89,7 +89,7 @@ with serve('/tmp/gw_ui') as url:
         coins0 = g.text(COINS)
         g.cmd('tp:%.1f,%.1f' % (c['x'] - c['x'] / L * 5, c['z'] - c['z'] / L * 5))
         g.wait(lambda: page.evaluate('!!R2W.ENV.prompts.active'), what='chest prompt')
-        page.keyboard.down('e'); page.wait_for_timeout(2500); page.keyboard.up('e')
+        page.keyboard.down('e'); g.vwait(1.0); page.keyboard.up('e')  # v3.3: удержание по игровому времени
         g.wait(lambda: 'Морской сундук' in toasts(page), what='chest toast', timeout=20)
         t = toasts(page)
         check('ProximityPrompt: награда первому («Морской сундук: …»)', 'монет' in t.lower() or 'coins' in t.lower(), t[-300:])
@@ -133,7 +133,7 @@ with serve('/tmp/gw_ui') as url:
         g.wait(lambda: 'играет' in g.text('[data-n="SettingsPanel"] [data-n="MusicStatus"]'), what='status playing')
         check('строка состояния музыки: «Музыка: играет»', True)
         # v3.1.1: ID треков заданы (Config.SOUNDS) — оба трека созданы; в демо загрузка не падает (AudioFailed пусто)
-        check('ID треков заданы: MusicTracks = CalmEpic, ошибок загрузки нет', page.evaluate(GATTR, 'MusicTracks') == 'CalmEpic' and not page.evaluate(GATTR, 'AudioFailed'), (page.evaluate(GATTR, 'MusicTracks'), page.evaluate(GATTR, 'AudioFailed')))
+        check('ID треков заданы: MusicTracks = CalmEpicRain, ошибок загрузки нет', page.evaluate(GATTR, 'MusicTracks') == 'CalmEpicRain' and not page.evaluate(GATTR, 'AudioFailed'), (page.evaluate(GATTR, 'MusicTracks'), page.evaluate(GATTR, 'AudioFailed')))
         check('ID вписаны — подсказки «музыка появится…» нет', not g.vis('[data-n="SettingsPanel"] [data-n="MusicMissing"]'))
         g.click('[data-n="SettingsPanel"] [data-n="Close"]'); page.wait_for_timeout(400)
         # --- 3. левые кнопки и окно на ПК

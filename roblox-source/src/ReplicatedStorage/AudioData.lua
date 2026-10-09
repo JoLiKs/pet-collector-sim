@@ -57,15 +57,28 @@ function AudioData.soundId(id: any): string?
 	return nil
 end
 
--- "Epic" | "Calm" | nil
-function AudioData.musicTarget(hunt: boolean, hasCalm: boolean, hasEpic: boolean): string?
+-- "Epic" | "Rain" | "Calm" | nil. Приоритет (v3.3): «Суперсила» (Epic) > «Дождь монет» (Rain, только пока
+-- событие идёт) > спокойная тема; если нужного трека нет — запасной из имеющихся.
+function AudioData.musicTarget(
+	hunt: boolean,
+	hasCalm: boolean,
+	hasEpic: boolean,
+	rain: boolean?,
+	hasRain: boolean?
+): string?
 	if hunt and hasEpic then
 		return "Epic"
+	end
+	if rain and hasRain then
+		return "Rain"
 	end
 	if hasCalm then
 		return "Calm"
 	end
-	return if hasEpic then "Epic" else nil
+	if hasEpic then
+		return "Epic"
+	end
+	return if hasRain then "Rain" else nil
 end
 
 -- сдвиг «доли» трека к цели (0 или 1) за dt при длительности кроссфейда fade секунд

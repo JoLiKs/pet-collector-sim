@@ -261,7 +261,7 @@ AchievementData.List = {
 	a("quest_2", "Hero of the Realm", "Complete 30 quests.", "Quests", 30, 80),
 	a("rebirth_1", "Reborn", "Rebirth once.", "Rebirths", 1, 40),
 	a("rebirth_2", "Phoenix", "Rebirth 5 times.", "Rebirths", 5, 150),
-	a("rain_1", "Golden Touch", "Collect 50 golden coins in a Golden Rain.", "RainCoins", 50, 25),
+	a("rain_1", "Golden Touch", "Collect 50 golden coins in a Coin Rain.", "RainCoins", 50, 25),
 	a("level_1", "Trainer", "Raise a pet to level 20.", "MaxPetLevel", 20, 35),
 	a("super_1", "Hunter", "Stop a superplayer.", "SuperStops", 1, 15),
 	a("super_2", "Hero Hunter", "Stop superplayers 10 times.", "SuperStops", 10, 60),
@@ -794,15 +794,28 @@ function AudioData.soundId(id: any): string?
 	return nil
 end
 
--- "Epic" | "Calm" | nil
-function AudioData.musicTarget(hunt: boolean, hasCalm: boolean, hasEpic: boolean): string?
+-- "Epic" | "Rain" | "Calm" | nil. Приоритет (v3.3): «Суперсила» (Epic) > «Дождь монет» (Rain, только пока
+-- событие идёт) > спокойная тема; если нужного трека нет — запасной из имеющихся.
+function AudioData.musicTarget(
+	hunt: boolean,
+	hasCalm: boolean,
+	hasEpic: boolean,
+	rain: boolean?,
+	hasRain: boolean?
+): string?
 	if hunt and hasEpic then
 		return "Epic"
+	end
+	if rain and hasRain then
+		return "Rain"
 	end
 	if hasCalm then
 		return "Calm"
 	end
-	return if hasEpic then "Epic" else nil
+	if hasEpic then
+		return "Epic"
+	end
+	return if hasRain then "Rain" else nil
 end
 
 -- сдвиг «доли» трека к цели (0 или 1) за dt при длительности кроссфейда fade секунд
@@ -1367,11 +1380,13 @@ Config.SOUNDS = {
 	MUSIC_CALM = 125236318818944, -- assets/audio/calm_meadow.ogg — спокойная фоновая тема (классика + 8-бит)
 	MUSIC_EPIC = 81894939449988, -- assets/audio/epic_surge.ogg — эпичная тема на время «Суперсилы»
 	CHEST_SPAWN = 102022045018776, -- assets/audio/chest_spawn.ogg — тихий сигнал появления морского сундука
-	CHEST_OPEN = 121756761410700, -- assets/audio/chest_open.ogg — открытие сундука
+	CHEST_OPEN = 121756761410700,
+	MUSIC_RAIN = 133055317816585, -- v3.3: assets/audio/coin_rain.ogg — весёлая тема события «Дождь монет» -- assets/audio/chest_open.ogg — открытие сундука
 }
 Config.MUSIC = {
 	CALM_VOLUME = 0.35, -- базовая громкость (умножается на ползунок игрока)
 	EPIC_VOLUME = 0.45,
+	RAIN_VOLUME = 0.4,
 	FADE = 2.5, -- секунд кроссфейда между темами
 	SFX_VOLUME = 0.5,
 	CHEST_SPAWN_VOLUME = 0.25, -- сигнал сундука намеренно тихий (слышен рядом)
@@ -1568,7 +1583,7 @@ Config.STUDIO_FALLBACK_TO_EPHEMERAL = true
 -- 6. ГЕЙМПЛЕЙ
 -- ============================================================================
 Config.GAME_NAME = "Pet Collector Simulator"
-Config.VERSION = "3.2.2"
+Config.VERSION = "3.3.0"
 Config.MAX_CLICKS_PER_SECOND = 12 -- серверный лимит кликов
 Config.CLICK_BURST = 6 -- "ведро токенов" для коротких всплесков
 Config.BASE_PET_SLOTS = 3
@@ -3613,7 +3628,7 @@ export type Event = {
 EventData.List = {
 	{
 		Id = "GoldenRain",
-		Name = "Golden Rain",
+		Name = "Coin Rain",
 		Period = 480,
 		Duration = 60,
 		Offset = 180, -- первое появление ~3 мин после старта сервера
@@ -6859,7 +6874,7 @@ LocaleRu.Names = {
 	["Coins"] = "Монеты",
 	["Coins are collected for you automatically, even while you explore."] = "Монеты собираются автоматически, даже пока вы путешествуете.",
 	["Coins x2 for 5 minutes."] = "Монеты x2 на 5 минут.",
-	["Collect 50 golden coins in a Golden Rain."] = "Соберите 50 золотых монет во время Золотого дождя.",
+	["Collect 50 golden coins in a Coin Rain."] = "Соберите 50 золотых монет во время Дождя монет.",
 	["Collector"] = "Сборщик",
 	["Combat"] = "Бой",
 	["Common"] = "Обычный",
@@ -6952,7 +6967,7 @@ LocaleRu.Names = {
 	["Glacier Lord"] = "Повелитель ледника",
 	["Golden"] = "Золотой",
 	["Golden Dunes"] = "Золотые дюны",
-	["Golden Rain"] = "Золотой дождь",
+	["Coin Rain"] = "Дождь монет",
 	["Golden Sphinx"] = "Золотой сфинкс",
 	["Golden Touch"] = "Золотое касание",
 	["Golden coins fall over the hub — grab them! Coins x2 everywhere."] = "Над хабом падают золотые монеты — хватайте! Монеты x2 везде.",
@@ -14943,11 +14958,11 @@ return Economy
 					<string name="Name">EventService</string>
 					<ProtectedString name="Source"><![CDATA[--!strict
 --[[
-	EventService — события по расписанию (EventData): Золотой дождь, Лунная ночь, Рейд «Каменный колосс».
+	EventService — события по расписанию (EventData): Дождь монет, Лунная ночь, Рейд «Каменный колосс».
 	Расписание детерминированно от момента старта сервера (EventState.setEpoch в init): у каждого сервера
 	свой цикл, и первое событие приходит через Offset секунд после запуска (v2.4, аудит М2: раньше здесь
 	ошибочно было написано «одно расписание на все серверы»). Обмена сообщениями между серверами нет.
-	  * Золотой дождь: с неба падают золотые монеты в хабе; множитель монет x2 (Economy.getCoinBoost).
+	  * Дождь монет: с неба падают золотые монеты в хабе; множитель монет x2 (Economy.getCoinBoost).
 	  * Лунная ночь: ночь в Lighting, лунные существа в мирах, продаётся Лунное яйцо.
 	  * Рейд: общий босс с HP, растущим с числом игроков; награда всем, кто нанёс достаточно урона.
 ]]
@@ -14998,7 +15013,7 @@ local function broadcast(now: number)
 end
 
 -- ---------------------------------------------------------------------------
--- Золотой дождь
+-- Дождь монет
 -- ---------------------------------------------------------------------------
 
 local function dropCoin()
@@ -15200,7 +15215,7 @@ return EventService
 					<ProtectedString name="Source"><![CDATA[--!strict
 -- Текущее состояние событий (расписание EventData + принудительное включение для тестов/демо/админов).
 -- По умолчанию «часы» событий отсчитываются от старта сервера (epoch), чтобы новая сессия
--- не попадала сразу в середину Golden Rain / рейда. force() по-прежнему перекрывает расписание.
+-- не попадала сразу в середину Coin Rain / рейда. force() по-прежнему перекрывает расписание.
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local EventData = require(ReplicatedStorage.Shared.EventData)
 
@@ -21106,7 +21121,6 @@ local Shared = ReplicatedStorage.Shared
 
 local LabelLayout = require(Shared.LabelLayout)
 local Locale = require(Shared.Locale)
-local Logo = require(Shared.Logo)
 local PetData = require(Shared.PetData)
 local QuestData = require(Shared.QuestData)
 local Util = require(Shared.Util)
@@ -21644,42 +21658,6 @@ local function buildNpc(
 	stationPositions[id] = pos
 end
 
--- v2.6: табличка с логотипом игры за фонтаном (над табло и яйцами хаба): две стойки, рамка, на ней BillboardGui с Logo
--- (картинка Config.ASSETS.LOGO или логотип из примитивов). SurfaceGui не используем — billboard виден и в веб-демо.
-local function buildLogoSign(parent: Instance, base: Vector3)
-	local m = Instance.new("Model")
-	m.Name = "LogoSign"
-	m.Parent = parent
-	local wood = Color3.fromRGB(120, 78, 45)
-	block(m, "PostL", Vector3.new(1.4, 22, 1.4), base + Vector3.new(-9.5, 11, 0), wood, Enum.Material.Wood)
-	block(m, "PostR", Vector3.new(1.4, 22, 1.4), base + Vector3.new(9.5, 11, 0), wood, Enum.Material.Wood)
-	local frame = block(
-		m,
-		"Frame",
-		Vector3.new(19, 19, 0.8),
-		base + Vector3.new(0, 19, 0),
-		Color3.fromRGB(255, 200, 60),
-		Enum.Material.Neon
-	)
-	local board = block(
-		m,
-		"Board",
-		Vector3.new(17.6, 17.6, 1),
-		base + Vector3.new(0, 19, 0.1),
-		Color3.fromRGB(30, 34, 70),
-		Enum.Material.SmoothPlastic
-	)
-	local _ = frame
-	local gui = Instance.new("BillboardGui")
-	gui.Name = "LogoGui"
-	gui.Size = UDim2.fromScale(16, 16) -- в студах
-	gui.LightInfluence = 0
-	gui.MaxDistance = 260
-	gui.Parent = board
-	Logo.make({ Name = "Logo", Px = 256, Size = UDim2.fromScale(1, 1), Parent = gui })
-	return m
-end
-
 local function buildHub(world: Folder)
 	local hub = Instance.new("Folder")
 	hub.Name = "Hub"
@@ -22131,7 +22109,6 @@ local function buildHub(world: Folder)
 	for k, egg in ipairs(hubEggs) do
 		buildEgg(hub, egg, Vector3.new((k - (#hubEggs + 1) / 2) * 44, 0, -84))
 	end
-	buildLogoSign(hub, Vector3.new(0, 0, -50))
 	local boardModel = buildBoard(hub, Vector3.new(0, 0, -98))
 	local boardPart = boardModel and boardModel:FindFirstChild("Board")
 	if boardPart and boardPart:IsA("BasePart") then
@@ -26737,6 +26714,14 @@ function Fx.init(gui: ScreenGui, openPanelForce: (string) -> ())
 			seenActive[e.Id] = e.Active == true
 		end
 		eventList = list
+		-- v3.3: музыка «Дождя монет» (Music) — только пока событие идёт
+		local rainOn = false
+		for _, e in ipairs(list) do
+			if e.Id == "GoldenRain" and e.Active == true then
+				rainOn = true
+			end
+		end
+		gui:SetAttribute("RainActive", rainOn)
 		drawEvents()
 	end)
 	local _ = huntCard
@@ -29966,6 +29951,7 @@ type Track = { Sound: Sound, Mix: number, Base: number, Key: string, Loaded: boo
 local tracks: { [string]: Track } = {}
 local settings = AudioData.normalize(nil)
 local hunt = false
+local rain = false -- v3.3: идёт «Дождь монет» (атрибут gui RainActive от Hud/Fx)
 local health = AudioData.newHealth()
 local guiRef: ScreenGui? = nil
 local musicGroup: SoundGroup? = nil
@@ -29977,7 +29963,9 @@ local function publish()
 	if g then
 		g:SetAttribute(
 			"MusicTracks",
-			(if tracks.Calm then "Calm" else "") .. (if tracks.Epic then "Epic" else "")
+			(if tracks.Calm then "Calm" else "")
+				.. (if tracks.Epic then "Epic" else "")
+				.. (if tracks.Rain then "Rain" else "")
 		)
 		g:SetAttribute("AudioFailed", AudioData.failedList(health))
 	end
@@ -30094,14 +30082,14 @@ function Music.target(): string?
 	if not settings.Music then
 		return nil
 	end
-	return AudioData.musicTarget(hunt, usable("Calm"), usable("Epic"))
+	return AudioData.musicTarget(hunt, usable("Calm"), usable("Epic"), rain, usable("Rain"))
 end
 
 -- состояние музыки для окна настроек: "off" | "playing" | "loading" | "error", код ошибки
 function Music.status(): (string, string?)
 	local target = Music.target()
 	local t = if target then tracks[target] else nil
-	local err = health.Failed.MUSIC_CALM or health.Failed.MUSIC_EPIC
+	local err = health.Failed.MUSIC_CALM or health.Failed.MUSIC_EPIC or health.Failed.MUSIC_RAIN
 	return AudioData.musicStatus(
 		settings.Music,
 		t ~= nil,
@@ -30116,7 +30104,7 @@ local function startTrack(name: string, t: Track)
 	if s.IsPaused and name == "Calm" then
 		s:Resume() -- спокойная тема продолжает с того же места
 	else
-		s.TimePosition = 0 -- эпичная — каждый раз с начала
+		s.TimePosition = 0 -- эпичная и «дождь» — каждый раз с начала
 		s:Play()
 	end
 end
@@ -30168,7 +30156,7 @@ function Music.init(gui: ScreenGui)
 	local folder = Instance.new("Folder")
 	folder.Name = "PcsMusic"
 	folder.Parent = SoundService
-	for name, key in pairs({ Calm = "MUSIC_CALM", Epic = "MUSIC_EPIC" }) do
+	for name, key in pairs({ Calm = "MUSIC_CALM", Epic = "MUSIC_EPIC", Rain = "MUSIC_RAIN" }) do
 		local id = AudioData.soundId(Config.SOUNDS[key])
 		if id then
 			local s = Instance.new("Sound")
@@ -30181,7 +30169,10 @@ function Music.init(gui: ScreenGui)
 			local t: Track = {
 				Sound = s,
 				Mix = 0,
-				Base = if name == "Epic" then Config.MUSIC.EPIC_VOLUME else Config.MUSIC.CALM_VOLUME,
+				Base = if name == "Epic"
+					then Config.MUSIC.EPIC_VOLUME
+					elseif name == "Rain" then Config.MUSIC.RAIN_VOLUME
+					else Config.MUSIC.CALM_VOLUME,
 				Key = key,
 				Loaded = false,
 			}
@@ -30213,6 +30204,10 @@ function Music.init(gui: ScreenGui)
 		Music.route(d)
 	end
 	Workspace.DescendantAdded:Connect(Music.route)
+	gui:GetAttributeChangedSignal("RainActive"):Connect(function()
+		rain = gui:GetAttribute("RainActive") == true
+	end)
+	rain = gui:GetAttribute("RainActive") == true
 	gui:GetAttributeChangedSignal("HuntActive"):Connect(function()
 		hunt = gui:GetAttribute("HuntActive") == true
 	end)

@@ -29,7 +29,7 @@ AchievementData.List = {
 	a("quest_2", "Hero of the Realm", "Complete 30 quests.", "Quests", 30, 80),
 	a("rebirth_1", "Reborn", "Rebirth once.", "Rebirths", 1, 40),
 	a("rebirth_2", "Phoenix", "Rebirth 5 times.", "Rebirths", 5, 150),
-	a("rain_1", "Golden Touch", "Collect 50 golden coins in a Golden Rain.", "RainCoins", 50, 25),
+	a("rain_1", "Golden Touch", "Collect 50 golden coins in a Coin Rain.", "RainCoins", 50, 25),
 	a("level_1", "Trainer", "Raise a pet to level 20.", "MaxPetLevel", 20, 35),
 	a("super_1", "Hunter", "Stop a superplayer.", "SuperStops", 1, 15),
 	a("super_2", "Hero Hunter", "Stop superplayers 10 times.", "SuperStops", 10, 60),
